@@ -1,0 +1,450 @@
+@import "tailwindcss/base";
+@import "tailwindcss/components";
+@import "tailwindcss/utilities";
+
+@layer base {
+  :root {
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  html, body, #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+  }
+
+  input, textarea {
+    user-select: text;
+    -webkit-user-select: text;
+  }
+}
+
+/* Custom mobile scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(16, 185, 129, 0.2);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(16, 185, 129, 0.4);
+}
+
+/* Leaflet Map overrides */
+.leaflet-container {
+  width: 100%;
+  height: 100%;
+  background-color: #0f172a !important;
+  font-family: inherit;
+}
+
+html.light .leaflet-container {
+  background-color: #ecfdf5 !important;
+}
+
+.leaflet-control-zoom {
+  border: none !important;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
+  margin-bottom: 20px !important;
+}
+
+.leaflet-control-zoom a {
+  background: #1e293b !important;
+  color: #e2e8f0 !important;
+  border: 1px solid rgba(255,255,255,0.1) !important;
+}
+
+html.light .leaflet-control-zoom a {
+  background: #ffffff !important;
+  color: #064e3b !important;
+  border: 1px solid #d1fae5 !important;
+}
+
+.leaflet-control-zoom a:hover {
+  background: #334155 !important;
+  color: #ffffff !important;
+}
+
+.leaflet-control-attribution {
+  background: rgba(15, 23, 42, 0.75) !important;
+  color: #64748b !important;
+  font-size: 9px !important;
+  backdrop-filter: blur(4px);
+  border-radius: 4px;
+  padding: 0 4px !important;
+}
+
+html.light .leaflet-control-attribution {
+  background: rgba(255, 255, 255, 0.85) !important;
+  color: #065f46 !important;
+}
+
+.leaflet-control-attribution a {
+  color: #94a3b8 !important;
+}
+
+/* Custom Marker Styles */
+.user-location-marker {
+  position: relative;
+}
+
+.user-marker-pulse {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  top: -16px;
+  left: -16px;
+  border-radius: 50%;
+  background: rgba(16, 185, 129, 0.3);
+  animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+
+.user-marker-dot {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  top: -8px;
+  left: -8px;
+  border-radius: 50%;
+  background: #10b981;
+  border: 3px solid #ffffff;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.8);
+}
+
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.5);
+    opacity: 0.8;
+  }
+  80%, 100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+/* Pulse Animation for Active Recording */
+@keyframes recording-glow {
+  0%, 100% {
+    box-shadow: 0 0 15px rgba(16, 185, 129, 0.6);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(16, 185, 129, 0.9);
+  }
+}
+
+.recording-pulse {
+  animation: recording-glow 2.5s infinite ease-in-out;
+}
+
+/* Micro interaction transitions */
+button, a, input, select {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.card-interactive {
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.card-interactive:hover {
+  transform: translateY(-2px);
+}
+
+.card-interactive:active {
+  transform: scale(0.98);
+}
+
+/* ==========================================================================
+   FULL LIGHT-GREEN & CRISP MINT THEME (100% FREE OF DARK MINGLING ARTIFACTS)
+   ========================================================================== */
+html.light,
+html.light body,
+html.light #root {
+  color-scheme: light;
+  background-color: #f0fdf4 !important;
+  color: #064e3b !important;
+}
+
+/* App Background & Outer Frame */
+html.light .bg-slate-950,
+html.light div[class*="bg-slate-950"]:not(button):not(.leaflet-container):not(.accent-badge):not(nav) {
+  background-color: #f0fdf4 !important;
+  background-image: none !important;
+  color: #064e3b !important;
+}
+
+/* All Main Cards, Panels & Containers in Light Mode */
+html.light .bg-slate-900,
+html.light div[class*="bg-slate-900"],
+html.light .bg-slate-800,
+html.light div[class*="bg-slate-800"]:not(button):not(.accent-badge) {
+  background-color: #ffffff !important;
+  background-image: none !important;
+  border-color: #d1fae5 !important;
+  color: #064e3b !important;
+  box-shadow: 0 4px 20px -2px rgba(16, 185, 129, 0.08) !important;
+}
+
+/* Remove Dark Gradient Overlays from Container Cards */
+html.light div[class*="bg-gradient-to-b"]:not(button):not([class*="from-emerald-500"]),
+html.light div[class*="bg-gradient-to-br"]:not(button):not([class*="from-emerald-950"]):not([class*="from-emerald-500"]),
+html.light div[class*="bg-gradient-to-tr"]:not(button):not([class*="from-emerald-500"]) {
+  background-image: none !important;
+  background-color: #ffffff !important;
+  border-color: #d1fae5 !important;
+}
+
+/* Welcome Banner / First-time user banner in Light Mode */
+html.light div[class*="from-emerald-950"],
+html.light .from-emerald-950 {
+  background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%) !important;
+  border-color: #6ee7b7 !important;
+  box-shadow: 0 4px 15px rgba(16, 185, 129, 0.12) !important;
+}
+
+html.light div[class*="from-emerald-950"] h3,
+html.light div[class*="from-emerald-950"] .text-white {
+  color: #064e3b !important;
+}
+
+html.light div[class*="from-emerald-950"] p,
+html.light div[class*="from-emerald-950"] .text-slate-400 {
+  color: #047857 !important;
+}
+
+/* Inner Stats & Metric Sub-Boxes (Distance, Duration, Pace, Calories) */
+html.light div[class*="bg-slate-950/"],
+html.light div.grid > div[class*="bg-slate-950"],
+html.light div.grid > div[class*="bg-slate-900"] {
+  background-color: #ecfdf5 !important;
+  background-image: none !important;
+  border-color: #a7f3d0 !important;
+  color: #064e3b !important;
+}
+
+/* Typography in Light Mode */
+html.light h1,
+html.light h2,
+html.light h3,
+html.light h4,
+html.light .text-white,
+html.light div[class*="text-white"],
+html.light span[class*="text-white"] {
+  color: #064e3b !important;
+}
+
+html.light .text-slate-100,
+html.light .text-slate-200,
+html.light div[class*="text-slate-100"],
+html.light span[class*="text-slate-100"] {
+  color: #064e3b !important;
+}
+
+html.light .text-slate-300,
+html.light .text-slate-400,
+html.light div[class*="text-slate-300"],
+html.light div[class*="text-slate-400"],
+html.light span[class*="text-slate-300"],
+html.light span[class*="text-slate-400"] {
+  color: #065f46 !important;
+}
+
+html.light .text-slate-500,
+html.light span[class*="text-slate-500"] {
+  color: #047857 !important;
+}
+
+/* Headline Brand Gradients in Light Mode */
+html.light .bg-clip-text {
+  background-image: linear-gradient(135deg, #064e3b 0%, #047857 60%, #059669 100%) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  color: transparent !important;
+}
+
+/* All Card & Module Borders in Light Mode */
+html.light div[class*="border-slate-800"],
+html.light div[class*="border-slate-900"],
+html.light div[class*="border-slate-700"],
+html.light div[class*="border-slate-750"],
+html.light div[class*="border-slate-800/"] {
+  border-color: #d1fae5 !important;
+}
+
+/* Secondary Button and Pill Containers in Light Mode */
+html.light div[class*="bg-slate-950"]:not(button) {
+  background-color: #ecfdf5 !important;
+  border-color: #a7f3d0 !important;
+}
+
+html.light button.bg-slate-900,
+html.light button.bg-slate-950,
+html.light button.bg-slate-800,
+html.light button[class*="bg-slate-900"],
+html.light button[class*="bg-slate-950"],
+html.light button[class*="bg-slate-800"] {
+  background-color: #ecfdf5 !important;
+  border-color: #a7f3d0 !important;
+  color: #065f46 !important;
+}
+
+html.light button.bg-slate-900:hover,
+html.light button.bg-slate-950:hover,
+html.light button.bg-slate-800:hover {
+  background-color: #d1fae5 !important;
+  color: #064e3b !important;
+}
+
+/* Primary Action Buttons (Start Run, Save, Filters Apply) */
+html.light button[class*="from-emerald-500"],
+html.light button.bg-emerald-500,
+html.light button[class*="bg-emerald-500"] {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+  background-image: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+  color: #ffffff !important;
+  border-color: transparent !important;
+  box-shadow: 0 6px 20px -2px rgba(16, 185, 129, 0.45) !important;
+}
+
+html.light button[class*="from-emerald-500"] span,
+html.light button[class*="from-emerald-500"] svg,
+html.light button.bg-emerald-500 span,
+html.light button.bg-emerald-500 svg {
+  color: #ffffff !important;
+  fill: currentColor !important;
+}
+
+/* Activity Selector Buttons in Light Mode */
+html.light button[class*="bg-emerald-500"].text-slate-950 {
+  background: #10b981 !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.35) !important;
+}
+
+/* Emerald Accents */
+html.light .text-emerald-400,
+html.light span[class*="text-emerald-400"],
+html.light div[class*="text-emerald-400"] {
+  color: #059669 !important;
+}
+
+html.light div[class*="bg-emerald-500/10"],
+html.light div[class*="bg-emerald-500/15"],
+html.light div[class*="bg-emerald-500/20"] {
+  background-color: #ecfdf5 !important;
+  border-color: #a7f3d0 !important;
+  color: #047857 !important;
+}
+
+/* Calories & Amber Highlights */
+html.light .text-amber-400,
+html.light .text-amber-300 {
+  color: #d97706 !important;
+}
+
+/* Streak Pill in Light Mode */
+html.light div[class*="from-amber-500"] {
+  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%) !important;
+  border-color: #fde68a !important;
+  color: #b45309 !important;
+}
+
+html.light div[class*="from-amber-500"] span {
+  color: #b45309 !important;
+}
+
+/* Form Controls in Light Mode */
+html.light input,
+html.light select,
+html.light textarea {
+  background-color: #ffffff !important;
+  border-color: #a7f3d0 !important;
+  color: #064e3b !important;
+}
+
+html.light input:focus,
+html.light select:focus,
+html.light textarea:focus {
+  border-color: #10b981 !important;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2) !important;
+}
+
+/* Header and Navigation in Light Mode */
+html.light header {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+  border-color: #d1fae5 !important;
+  box-shadow: 0 2px 12px rgba(16, 185, 129, 0.05) !important;
+}
+
+html.light header h1,
+html.light header span.text-white {
+  color: #064e3b !important;
+}
+
+html.light nav {
+  background-color: rgba(255, 255, 255, 0.98) !important;
+  border-color: #d1fae5 !important;
+  box-shadow: 0 -4px 25px rgba(16, 185, 129, 0.08) !important;
+}
+
+html.light nav button {
+  color: #065f46 !important;
+}
+
+html.light nav button.text-emerald-400,
+html.light nav button .text-emerald-400 {
+  color: #059669 !important;
+}
+
+html.light nav button.text-slate-400 {
+  color: #64748b !important;
+}
+
+html.light nav .border-slate-950 {
+  border-color: #ffffff !important;
+}
+
+/* Weekly Progress Chart in Light Mode */
+html.light div[class*="bg-slate-800/60"],
+html.light div[class*="bg-slate-950"] .rounded-full {
+  background-color: #d1fae5 !important;
+}
+
+/* Modals & Bottom Sheet in Light Mode */
+html.light .fixed.inset-0 > div:first-child {
+  background-color: rgba(6, 78, 59, 0.35) !important;
+}
+
+html.light div[class*="rounded-t-[32px]"],
+html.light div[class*="rounded-t-[36px]"] {
+  background-color: #ffffff !important;
+  border-color: #d1fae5 !important;
+  box-shadow: 0 -12px 40px rgba(16, 185, 129, 0.15) !important;
+}
+
+html.light div[class*="rounded-t-[32px]"] h2,
+html.light div[class*="rounded-t-[32px]"] h3,
+html.light div[class*="rounded-t-[36px]"] h2,
+html.light div[class*="rounded-t-[36px]"] h3 {
+  color: #064e3b !important;
+}
+
+html.light div[class*="rounded-t-[32px]"] .bg-slate-700,
+html.light div[class*="rounded-t-[36px]"] .bg-slate-700 {
+  background-color: #a7f3d0 !important;
+}
+
+html.light div[class*="rounded-t-[32px]"] .border-slate-800,
+html.light div[class*="rounded-t-[36px]"] .border-slate-800 {
+  border-color: #d1fae5 !important;
+}
+

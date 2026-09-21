@@ -1,0 +1,35 @@
+{
+  "name": "RunWar - GPS Running & Fitness Tracker",
+  "short_name": "RunWar",
+  "description": "High-accuracy real-time outdoor GPS running tracker, pace splits, voice coaching, and cloud analytics.",
+  "start_url": "/",
+  "id": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#09151f",
+  "theme_color": "#09151f",
+  "categories": ["fitness", "sports", "health"],
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Start Outdoor Run",
+      "short_name": "Start Run",
+      "description": "Instantly start a new GPS workout session",
+      "url": "/?start=run",
+      "icons": [{ "src": "/logo.png", "sizes": "192x192" }]
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+import { GPSCoordinate, LiveWorkoutState, WorkoutSplit, WorkoutType } from '../types';
+import { workoutEngine } from './workoutEngine';
+
+/**
+ * GPSEngine facade delegating to production WorkoutEngine
+ */
+export class GPSEngineFacade {
+  public get isSimulationMode(): boolean {
+    return workoutEngine.isSimulationMode;
+  }
+
+  public set isSimulationMode(val: boolean) {
+    workoutEngine.isSimulationMode = val;
+  }
+
+  public subscribe(callback: (state: LiveWorkoutState) => void) {
+    return workoutEngine.subscribe(callback);
+  }
+
+  public setOptions(weightKg: number, autoPause: boolean, autoPauseThreshold: number, userId?: string) {
+    workoutEngine.setConfig(userId || 'guest_user', weightKg, autoPause, autoPauseThreshold);
+  }
+
+  public getState(): LiveWorkoutState {
+    return workoutEngine.getState();
+  }
+
+  public async startTracking(type: WorkoutType = 'run', initialCoordinates: GPSCoordinate[] = []) {
+    return workoutEngine.startWorkout(type);
+  }
+
+  public pauseTracking(isAuto: boolean = false) {
+    workoutEngine.pauseWorkout(isAuto);
+  }
+
+  public resumeTracking() {
+    workoutEngine.resumeWorkout();
+  }
+
+  public finishTracking(): LiveWorkoutState {
+    return workoutEngine.finishWorkout();
+  }
+
+  public discardWorkout() {
+    workoutEngine.discardWorkout();
+  }
+
+  public restoreWorkout(savedState: LiveWorkoutState) {
+    workoutEngine.restoreWorkout(savedState);
+  }
+
+  public processNewCoordinate(coord: GPSCoordinate) {
+    workoutEngine.processCoordinate(coord);
+  }
+
+  public startSimulation() {
+    workoutEngine.startSimulation();
+  }
+
+  public stopSimulation() {
+    workoutEngine.stopSimulation();
+  }
+}
+
+export const gpsEngine = new GPSEngineFacade();
