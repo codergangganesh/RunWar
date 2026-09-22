@@ -467,6 +467,7 @@ export const App: React.FC = () => {
             userId={currentUser?.id || authService.getCachedUser()?.id || 'guest_user'}
             initialName={currentUser?.name || currentUser?.profile?.name || currentUser?.user_metadata?.name || ''}
             initialEmail={currentUser?.email || ''}
+            onBack={() => setScreen('auth')}
             onComplete={async (prof) => {
               const activeUserId = prof.user_id || currentUser?.id;
               if (activeUserId) {

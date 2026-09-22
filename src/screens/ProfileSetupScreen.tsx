@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile, DistanceUnit, PaceUnit, WeightUnit, WorkoutType } from '../types';
 import { authService } from '../services/authService';
-import { Check, Flame, Ruler, Weight, Activity, Sparkles, User, Target, ArrowRight, Shield } from 'lucide-react';
+import { Check, Flame, Ruler, Weight, Activity, Sparkles, User, Target, ArrowRight, ArrowLeft, Shield } from 'lucide-react';
 
 interface ProfileSetupScreenProps {
   userId: string;
   initialName?: string;
   initialEmail?: string;
   onComplete: (profile: UserProfile) => void;
+  onBack?: () => void;
 }
 
 export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
@@ -15,6 +16,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
   initialName = 'Runner',
   initialEmail = '',
   onComplete,
+  onBack,
 }) => {
   const [name, setName] = useState(initialName);
   const [age, setAge] = useState<number>(26);
@@ -82,15 +84,27 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
 
           {/* Top Brand Header Bar */}
           <div className="relative z-10 flex items-center justify-between pt-1">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-white shadow-sm border border-emerald-500/30 p-1 flex items-center justify-center">
-                <img
-                  src="/logo.png"
-                  alt="RunWar Logo"
-                  className="w-full h-full rounded-full object-contain"
-                />
+            <div className="flex items-center gap-2.5">
+              {onBack && (
+                <button
+                  type="button"
+                  onClick={onBack}
+                  className="p-2 rounded-2xl bg-white/90 border border-slate-200 text-slate-700 hover:text-black shadow-sm active:scale-95 transition-all"
+                  aria-label="Go Back"
+                >
+                  <ArrowLeft size={16} />
+                </button>
+              )}
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-white shadow-sm border border-emerald-500/30 p-1 flex items-center justify-center">
+                  <img
+                    src="/logo.png"
+                    alt="RunWar Logo"
+                    className="w-full h-full rounded-full object-contain"
+                  />
+                </div>
+                <span className="font-display font-black text-sm text-slate-950">RUNWAR</span>
               </div>
-              <span className="font-display font-black text-sm text-slate-950">RUNWAR</span>
             </div>
 
             <div className="text-[11px] font-bold text-slate-700 bg-white/90 border border-slate-200 px-3 py-1 rounded-full shadow-sm">
