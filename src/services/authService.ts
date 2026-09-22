@@ -3,19 +3,65 @@ import { UserProfile, UserSettings } from '../types';
 
 const PROFILE_CACHE_KEY = 'runwar_cached_profile';
 const SETTINGS_CACHE_KEY = 'runwar_cached_settings';
+const SESSION_USER_KEY = 'runwar_session_user';
 
 export const authService = {
   /**
-   * Get current authenticated user session
+   * Synchronously get locally cached session user
+   */
+  getCachedUser(): any | null {
+    try {
+      const cached = localStorage.getItem(SESSION_USER_KEY);
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
+  },
+
+  /**
+   * Save session user to local cache
+   */
+  setCachedUser(user: any) {
+    if (!user) return;
+    try {
+      localStorage.setItem(SESSION_USER_KEY, JSON.stringify(user));
+    } catch (e) {
+      console.warn('Failed to cache session user:', e);
+    }
+  },
+
+  /**
+   * Clear cached user session
+   */
+  clearCachedUser() {
+    try {
+      localStorage.removeItem(SESSION_USER_KEY);
+      localStorage.removeItem(PROFILE_CACHE_KEY);
+      localStorage.removeItem(SETTINGS_CACHE_KEY);
+    } catch (e) {
+      console.warn('Failed to clear cached user:', e);
+    }
+  },
+
+  /**
+   * Get current authenticated user session from InsForge
    */
   async getCurrentUser() {
     try {
       const { data, error } = await insforge.auth.getCurrentUser();
-      if (error || !data) return null;
-      return (data as any).user || data;
+      if (error || !data) {
+        // If InsForge explicitly says not logged in, clear stale local session
+        if (error) this.clearCachedUser();
+        return null;
+      }
+      const user = (data as any).user || data;
+      if (user?.id) {
+        this.setCachedUser(user);
+      }
+      return user;
     } catch (err) {
-      console.warn('Error fetching current user:', err);
-      return null;
+      console.warn('Error fetching current user from cloud, checking local cache:', err);
+      return this.getCachedUser();
     }
   },
 
@@ -32,6 +78,7 @@ export const authService = {
     
     // Create initial profile and settings if user was returned
     if (data?.user?.id) {
+      this.setCachedUser(data.user);
       await this.createInitialProfile(data.user.id, name, email);
     }
     return data;
@@ -46,6 +93,9 @@ export const authService = {
       password,
     });
     if (error) throw error;
+    if (data?.user?.id) {
+      this.setCachedUser(data.user);
+    }
     return data;
   },
 
@@ -70,8 +120,7 @@ export const authService = {
     } catch (err) {
       console.warn('Error during sign out:', err);
     }
-    localStorage.removeItem(PROFILE_CACHE_KEY);
-    localStorage.removeItem(SETTINGS_CACHE_KEY);
+    this.clearCachedUser();
   },
 
   /**

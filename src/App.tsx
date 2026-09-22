@@ -57,9 +57,17 @@ export const App: React.FC = () => {
   const [screen, setScreen] = useState<ScreenState>('splash');
   const [activeTab, setActiveTab] = useState<ActiveTab>('home');
 
-  // User & Settings
-  const [currentUser, setCurrentUser] = useState<any>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  // User & Settings (Synchronously load cached session on frame 0)
+  const [currentUser, setCurrentUser] = useState<any>(() => authService.getCachedUser());
+  const [isAuthInitializing, setIsAuthInitializing] = useState(true);
+  const [profile, setProfile] = useState<UserProfile | null>(() => {
+    try {
+      const cached = localStorage.getItem('runwar_cached_profile');
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
+  });
   const [settings, setSettings] = useState<UserSettings | null>(null);
 
   // Loading & error states
@@ -183,8 +191,9 @@ export const App: React.FC = () => {
     offlineSync.initSyncListener();
 
     const handleSyncCompleted = () => {
-      if (currentUser?.id) {
-        loadAppData(currentUser.id, true);
+      const activeId = currentUser?.id || authService.getCachedUser()?.id;
+      if (activeId) {
+        loadAppData(activeId, true);
       }
     };
 
@@ -195,6 +204,7 @@ export const App: React.FC = () => {
         const user = await authService.getCurrentUser();
         if (user) {
           setCurrentUser(user);
+          authService.setCachedUser(user);
           let userProfile = await authService.getProfile(user.id);
           if (!userProfile) {
             await authService.createInitialProfile(
@@ -205,10 +215,25 @@ export const App: React.FC = () => {
             userProfile = await authService.getProfile(user.id);
           }
           if (userProfile) setProfile(userProfile);
-          await loadAppData(user.id);
+          await loadAppData(user.id, true);
+          // If we are currently on splash or welcome, immediately route to main home screen
+          setScreen((prev) => (prev === 'splash' || prev === 'welcome' ? 'main' : prev));
+        } else {
+          setCurrentUser(null);
+          authService.clearCachedUser();
+          setScreen((prev) => (prev === 'splash' ? 'welcome' : prev));
         }
       } catch (e) {
         console.warn('Auth check error:', e);
+        const cached = authService.getCachedUser();
+        if (cached) {
+          setCurrentUser(cached);
+          setScreen((prev) => (prev === 'splash' || prev === 'welcome' ? 'main' : prev));
+        } else {
+          setScreen((prev) => (prev === 'splash' ? 'welcome' : prev));
+        }
+      } finally {
+        setIsAuthInitializing(false);
       }
 
       // Check if crash recovery exists
@@ -228,6 +253,7 @@ export const App: React.FC = () => {
         const user = await authService.getCurrentUser();
         if (user) {
           setCurrentUser(user);
+          authService.setCachedUser(user);
           let userProfile = await authService.getProfile(user.id);
           if (!userProfile) {
             await authService.createInitialProfile(
@@ -244,6 +270,7 @@ export const App: React.FC = () => {
       } else if (event === 'signedOut') {
         setCurrentUser(null);
         setProfile(null);
+        authService.clearCachedUser();
         setScreen('welcome');
       }
     });
@@ -256,9 +283,10 @@ export const App: React.FC = () => {
 
   // Handle splash completion
   const handleSplashFinish = () => {
-    if (currentUser) {
+    const cached = authService.getCachedUser();
+    if (currentUser || cached) {
       setScreen('main');
-    } else {
+    } else if (!isAuthInitializing) {
       setScreen('welcome');
     }
   };
@@ -267,6 +295,7 @@ export const App: React.FC = () => {
   const handleGuestAccess = async () => {
     const guestUser = { id: 'usr_guest_demo', email: 'guest.runner@insforge.app' };
     setCurrentUser(guestUser);
+    authService.setCachedUser(guestUser);
 
     const guestProfile: UserProfile = {
       id: guestUser.id,
@@ -295,6 +324,7 @@ export const App: React.FC = () => {
   // Auth success
   const handleAuthSuccess = async (user: any) => {
     setCurrentUser(user);
+    authService.setCachedUser(user);
     const prof = await authService.getProfile(user.id);
     if (!prof) {
       setScreen('profile_setup');
