@@ -64,7 +64,8 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
       profile?.weight || 70,
       settings?.auto_pause ?? true,
       settings?.auto_pause_threshold || 10,
-      profile?.user_id
+      profile?.user_id,
+      (profile?.distance_unit as 'km' | 'mi') || 'km'
     );
 
     audioCoach.setConfig(

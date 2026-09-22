@@ -677,12 +677,34 @@ export const WorkoutShareModal: React.FC<WorkoutShareModalProps> = ({
   }, [aspectRatio, theme, workout, drawBackground, drawRouteOnCanvas]);
 
   useEffect(() => {
-    if (document.fonts) {
-      document.fonts.ready.then(() => {
+    let isCancelled = false;
+
+    const loadFontsAndRender = async () => {
+      if (document.fonts) {
+        try {
+          await Promise.all([
+            document.fonts.load('900 52px Outfit').catch(() => {}),
+            document.fonts.load('800 20px Outfit').catch(() => {}),
+            document.fonts.load('700 16px Outfit').catch(() => {}),
+            document.fonts.ready,
+          ]);
+        } catch (err) {
+          console.warn('Font loading error:', err);
+        }
+      }
+      if (!isCancelled) {
         renderCard();
-      });
-    }
+      }
+    };
+
+    // Immediate initial render
     renderCard();
+    // Re-render once fonts have fully loaded
+    loadFontsAndRender();
+
+    return () => {
+      isCancelled = true;
+    };
   }, [renderCard]);
 
   // Handle Photo Upload

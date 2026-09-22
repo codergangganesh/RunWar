@@ -4,7 +4,7 @@
 -- 1. PROFILES TABLE
 CREATE TABLE IF NOT EXISTS public.profiles (
     id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     email TEXT,
     age INTEGER,
@@ -31,6 +31,8 @@ CREATE TABLE IF NOT EXISTS public.workouts (
     started_at TIMESTAMPTZ NOT NULL,
     ended_at TIMESTAMPTZ NOT NULL,
     duration_seconds INTEGER NOT NULL,
+    moving_duration_seconds INTEGER DEFAULT 0,
+    paused_duration_seconds INTEGER DEFAULT 0,
     distance_meters NUMERIC NOT NULL,
     average_pace NUMERIC NOT NULL, -- in seconds per km (or min/km)
     average_speed NUMERIC NOT NULL, -- in km/h

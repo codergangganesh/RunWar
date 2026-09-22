@@ -78,12 +78,12 @@ export class LocationValidator {
     );
 
     // 4. Stationary GPS Jitter / Drift Suppression
-    // When standing still, GPS floats around 0.5-2m. If movement is tiny in short time, suppress drift
+    // When standing still, GPS floats around 0.5-2m. Accept the point for map marker
+    // updates, but report zero distance to prevent fake distance accumulation.
     if (distMeters < this.MIN_DISPLACEMENT_METERS && timeDeltaSec < 2.0) {
       return {
-        isValid: false,
-        rejectReason: 'Stationary GPS jitter (< 0.6m displacement)',
-        distanceFromPrevMeters: 0,
+        isValid: true,
+        distanceFromPrevMeters: 0, // Zero distance — marker updates without adding fake meters
         calculatedSpeedKmh: 0,
         altitudeDeltaMeters: 0,
       };

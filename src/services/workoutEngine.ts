@@ -36,6 +36,8 @@ export class WorkoutEngine {
   private autoPauseThresholdSec: number = 10;
   private stationaryCounterSec: number = 0;
   private lastRecordedKm: number = 0;
+  private isFirstPointAfterResume: boolean = false;
+  private distanceUnit: 'km' | 'mi' = 'km';
 
   // Batched points buffer for syncQueue
   private pointBuffer: WorkoutPointRecord[] = [];
@@ -119,11 +121,12 @@ export class WorkoutEngine {
     return { ...this.state };
   }
 
-  public setConfig(userId: string, weightKg: number, autoPause: boolean, autoPauseThreshold: number) {
+  public setConfig(userId: string, weightKg: number, autoPause: boolean, autoPauseThreshold: number, distanceUnit: 'km' | 'mi' = 'km') {
     this.userId = userId || 'guest_user';
     this.userWeightKg = weightKg || 70;
     this.autoPauseEnabled = autoPause;
     this.autoPauseThresholdSec = autoPauseThreshold || 10;
+    this.distanceUnit = distanceUnit;
   }
 
   /**
@@ -266,6 +269,7 @@ export class WorkoutEngine {
 
     this.state.isAutoPaused = false;
     this.stationaryCounterSec = 0;
+    this.isFirstPointAfterResume = true;
 
     workoutLogger.log('WORKOUT_RESUMED', 'info', { elapsedTime: this.state.elapsedTime }, this.state.workoutId);
     audioCoach.announceWorkoutResumed();
@@ -299,7 +303,7 @@ export class WorkoutEngine {
     this.flushPointBuffer();
 
     // Final calculation passes
-    this.state.splits = calculateSplits(this.state.coordinates);
+    this.state.splits = calculateSplits(this.state.coordinates, this.distanceUnit === 'mi' ? 1609.34 : 1000);
     this.state.averagePace = PaceCalculator.calculateAveragePace(
       this.state.distanceMeters,
       this.state.movingTime || this.state.elapsedTime
@@ -386,8 +390,13 @@ export class WorkoutEngine {
     coord.sequence_number = this.state.pointSequence;
 
     if (this.state.engineState === 'ACTIVE') {
-      // 2. Aggregate Validated Distance
-      this.state.distanceMeters += validation.distanceFromPrevMeters;
+      // 2. Aggregate Validated Distance (skip on first point after resume to prevent teleport spike)
+      if (this.isFirstPointAfterResume) {
+        this.isFirstPointAfterResume = false;
+        // Accept the coordinate as baseline without adding distance
+      } else {
+        this.state.distanceMeters += validation.distanceFromPrevMeters;
+      }
 
       // 3. Speed & Pace Calculation with Noise Smoothing
       let instSpeedKmh = 0;
@@ -426,7 +435,7 @@ export class WorkoutEngine {
       }
 
       // 7. Update Live Splits & Kilometer Haptic Milestone Alerts
-      this.state.splits = calculateSplits(coords);
+      this.state.splits = calculateSplits(coords, this.distanceUnit === 'mi' ? 1609.34 : 1000);
       const currentKm = Math.floor(this.state.distanceMeters / 1000);
 
       if (currentKm > this.lastRecordedKm && currentKm > 0) {
@@ -491,6 +500,11 @@ export class WorkoutEngine {
 
   private flushPointBuffer() {
     if (this.pointBuffer.length === 0) return;
+    // Guest users skip cloud sync
+    if (this.userId === 'guest_user' || this.userId === 'usr_guest_demo') {
+      this.pointBuffer = [];
+      return;
+    }
     const batch = [...this.pointBuffer];
     this.pointBuffer = [];
     syncQueue.queuePointBatch(this.state.workoutId, this.userId, batch);

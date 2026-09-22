@@ -97,6 +97,8 @@ export const workoutService = {
       started_at: normalized.started_at,
       ended_at: normalized.ended_at,
       duration_seconds: normalized.duration_seconds,
+      moving_duration_seconds: normalized.moving_duration_seconds,
+      paused_duration_seconds: normalized.paused_duration_seconds,
       distance_meters: normalized.distance_meters,
       average_pace: normalized.average_pace,
       average_speed: normalized.average_speed,
@@ -108,6 +110,21 @@ export const workoutService = {
       route_coordinates: normalized.route_coordinates,
       splits: normalized.splits,
     };
+
+    // Guest users skip cloud sync entirely — local cache only
+    const isGuestUser = normalized.user_id === 'guest_user' || normalized.user_id === 'usr_guest_demo';
+    if (isGuestUser) {
+      const localWorkout: Workout = {
+        ...normalized,
+        created_at: new Date().toISOString(),
+      };
+      this.addWorkoutToCache(localWorkout);
+      return {
+        workout: localWorkout,
+        isCloudSynced: false,
+        message: 'Workout saved locally (guest mode).',
+      };
+    }
 
     if (!navigator.onLine) {
       // Local-first: immediately cache and queue for background sync
@@ -162,28 +179,43 @@ export const workoutService = {
         }
       }
 
-      // 3. Batch insert GPS points (in chunks of 50)
-      if (normalized.route_coordinates && normalized.route_coordinates.length > 0) {
-        const chunkSize = 50;
-        for (let i = 0; i < normalized.route_coordinates.length; i += chunkSize) {
-          const chunk = normalized.route_coordinates.slice(i, i + chunkSize);
-          const pointsPayload = chunk.map((pt, idx) => ({
-            workout_id: savedWorkout.id,
-            user_id: savedWorkout.user_id,
-            latitude: pt.latitude,
-            longitude: pt.longitude,
-            altitude: pt.altitude ?? null,
-            accuracy: pt.accuracy ?? null,
-            speed: pt.speed ?? null,
-            timestamp: new Date(pt.timestamp).toISOString(),
-            sequence_number: pt.sequence_number || (i + idx + 1),
-          }));
+      // 3. GPS points: Skip bulk insert if points were already live-synced via syncQueue.
+      //    Only insert here if no live batches were sent (e.g. offline-first save or recovered workout).
+      const liveSyncedPointCount = syncQueue.getPendingPointsCount();
+      const hasLiveSyncedPoints = liveSyncedPointCount === 0 && normalized.route_coordinates && normalized.route_coordinates.length > 0;
+      if (hasLiveSyncedPoints) {
+        // Check if points already exist for this workout to avoid duplicates
+        try {
+          const { count } = await insforge.database
+            .from('workout_points')
+            .select('id', { count: 'exact', head: true })
+            .eq('workout_id', savedWorkout.id);
 
-          try {
-            await insforge.database.from('workout_points').insert(pointsPayload);
-          } catch (ptErr) {
-            console.warn('Non-blocking error saving point chunk:', ptErr);
+          if (!count || count === 0) {
+            const chunkSize = 50;
+            for (let i = 0; i < normalized.route_coordinates.length; i += chunkSize) {
+              const chunk = normalized.route_coordinates.slice(i, i + chunkSize);
+              const pointsPayload = chunk.map((pt, idx) => ({
+                workout_id: savedWorkout.id,
+                user_id: savedWorkout.user_id,
+                latitude: pt.latitude,
+                longitude: pt.longitude,
+                altitude: pt.altitude ?? null,
+                accuracy: pt.accuracy ?? null,
+                speed: pt.speed ?? null,
+                timestamp: new Date(pt.timestamp).toISOString(),
+                sequence_number: pt.sequence_number || (i + idx + 1),
+              }));
+
+              try {
+                await insforge.database.from('workout_points').insert(pointsPayload);
+              } catch (ptErr) {
+                console.warn('Non-blocking error saving point chunk:', ptErr);
+              }
+            }
           }
+        } catch (checkErr) {
+          console.warn('Non-blocking error checking existing points:', checkErr);
         }
       }
 
@@ -234,17 +266,19 @@ export const workoutService = {
     let cloudWorkouts: Workout[] = [];
 
     try {
-      let query = insforge.database
-        .from('workouts')
-        .select('*');
-
+      // Guest users skip cloud fetch entirely
       if (userId && userId !== 'guest_user' && userId !== 'usr_guest_demo') {
-        query = query.eq('user_id', userId);
-      }
+        let query = insforge.database
+          .from('workouts')
+          .select('*')
+          .eq('user_id', userId)
+          .order('started_at', { ascending: false })
+          .limit(limit);
 
-      const { data, error } = await query;
-      if (!error && data && Array.isArray(data)) {
-        cloudWorkouts = data.map(normalizeWorkout);
+        const { data, error } = await query;
+        if (!error && data && Array.isArray(data)) {
+          cloudWorkouts = data.map(normalizeWorkout);
+        }
       }
     } catch (err) {
       console.warn('Cloud fetch workouts warning:', err);

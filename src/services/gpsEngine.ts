@@ -17,8 +17,8 @@ export class GPSEngineFacade {
     return workoutEngine.subscribe(callback);
   }
 
-  public setOptions(weightKg: number, autoPause: boolean, autoPauseThreshold: number, userId?: string) {
-    workoutEngine.setConfig(userId || 'guest_user', weightKg, autoPause, autoPauseThreshold);
+  public setOptions(weightKg: number, autoPause: boolean, autoPauseThreshold: number, userId?: string, distanceUnit: 'km' | 'mi' = 'km') {
+    workoutEngine.setConfig(userId || 'guest_user', weightKg, autoPause, autoPauseThreshold, distanceUnit);
   }
 
   public getState(): LiveWorkoutState {

@@ -43,9 +43,19 @@ function MapController({ center, followUser }: MapControllerProps) {
     if (!container) return;
 
     const ro = new ResizeObserver(() => {
-      map.invalidateSize();
+      requestAnimationFrame(() => {
+        map.invalidateSize();
+      });
     });
     ro.observe(container);
+
+    // Listen for CSS transitions completing (e.g. split/map view toggle)
+    const handleTransitionEnd = () => {
+      requestAnimationFrame(() => {
+        map.invalidateSize();
+      });
+    };
+    container.addEventListener('transitionend', handleTransitionEnd);
 
     const t1 = setTimeout(() => map.invalidateSize(), 50);
     const t2 = setTimeout(() => map.invalidateSize(), 200);
@@ -53,6 +63,7 @@ function MapController({ center, followUser }: MapControllerProps) {
 
     return () => {
       ro.disconnect();
+      container.removeEventListener('transitionend', handleTransitionEnd);
       clearTimeout(t1);
       clearTimeout(t2);
       clearTimeout(t3);

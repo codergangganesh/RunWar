@@ -1,12 +1,9 @@
-const CACHE_NAME = 'runwar-cache-v2';
+const CACHE_NAME = 'runwar-cache-v3';
+
+// Only pre-cache critical small assets. Large media and hero images use runtime caching below.
 const STATIC_ASSETS = [
   '/logo.png',
   '/manifest.webmanifest',
-  '/images/runner_hero_1.jpg',
-  '/images/runner_hero_2.jpg',
-  '/images/runner_hero_3.jpg',
-  '/images/runner_hero_4.jpg',
-  '/images/runner_hero_5.jpg',
 ];
 
 // Install Event

@@ -83,11 +83,15 @@ export const goalsService = {
       const activeGoals = goals.filter((g) => g.status === 'active');
       if (activeGoals.length === 0) return;
 
-      // Fetch user's workouts
+      // Fetch only necessary workout fields within the relevant date range
+      // instead of downloading ALL workouts with full route_coordinates
+      const oldestGoalStart = new Date();
+      oldestGoalStart.setDate(oldestGoalStart.getDate() - 31); // Cover monthly period
       const { data: workoutsData } = await insforge.database
         .from('workouts')
-        .select('*')
-        .eq('user_id', userId);
+        .select('started_at, distance_meters, duration_seconds')
+        .eq('user_id', userId)
+        .gte('started_at', oldestGoalStart.toISOString());
 
       const workouts = workoutsData || [];
       const now = new Date();

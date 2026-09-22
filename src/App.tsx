@@ -288,6 +288,20 @@ export const App: React.FC = () => {
     }
   };
 
+  // Handle PWA manifest shortcut ?start=run
+  useEffect(() => {
+    if (isAuthInitializing || screen !== 'main') return;
+    const params = new URLSearchParams(window.location.search);
+    const startParam = params.get('start');
+    if (startParam === 'run' || startParam === 'jog' || startParam === 'walk') {
+      const workoutType = startParam as WorkoutType;
+      // Clear the URL parameter to prevent re-triggering on refresh
+      const cleanUrl = window.location.pathname;
+      window.history.replaceState({}, '', cleanUrl);
+      handleStartRun(workoutType);
+    }
+  }, [isAuthInitializing, screen]);
+
   // Demo / Guest mode for immediate testing
   const handleGuestAccess = async () => {
     const guestUser = { id: 'usr_guest_demo', email: 'guest.runner@insforge.app' };
