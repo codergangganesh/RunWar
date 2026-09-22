@@ -256,20 +256,79 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           </div>
         </div>
 
-        {/* Bottom Sheet Dark Card */}
-        <div className="w-full bg-[#09151f] rounded-t-[36px] shadow-2xl px-6 sm:px-8 pt-7 pb-8 z-20 flex-1 flex flex-col justify-between border-t border-slate-800/80 relative">
+        {/* Bottom Sheet Card with Scenic Landscape Watermark */}
+        <div className="w-full bg-white rounded-t-[36px] shadow-2xl px-6 sm:px-8 pt-7 pb-8 z-20 flex-1 flex flex-col justify-between border-t border-emerald-100/80 relative overflow-hidden">
+          {/* Scenic Mountain & Runner Landscape Watermark Background */}
+          <div className="absolute inset-0 pointer-events-none select-none z-0 overflow-hidden">
+            <svg
+              className="w-full h-full object-cover"
+              viewBox="0 0 500 280"
+              preserveAspectRatio="xMidYMid slice"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <defs>
+                <linearGradient id="authMntFar" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#00d09c" stopOpacity="0.10" />
+                  <stop offset="100%" stopColor="#00d09c" stopOpacity="0.03" />
+                </linearGradient>
+                <linearGradient id="authMntMid" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#00d09c" stopOpacity="0.18" />
+                  <stop offset="100%" stopColor="#00d09c" stopOpacity="0.06" />
+                </linearGradient>
+                <linearGradient id="authMntNear" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#00d09c" stopOpacity="0.25" />
+                  <stop offset="100%" stopColor="#00d09c" stopOpacity="0.08" />
+                </linearGradient>
+                <linearGradient id="authPathGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#00d09c" stopOpacity="0.10" />
+                  <stop offset="100%" stopColor="#00d09c" stopOpacity="0.30" />
+                </linearGradient>
+                <linearGradient id="authFadeTop" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#ffffff" stopOpacity="0.95" />
+                  <stop offset="60%" stopColor="#ffffff" stopOpacity="0.4" />
+                  <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
+                </linearGradient>
+              </defs>
 
-          {/* Subtle wave background watermark */}
-          <div className="absolute inset-x-0 bottom-0 h-32 opacity-15 pointer-events-none overflow-hidden">
-            <svg className="w-full h-full text-emerald-500 fill-current" viewBox="0 0 400 120" preserveAspectRatio="none">
-              <path d="M0,40 C120,90 280,10 400,60 L400,120 L0,120 Z" />
+              <path d="M-30,140 Q60,65 170,105 T380,75 T530,120 L530,280 L-30,280 Z" fill="url(#authMntFar)" />
+              <path d="M-30,165 Q80,105 190,145 T410,110 T530,155 L530,280 L-30,280 Z" fill="url(#authMntMid)" />
+              <path d="M-30,195 Q90,155 180,180 T370,160 T530,195 L530,280 L-30,280 Z" fill="url(#authMntNear)" />
+
+              <g fill="#00d09c" opacity="0.30">
+                <polygon points="35,160 43,178 27,178" /><polygon points="35,170 45,190 25,190" /><polygon points="35,182 47,204 23,204" /><rect x="33" y="204" width="4" height="6" />
+                <polygon points="65,150 73,168 57,168" /><polygon points="65,160 75,180 55,180" /><polygon points="65,172 78,194 52,194" /><rect x="63" y="194" width="4" height="6" />
+                <polygon points="95,165 102,180 88,180" /><polygon points="95,175 104,192 86,192" /><rect x="93" y="192" width="4" height="6" />
+                <polygon points="460,155 467,172 453,172" /><polygon points="460,166 469,184 451,184" /><polygon points="460,178 472,198 448,198" /><rect x="458" y="198" width="4" height="6" />
+                <polygon points="430,165 437,180 423,180" /><polygon points="430,175 439,192 421,192" /><rect x="428" y="192" width="4" height="6" />
+              </g>
+
+              <path d="M245,150 C240,178 215,215 130,280 L370,280 C290,230 270,185 255,150 Z" fill="url(#authPathGrad)" />
+
+              <g transform="translate(195, 155) scale(0.7)" fill="#00d09c" opacity="0.45">
+                <circle cx="20" cy="8" r="4.5" />
+                <path d="M17,14 C17,12 23,12 23,14 L24,28 L16,28 Z" />
+                <path d="M17,15 L10,22 L13,26" stroke="#00d09c" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                <path d="M23,15 L29,20 L27,24" stroke="#00d09c" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                <path d="M18,27 L11,36 L15,44" stroke="#00d09c" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                <path d="M22,27 L28,34 L33,31" stroke="#00d09c" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+              </g>
+
+              <g transform="translate(370, 75) rotate(-8)" opacity="0.4">
+                <text x="0" y="0" fontFamily="serif" fontStyle="italic" fontWeight="bold" fontSize="16" fill="#00d09c" textAnchor="middle">
+                  Stronger Every Day
+                </text>
+                <path d="M-50,8 Q0,2 50,8" stroke="#00d09c" strokeWidth="2" strokeLinecap="round" fill="none" />
+              </g>
+
+              <rect x="0" y="0" width="500" height="140" fill="url(#authFadeTop)" />
             </svg>
           </div>
 
           <div className="w-full max-w-md md:max-w-lg mx-auto relative z-10">
             {/* Sheet Title & Mode Switcher Subtitle */}
             <div className="mb-5">
-              <h2 className="font-display text-2xl sm:text-3xl font-black text-white tracking-tight">
+              <h2 className="font-display text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
                 {mode === 'signup'
                   ? 'Create Account'
                   : mode === 'signin'
@@ -280,7 +339,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               </h2>
 
               {mode === 'signin' && (
-                <p className="text-xs text-slate-400 mt-1">
+                <p className="text-xs text-slate-600 mt-1">
                   Don't have an account?{' '}
                   <button
                     type="button"
@@ -289,7 +348,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       setErrorMsg(null);
                       setSuccessMsg(null);
                     }}
-                    className="text-[#00d09c] font-bold hover:underline ml-0.5"
+                    className="text-emerald-700 font-bold hover:underline ml-0.5"
                   >
                     Sign Up
                   </button>
@@ -297,7 +356,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               )}
 
               {mode === 'signup' && (
-                <p className="text-xs text-slate-400 mt-1">
+                <p className="text-xs text-slate-600 mt-1">
                   Already have an account?{' '}
                   <button
                     type="button"
@@ -306,7 +365,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       setErrorMsg(null);
                       setSuccessMsg(null);
                     }}
-                    className="text-[#00d09c] font-bold hover:underline ml-0.5"
+                    className="text-emerald-700 font-bold hover:underline ml-0.5"
                   >
                     Sign In
                   </button>
@@ -316,14 +375,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
             {/* Error / Success Toast Messages */}
             {errorMsg && (
-              <div className="mb-4 p-3 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-center gap-2 animate-fade-in">
+              <div className="mb-4 p-3 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 text-xs flex items-center gap-2 animate-fade-in">
                 <AlertCircle size={16} className="shrink-0" />
                 <span>{errorMsg}</span>
               </div>
             )}
 
             {successMsg && (
-              <div className="mb-4 p-3 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs flex items-center gap-2 animate-fade-in">
+              <div className="mb-4 p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs flex items-center gap-2 animate-fade-in">
                 <CheckCircle2 size={16} className="shrink-0" />
                 <span>{successMsg}</span>
               </div>
@@ -343,7 +402,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     placeholder="Full Name"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    className="w-full pl-11 pr-4 py-3.5 rounded-2xl bg-[#112334]/80 border border-[#1b354e] text-white text-sm placeholder:text-slate-400 focus:outline-none focus:border-[#00d09c] focus:bg-[#13283b] transition-all"
+                    className="w-full pl-11 pr-4 py-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 text-sm placeholder:text-slate-400 focus:outline-none focus:border-[#00d09c] focus:bg-white shadow-sm transition-all"
                   />
                 </div>
               )}
@@ -359,7 +418,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   placeholder="Enter your email address"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-11 pr-4 py-3.5 rounded-2xl bg-[#112334]/80 border border-[#1b354e] text-white text-sm placeholder:text-slate-400 focus:outline-none focus:border-[#00d09c] focus:bg-[#13283b] transition-all"
+                  className="w-full pl-11 pr-4 py-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 text-sm placeholder:text-slate-400 focus:outline-none focus:border-[#00d09c] focus:bg-white shadow-sm transition-all"
                 />
               </div>
 
@@ -367,12 +426,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               {mode === 'verify' ? (
                 <div>
                   <div className="flex items-center justify-between mb-1 px-1">
-                    <span className="text-[11px] font-bold text-slate-400">Enter 6-Digit Code</span>
+                    <span className="text-[11px] font-bold text-slate-600">Enter 6-Digit Code</span>
                     <button
                       type="button"
                       onClick={handleResendCode}
                       disabled={resending}
-                      className="text-[11px] text-[#00d09c] font-bold hover:underline flex items-center gap-1"
+                      className="text-[11px] text-emerald-700 font-bold hover:underline flex items-center gap-1"
                     >
                       <RefreshCw size={11} className={resending ? 'animate-spin' : ''} />
                       <span>Resend code</span>
@@ -389,7 +448,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       maxLength={8}
                       value={otp}
                       onChange={(e) => setOtp(e.target.value)}
-                      className="w-full pl-11 pr-4 py-3.5 rounded-2xl bg-[#112334]/80 border border-[#1b354e] text-white text-base font-mono tracking-widest text-center font-bold focus:outline-none focus:border-[#00d09c]"
+                      className="w-full pl-11 pr-4 py-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 text-base font-mono tracking-widest text-center font-bold focus:outline-none focus:border-[#00d09c] focus:bg-white shadow-sm"
                     />
                   </div>
                 </div>
@@ -406,12 +465,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       placeholder="Password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      className="w-full pl-11 pr-11 py-3.5 rounded-2xl bg-[#112334]/80 border border-[#1b354e] text-white text-sm placeholder:text-slate-400 focus:outline-none focus:border-[#00d09c] focus:bg-[#13283b] transition-all"
+                      className="w-full pl-11 pr-11 py-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 text-sm placeholder:text-slate-400 focus:outline-none focus:border-[#00d09c] focus:bg-white shadow-sm transition-all"
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute inset-y-0 right-0 pr-4 flex items-center text-slate-400 hover:text-white transition-colors"
+                      className="absolute inset-y-0 right-0 pr-4 flex items-center text-slate-400 hover:text-slate-700 transition-colors"
                     >
                       {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                     </button>
@@ -429,12 +488,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         placeholder="Confirm password"
                         value={confirmPassword}
                         onChange={(e) => setConfirmPassword(e.target.value)}
-                        className="w-full pl-11 pr-11 py-3.5 rounded-2xl bg-[#112334]/80 border border-[#1b354e] text-white text-sm placeholder:text-slate-400 focus:outline-none focus:border-[#00d09c] focus:bg-[#13283b] transition-all"
+                        className="w-full pl-11 pr-11 py-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 text-sm placeholder:text-slate-400 focus:outline-none focus:border-[#00d09c] focus:bg-white shadow-sm transition-all"
                       />
                       <button
                         type="button"
                         onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                        className="absolute inset-y-0 right-0 pr-4 flex items-center text-slate-400 hover:text-white transition-colors"
+                        className="absolute inset-y-0 right-0 pr-4 flex items-center text-slate-400 hover:text-slate-700 transition-colors"
                       >
                         {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                       </button>
@@ -443,12 +502,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
                   {/* Remember Me & Forgot Password */}
                   <div className="flex items-center justify-between px-1 text-xs pt-0.5">
-                    <label className="flex items-center gap-2 text-slate-300 cursor-pointer select-none">
+                    <label className="flex items-center gap-2 text-slate-600 cursor-pointer select-none">
                       <input
                         type="checkbox"
                         checked={rememberMe}
                         onChange={(e) => setRememberMe(e.target.checked)}
-                        className="w-4 h-4 rounded text-[#00d09c] focus:ring-[#00d09c] border-[#1b354e] bg-[#112334] accent-[#00d09c]"
+                        className="w-4 h-4 rounded text-[#00d09c] focus:ring-[#00d09c] border-slate-300 accent-[#00d09c]"
                       />
                       <span>Remember Me</span>
                     </label>
@@ -461,7 +520,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                           setErrorMsg(null);
                           setSuccessMsg(null);
                         }}
-                        className="text-[#00d09c] font-semibold hover:underline"
+                        className="text-emerald-700 font-semibold hover:underline"
                       >
                         Forgot Password?
                       </button>
@@ -500,10 +559,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               <>
                 <div className="relative my-4">
                   <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-slate-800" />
+                    <div className="w-full border-t border-slate-200" />
                   </div>
                   <div className="relative flex justify-center text-[10px] font-bold uppercase tracking-widest">
-                    <span className="bg-[#09151f] px-3 text-slate-500">
+                    <span className="bg-white px-3 text-slate-400">
                       OR CONTINUE WITH
                     </span>
                   </div>
@@ -514,7 +573,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   type="button"
                   onClick={() => handleOAuthSignIn('google')}
                   disabled={loading}
-                  className="w-full py-3.5 px-4 rounded-2xl bg-white hover:bg-slate-100 active:scale-[0.98] disabled:opacity-50 text-slate-900 font-bold text-sm flex items-center justify-center gap-3 shadow-md shadow-black/10 transition-all border border-slate-200"
+                  className="w-full py-3.5 px-4 rounded-2xl bg-white hover:bg-slate-50 active:scale-[0.98] disabled:opacity-50 text-slate-900 font-bold text-sm flex items-center justify-center gap-3 shadow-sm border border-slate-200 transition-all"
                 >
                   <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
                     <path
@@ -541,10 +600,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
             {/* Bottom Security Badge & Script Watermark */}
             <div className="mt-5 pt-2 flex flex-col items-center gap-1 text-center">
-
-
               {/* Watermark Script */}
-              <div className="w-full flex justify-end pr-2 pt-1 opacity-60">
+              <div className="w-full flex justify-end pr-2 pt-1 opacity-70">
                 <span className="font-serif italic font-bold text-[#00d09c] text-xs">
                   Every Run Counts
                 </span>
@@ -561,7 +618,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     setErrorMsg(null);
                     setSuccessMsg(null);
                   }}
-                  className="text-xs text-[#00d09c] font-bold hover:underline"
+                  className="text-xs text-emerald-700 font-bold hover:underline"
                 >
                   ← Back to Login
                 </button>

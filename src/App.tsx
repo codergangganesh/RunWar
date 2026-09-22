@@ -172,7 +172,7 @@ export const App: React.FC = () => {
       document.documentElement.classList.remove('light');
     }
     if (profile?.user_id) {
-      authService.updateSettings(profile.user_id, { theme: nextTheme }).catch(() => {});
+      authService.updateSettings(profile.user_id, { theme: nextTheme }).catch(() => { });
     }
   };
 
@@ -591,18 +591,18 @@ export const App: React.FC = () => {
               activeTab === 'home'
                 ? undefined
                 : activeTab === 'history'
-                ? 'Workout History'
-                : activeTab === 'insights'
-                ? 'Analytics'
-                : activeTab === 'goals'
-                ? 'Fitness Goals'
-                : activeTab === 'achievements'
-                ? 'Achievements'
-                : activeTab === 'records'
-                ? 'Personal Records'
-                : activeTab === 'calendar'
-                ? 'Activity Calendar'
-                : 'Athlete Profile'
+                  ? 'Workout History'
+                  : activeTab === 'insights'
+                    ? 'Analytics'
+                    : activeTab === 'goals'
+                      ? 'Fitness Goals'
+                      : activeTab === 'achievements'
+                        ? 'Achievements'
+                        : activeTab === 'records'
+                          ? 'Personal Records'
+                          : activeTab === 'calendar'
+                            ? 'Activity Calendar'
+                            : 'Athlete Profile'
             }
           >
             {activeTab === 'home' && (
