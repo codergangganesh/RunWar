@@ -13,6 +13,10 @@ export class GPSEngineFacade {
     workoutEngine.isSimulationMode = val;
   }
 
+  public setSimulationMode(enabled: boolean) {
+    workoutEngine.setSimulationMode(enabled);
+  }
+
   public subscribe(callback: (state: LiveWorkoutState) => void) {
     return workoutEngine.subscribe(callback);
   }
@@ -43,6 +47,10 @@ export class GPSEngineFacade {
 
   public discardWorkout() {
     workoutEngine.discardWorkout();
+  }
+
+  public reset() {
+    workoutEngine.reset();
   }
 
   public restoreWorkout(savedState: LiveWorkoutState) {

@@ -19,6 +19,7 @@ import { ProfileScreen } from './screens/ProfileScreen';
 import { PrivacyScreen } from './screens/PrivacyScreen';
 import { RecoveryModal } from './components/ui/RecoveryModal';
 import { PWAInstallBanner } from './components/ui/PWAInstallBanner';
+import { ErrorBoundary } from './components/ui/ErrorBoundary';
 
 import { insforge } from './lib/insforge';
 import { authService } from './services/authService';
@@ -350,6 +351,9 @@ export const App: React.FC = () => {
 
   // Start a new workout
   const handleStartRun = (type: WorkoutType = 'run') => {
+    gpsEngine.reset();
+    offlineSync.clearActiveWorkoutBackup();
+    setRecoveredWorkoutBackup(null);
     setActiveWorkoutType(type);
     setScreen('active_run');
   };
@@ -369,6 +373,9 @@ export const App: React.FC = () => {
 
   // Summary complete
   const handleSummaryDone = () => {
+    gpsEngine.reset();
+    offlineSync.clearActiveWorkoutBackup();
+    setRecoveredWorkoutBackup(null);
     setFinishedWorkoutState(null);
     setScreen('main');
     setActiveTab('home');
@@ -711,7 +718,7 @@ export const App: React.FC = () => {
   };
 
   return (
-    <>
+    <ErrorBoundary>
       {renderScreen()}
 
       {/* PWA Add to Home Screen Banner */}
@@ -726,6 +733,6 @@ export const App: React.FC = () => {
           onDiscard={handleDiscardRecovered}
         />
       )}
-    </>
+    </ErrorBoundary>
   );
 };

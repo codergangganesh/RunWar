@@ -82,7 +82,7 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
       setWorkoutState(state);
     });
 
-    if (workoutState.status === 'idle') {
+    if (workoutState.status === 'idle' || workoutState.status === 'finished') {
       gpsEngine.startTracking(workoutType);
     }
 
@@ -106,11 +106,8 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
 
   const handleToggleSimulation = () => {
     const nextMode = !simMode;
-    gpsEngine.isSimulationMode = nextMode;
+    gpsEngine.setSimulationMode(nextMode);
     setSimMode(nextMode);
-    if (workoutState.status === 'tracking') {
-      gpsEngine.startTracking(workoutType);
-    }
   };
 
   const handleToggleViewMode = () => {
@@ -319,20 +316,28 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
 
         {/* Main Content Area */}
         <div className="flex-1 flex flex-col justify-between gap-2 z-10 min-h-0 w-full overflow-hidden">
-          {/* Split View (Top Map + Bottom Telemetry) */}
-          {viewMode === 'split' ? (
-            <div className="flex-1 flex flex-col justify-between gap-2 min-h-0 w-full">
-              {/* Properly Positioned Map - Fills all available space above the HUD */}
-              <div className="flex-1 min-h-[160px] w-full shadow-sm rounded-2xl sm:rounded-3xl overflow-hidden border border-emerald-200/80 dark:border-slate-800">
-                <LiveWorkoutMap
-                  coordinates={workoutState.coordinates}
-                  isTracking={workoutState.status === 'tracking'}
-                  gpsAccuracy={workoutState.gpsAccuracy}
-                  className="h-full w-full"
-                />
-              </div>
+          <div className="flex-1 flex flex-col justify-between gap-2 min-h-0 w-full">
+            {/* One persistent map instance preserves map style, zoom, and follow state between views. */}
+            <div className={`flex-1 min-h-[160px] w-full relative rounded-2xl sm:rounded-3xl overflow-hidden border border-emerald-200/80 dark:border-slate-800 ${viewMode === 'map' ? 'shadow-md' : 'shadow-sm'}`}>
+              <LiveWorkoutMap
+                coordinates={workoutState.coordinates}
+                currentLocation={workoutState.currentLocation}
+                isTracking={workoutState.status === 'tracking'}
+                gpsAccuracy={workoutState.gpsAccuracy}
+                className="h-full w-full"
+              >
+                {viewMode === 'map' && (
+                  <div className="absolute bottom-3 inset-x-3 z-20 p-2.5 sm:p-3 rounded-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-emerald-200/80 dark:border-slate-800 grid grid-cols-4 gap-1 text-center shadow-xl">
+                    <div><div className="text-[9px] uppercase font-bold text-emerald-800/80 dark:text-slate-400">Distance</div><div className="text-xs sm:text-sm font-black text-emerald-600 dark:text-emerald-400">{formatDistance(workoutState.distanceMeters, distanceUnit, 2)} {distanceUnit}</div></div>
+                    <div><div className="text-[9px] uppercase font-bold text-emerald-800/80 dark:text-slate-400">Time</div><div className="text-xs sm:text-sm font-mono font-bold text-emerald-950 dark:text-white">{formatDuration(workoutState.movingTime > 0 ? workoutState.movingTime : workoutState.elapsedTime)}</div></div>
+                    <div><div className="text-[9px] uppercase font-bold text-emerald-800/80 dark:text-slate-400">Pace</div><div className="text-xs sm:text-sm font-mono font-bold text-emerald-600 dark:text-emerald-400">{workoutState.currentPace > 0 ? formatPaceRaw(workoutState.currentPace, paceUnit) : '--:--'}</div></div>
+                    <div><div className="text-[9px] uppercase font-bold text-emerald-800/80 dark:text-slate-400">Avg Pace</div><div className="text-xs sm:text-sm font-mono font-bold text-emerald-950 dark:text-slate-200">{workoutState.averagePace > 0 ? formatPaceRaw(workoutState.averagePace, paceUnit) : '--:--'}</div></div>
+                  </div>
+                )}
+              </LiveWorkoutMap>
+            </div>
 
-              {/* Glanceable Telemetry Cards */}
+            {viewMode === 'split' && (
               <div className="shrink-0 w-full">
                 <GlanceableHUD
                   distanceMeters={workoutState.distanceMeters}
@@ -352,46 +357,8 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
                   isAutoPaused={workoutState.isAutoPaused}
                 />
               </div>
-            </div>
-          ) : (
-            /* Full Map View with Integrated Floating Bottom HUD */
-            <div className="flex-1 w-full min-h-0 h-full relative rounded-2xl sm:rounded-3xl overflow-hidden border border-emerald-200/80 dark:border-slate-800 shadow-md">
-              <LiveWorkoutMap
-                coordinates={workoutState.coordinates}
-                isTracking={workoutState.status === 'tracking'}
-                gpsAccuracy={workoutState.gpsAccuracy}
-                className="h-full w-full"
-              >
-                {/* Floating Telemetry Overlay inside Map */}
-                <div className="absolute bottom-3 inset-x-3 z-20 p-2.5 sm:p-3 rounded-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-emerald-200/80 dark:border-slate-800 grid grid-cols-4 gap-1 text-center shadow-xl">
-                  <div>
-                    <div className="text-[9px] uppercase font-bold text-emerald-800/80 dark:text-slate-400">Distance</div>
-                    <div className="text-xs sm:text-sm font-black text-emerald-600 dark:text-emerald-400">
-                      {formatDistance(workoutState.distanceMeters, distanceUnit, 2)} {distanceUnit}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[9px] uppercase font-bold text-emerald-800/80 dark:text-slate-400">Time</div>
-                    <div className="text-xs sm:text-sm font-mono font-bold text-emerald-950 dark:text-white">
-                      {formatDuration(workoutState.movingTime > 0 ? workoutState.movingTime : workoutState.elapsedTime)}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[9px] uppercase font-bold text-emerald-800/80 dark:text-slate-400">Pace</div>
-                    <div className="text-xs sm:text-sm font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                      {workoutState.currentPace > 0 ? formatPaceRaw(workoutState.currentPace, paceUnit) : '--:--'}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[9px] uppercase font-bold text-emerald-800/80 dark:text-slate-400">Avg Pace</div>
-                    <div className="text-xs sm:text-sm font-mono font-bold text-emerald-950 dark:text-slate-200">
-                      {workoutState.averagePace > 0 ? formatPaceRaw(workoutState.averagePace, paceUnit) : '--:--'}
-                    </div>
-                  </div>
-                </div>
-              </LiveWorkoutMap>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         {/* Splits Bottom Drawer */}

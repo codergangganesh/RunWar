@@ -1,6 +1,6 @@
 import React from 'react';
 import { DistanceUnit, PaceUnit, WorkoutSplit } from '../../types';
-import { formatDuration, formatPace } from '../../utils/formatters';
+import { formatDistance, formatDuration, formatPace } from '../../utils/formatters';
 
 interface SplitsTableProps {
   splits: WorkoutSplit[];
@@ -65,7 +65,7 @@ export const SplitsTable: React.FC<SplitsTableProps> = ({
               </div>
 
               <div className="text-right text-slate-300">
-                {(split.distance_meters / 1000).toFixed(2)} km
+                {formatDistance(split.distance_meters, distanceUnit)} {distanceUnit}
               </div>
 
               <div className="text-right text-slate-300 font-medium">

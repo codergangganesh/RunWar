@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { UserProfile, Workout, WorkoutType } from '../types';
 import { formatDistance, formatDuration, formatPace, formatWorkoutDate } from '../utils/formatters';
-import { StaticRouteMap } from '../components/map/StaticRouteMap';
+import { RouteThumbnail } from '../components/map/RouteThumbnail';
 import { BottomSheet } from '../components/ui/BottomSheet';
 import {
   ArrowUpDown,
@@ -306,7 +306,7 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
 
             {/* Route Map Preview Thumbnail */}
             {workout.route_coordinates && workout.route_coordinates.length > 1 && (
-              <StaticRouteMap coordinates={workout.route_coordinates} className="h-24 w-full rounded-xl" />
+              <RouteThumbnail coordinates={workout.route_coordinates} className="h-24 w-full rounded-xl" />
             )}
           </div>
         ))}

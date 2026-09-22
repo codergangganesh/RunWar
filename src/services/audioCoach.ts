@@ -103,16 +103,28 @@ class AudioCoach {
     if (!this.isEnabled || this.frequency === 'off') return;
 
     if (this.frequency === '1km' || this.frequency === '0.5km') {
-      const intervalMeters = this.frequency === '0.5km' ? 500 : 1000;
+      const isHalf = this.frequency === '0.5km';
+      const intervalMeters = distanceUnit === 'mi'
+        ? (isHalf ? 804.67 : 1609.34)
+        : (isHalf ? 500 : 1000);
+
       const targetMilestone = Math.floor(distanceMeters / intervalMeters) * intervalMeters;
 
       if (targetMilestone > 0 && targetMilestone > this.lastAnnouncedDistanceMeters) {
         this.lastAnnouncedDistanceMeters = targetMilestone;
         
-        const splitIndex = Math.round(targetMilestone / 1000);
-        const distNumber = (targetMilestone / 1000);
-        const distUnitLabel = distanceUnit === 'mi' ? 'miles' : 'kilometers';
-        const distFormatted = distNumber === 1 ? `1 ${distanceUnit === 'mi' ? 'mile' : 'kilometer'}` : `${distNumber} ${distUnitLabel}`;
+        const count = Math.round(targetMilestone / intervalMeters);
+        let distancePhrase = '';
+
+        if (distanceUnit === 'mi') {
+          distancePhrase = isHalf
+            ? `${(targetMilestone / 1609.34).toFixed(1)} miles`
+            : `Mile ${count}`;
+        } else {
+          distancePhrase = isHalf
+            ? (targetMilestone < 1000 ? `${Math.round(targetMilestone)} meters` : `${(targetMilestone / 1000).toFixed(1)} kilometers`)
+            : `Kilometer ${count}`;
+        }
 
         const paceSec = paceUnit === 'min_mi' ? splitPaceSecPerKm * 1.60934 : splitPaceSecPerKm;
         const paceMins = Math.floor(paceSec / 60);
@@ -121,9 +133,9 @@ class AudioCoach {
         const elapsedMins = Math.floor(elapsedSeconds / 60);
         const elapsedSecs = Math.round(elapsedSeconds % 60);
 
-        const motivation = MOTIVATIONAL_PHRASES[splitIndex % MOTIVATIONAL_PHRASES.length];
+        const motivation = MOTIVATIONAL_PHRASES[count % MOTIVATIONAL_PHRASES.length];
 
-        const speechText = `Kilometer ${splitIndex} complete. Split pace: ${paceMins} minutes ${paceSecs} seconds. Total time: ${elapsedMins} minutes ${elapsedSecs} seconds. ${motivation}`;
+        const speechText = `${distancePhrase} complete. Split pace: ${paceMins} minutes ${paceSecs} seconds. Total time: ${elapsedMins} minutes ${elapsedSecs} seconds. ${motivation}`;
         this.speak(speechText);
       }
     } else if (this.frequency === '5min') {
@@ -134,11 +146,13 @@ class AudioCoach {
         this.lastAnnouncedTimeSeconds = targetSec;
 
         const mins = Math.floor(targetSec / 60);
-        const distKm = (distanceMeters / 1000).toFixed(2);
-        const paceMins = Math.floor(avgPaceSecPerKm / 60);
-        const paceSecs = Math.round(avgPaceSecPerKm % 60);
+        const distVal = distanceUnit === 'mi' ? (distanceMeters / 1609.34).toFixed(2) : (distanceMeters / 1000).toFixed(2);
+        const distUnitLabel = distanceUnit === 'mi' ? 'miles' : 'kilometers';
+        const paceSec = paceUnit === 'min_mi' ? avgPaceSecPerKm * 1.60934 : avgPaceSecPerKm;
+        const paceMins = Math.floor(paceSec / 60);
+        const paceSecs = Math.round(paceSec % 60);
 
-        const speechText = `${mins} minutes completed. Distance: ${distKm} kilometers. Average pace: ${paceMins} minutes ${paceSecs} seconds. Keep moving!`;
+        const speechText = `${mins} minutes completed. Distance: ${distVal} ${distUnitLabel}. Average pace: ${paceMins} minutes ${paceSecs} seconds. Keep moving!`;
         this.speak(speechText);
       }
     }
@@ -164,10 +178,11 @@ class AudioCoach {
     this.speak(`Milestone reached: ${milestoneText}`);
   }
 
-  public announceWorkoutFinished(distanceMeters: number, elapsedSeconds: number) {
-    const km = (distanceMeters / 1000).toFixed(2);
+  public announceWorkoutFinished(distanceMeters: number, elapsedSeconds: number, distanceUnit: DistanceUnit = 'km') {
+    const distVal = distanceUnit === 'mi' ? (distanceMeters / 1609.34).toFixed(2) : (distanceMeters / 1000).toFixed(2);
+    const distUnitLabel = distanceUnit === 'mi' ? 'miles' : 'kilometers';
     const mins = Math.floor(elapsedSeconds / 60);
-    this.speak(`Workout complete! You conquered ${km} kilometers in ${mins} minutes. Outstanding effort!`);
+    this.speak(`Workout complete! You conquered ${distVal} ${distUnitLabel} in ${mins} minutes. Outstanding effort!`);
   }
 }
 

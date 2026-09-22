@@ -1,4 +1,4 @@
-const CACHE_NAME = 'runwar-cache-v3';
+const CACHE_NAME = 'runwar-cache-v4';
 
 // Only pre-cache critical small assets. Large media and hero images use runtime caching below.
 const STATIC_ASSETS = [
@@ -34,12 +34,19 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
+  const hostname = url.hostname.toLowerCase();
+  const pathname = url.pathname.toLowerCase();
 
-  // Skip APIs, InsForge backend, and map tiles
+  // Skip APIs, InsForge backend, and all external map tile servers
   if (
     url.origin.includes('insforge.app') ||
-    url.origin.includes('tile.openstreetmap.org') ||
-    url.pathname.startsWith('/api')
+    hostname.includes('openstreetmap') ||
+    hostname.includes('cartocdn') ||
+    hostname.includes('arcgisonline') ||
+    hostname.includes('stadiamaps') ||
+    hostname.includes('mapbox') ||
+    pathname.includes('/tile') ||
+    pathname.startsWith('/api')
   ) {
     return;
   }

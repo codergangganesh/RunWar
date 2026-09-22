@@ -136,31 +136,42 @@ export function calculateSplits(
     const prev = coordinates[i - 1];
     const curr = coordinates[i];
 
-    const dist = calculateHaversineDistance(
+    // Live workout points carry the filtered distance used by the tracker.
+    // Older saved routes do not, so retain Haversine as a backward-compatible fallback.
+    const dist = curr.distanceFromPrevious ?? calculateHaversineDistance(
       prev.latitude,
       prev.longitude,
       curr.latitude,
       curr.longitude
     );
 
+    if (dist <= 0) continue;
+
+    const timeDeltaSec = Math.max(0.001, (curr.timestamp - prev.timestamp) / 1000);
     currentSplitDistance += dist;
 
-    if (currentSplitDistance >= splitDistanceMeters) {
-      const splitDurationSec = Math.max(1, (curr.timestamp - currentSplitStartTime) / 1000);
-      const pace = calculatePace(currentSplitDistance, splitDurationSec);
-      const speedKmh = calculateSpeed(currentSplitDistance, splitDurationSec);
+    while (currentSplitDistance >= splitDistanceMeters) {
+      const overshoot = currentSplitDistance - splitDistanceMeters;
+      const fractionInSplit = Math.max(0, Math.min(1, (dist - overshoot) / dist));
+      const overshootTimeSec = timeDeltaSec * (1 - fractionInSplit);
+
+      // Interpolated split end timestamp
+      const splitEndTimestamp = curr.timestamp - overshootTimeSec * 1000;
+      const splitDurationSec = Math.max(1, (splitEndTimestamp - currentSplitStartTime) / 1000);
+      const pace = calculatePace(splitDistanceMeters, splitDurationSec);
+      const speedKmh = calculateSpeed(splitDistanceMeters, splitDurationSec);
 
       splits.push({
         split_number: splitIndex,
-        distance_meters: Math.round(currentSplitDistance),
+        distance_meters: Math.round(splitDistanceMeters),
         duration_seconds: Math.round(splitDurationSec),
         pace: Math.round(pace),
         speed_kmh: Number(speedKmh.toFixed(1)),
       });
 
       splitIndex++;
-      currentSplitDistance = 0;
-      currentSplitStartTime = curr.timestamp;
+      currentSplitDistance = overshoot;
+      currentSplitStartTime = splitEndTimestamp;
     }
   }
 
@@ -181,4 +192,57 @@ export function calculateSplits(
   }
 
   return splits;
+}
+
+export interface RouteDistanceMilestone {
+  distanceMeters: number;
+  coordinate: GPSCoordinate;
+}
+
+/**
+ * Locate every completed kilometre on a route. The location is interpolated
+ * within the GPS segment so labels are placed at the actual milestone, rather
+ * than only at the next recorded GPS sample.
+ */
+export function getRouteDistanceMilestones(
+  coordinates: GPSCoordinate[],
+  intervalMeters: number = 1000
+): RouteDistanceMilestone[] {
+  if (coordinates.length < 2 || intervalMeters <= 0) return [];
+
+  const milestones: RouteDistanceMilestone[] = [];
+  let cumulativeDistance = 0;
+  let nextMilestone = intervalMeters;
+
+  for (let i = 1; i < coordinates.length; i++) {
+    const previous = coordinates[i - 1];
+    const current = coordinates[i];
+    const segmentDistance = current.distanceFromPrevious ?? calculateHaversineDistance(
+      previous.latitude,
+      previous.longitude,
+      current.latitude,
+      current.longitude
+    );
+
+    if (segmentDistance <= 0) continue;
+
+    while (cumulativeDistance + segmentDistance >= nextMilestone) {
+      const fraction = Math.max(0, Math.min(1, (nextMilestone - cumulativeDistance) / segmentDistance));
+      milestones.push({
+        distanceMeters: nextMilestone,
+        coordinate: {
+          ...current,
+          latitude: previous.latitude + (current.latitude - previous.latitude) * fraction,
+          longitude: previous.longitude + (current.longitude - previous.longitude) * fraction,
+          timestamp: previous.timestamp + (current.timestamp - previous.timestamp) * fraction,
+          distanceFromPrevious: 0,
+        },
+      });
+      nextMilestone += intervalMeters;
+    }
+
+    cumulativeDistance += segmentDistance;
+  }
+
+  return milestones;
 }

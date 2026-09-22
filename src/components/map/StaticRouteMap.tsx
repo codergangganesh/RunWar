@@ -1,8 +1,10 @@
-import React, { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Polyline, Marker, useMap } from 'react-leaflet';
+import React, { useEffect, useMemo, useState } from 'react';
+import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { GPSCoordinate } from '../../types';
 import { Maximize2, Minimize2 } from 'lucide-react';
+import { calculateSplits, getRouteDistanceMilestones } from '../../utils/calculations';
+import { formatDuration, formatPace } from '../../utils/formatters';
 
 interface StaticRouteMapProps {
   coordinates: GPSCoordinate[];
@@ -28,6 +30,13 @@ const createFinishBadgeIcon = () => {
     iconAnchor: [32, 12],
   });
 };
+
+const createKilometerMarkerIcon = (kilometer: number) => L.divIcon({
+  className: 'distance-milestone-marker',
+  html: `<div class="flex h-7 min-w-7 items-center justify-center rounded-full border-2 border-white bg-emerald-700 px-1 text-[10px] font-black text-white shadow-lg">${kilometer}</div>`,
+  iconSize: [28, 28],
+  iconAnchor: [14, 14],
+});
 
 function FitBounds({ coordinates }: { coordinates: GPSCoordinate[] }) {
   const map = useMap();
@@ -71,6 +80,11 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
   const startCoord = coordinates[0];
   const endCoord = coordinates[coordinates.length - 1];
   const polylinePositions: [number, number][] = coordinates.map((c) => [c.latitude, c.longitude]);
+  const kilometerMilestones = useMemo(
+    () => getRouteDistanceMilestones(coordinates),
+    [coordinates]
+  );
+  const kilometerSplits = useMemo(() => calculateSplits(coordinates), [coordinates]);
   const center: [number, number] = [startCoord.latitude, startCoord.longitude];
 
   const handleFullscreenClick = () => {
@@ -130,6 +144,30 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
             lineJoin: 'round',
           }}
         />
+
+        {/* Completed-kilometre markers remain available in workout history and details. */}
+        {kilometerMilestones.map((milestone, index) => {
+          const split = kilometerSplits[index];
+          const kilometer = milestone.distanceMeters / 1000;
+
+          return (
+            <Marker
+              key={milestone.distanceMeters}
+              position={[milestone.coordinate.latitude, milestone.coordinate.longitude]}
+              icon={createKilometerMarkerIcon(kilometer)}
+              zIndexOffset={500}
+            >
+              <Popup closeButton={false} offset={[0, -12]}>
+                <div className="min-w-32 text-center text-slate-800">
+                  <p className="text-xs font-black text-emerald-700">Kilometer {kilometer}</p>
+                  <p className="mt-1 text-sm font-bold">{split ? formatDuration(split.duration_seconds) : '--:--'}</p>
+                  <p className="text-[11px] text-slate-500">{split ? formatPace(split.pace) : 'Split unavailable'}</p>
+                  {split?.speed_kmh != null && <p className="mt-1 text-[10px] font-semibold text-slate-400">{split.speed_kmh.toFixed(1)} km/h</p>}
+                </div>
+              </Popup>
+            </Marker>
+          );
+        })}
 
         {/* Start Pin Badge */}
         <Marker position={[startCoord.latitude, startCoord.longitude]} icon={createStartBadgeIcon()} />

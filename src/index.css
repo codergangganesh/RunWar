@@ -93,6 +93,11 @@ html.light .leaflet-control-attribution {
   color: #94a3b8 !important;
 }
 
+/* Dark Mode Leaflet Map Tiles (Universal OpenStreetMap, Zero Watermarks, 100% Worldwide Street Coverage) */
+.dark-map-tiles .leaflet-tile-pane {
+  filter: invert(100%) hue-rotate(180deg) brightness(85%) contrast(92%);
+}
+
 /* Custom Marker Styles */
 .user-location-marker {
   position: relative;

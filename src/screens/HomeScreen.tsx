@@ -56,17 +56,20 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   };
 
   const greetingText = `${getGreeting()}, ${profile?.name || 'Runner'} 👋`;
-  const [displayedText, setDisplayedText] = useState('');
+  const [displayedText, setDisplayedText] = useState(() => greetingText.slice(0, 1));
+  const [isTypingDone, setIsTypingDone] = useState(false);
 
-  // Smooth typing effect in single line
+  // Smooth typing effect without layout jump or full-text flash
   useEffect(() => {
-    let i = 0;
-    setDisplayedText('');
+    let i = 1;
+    setDisplayedText(greetingText.slice(0, 1));
+    setIsTypingDone(false);
     const timer = setInterval(() => {
       i++;
       setDisplayedText(greetingText.slice(0, i));
       if (i >= greetingText.length) {
         clearInterval(timer);
+        setIsTypingDone(true);
       }
     }, 35);
     return () => clearInterval(timer);
@@ -80,11 +83,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     <div className="p-3.5 sm:p-4 space-y-3.5 animate-fade-in flex flex-col min-h-full">
       {/* Header: Single Line Welcome Greeting */}
       <div className="pt-1">
-        <div className="flex items-center gap-1.5 min-w-0">
+        <div className="flex items-center gap-1.5 min-w-0 h-7 sm:h-8">
           <h2 className="font-display text-lg sm:text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-950 via-emerald-900 to-emerald-700 dark:from-white dark:via-slate-100 dark:to-emerald-300 tracking-tight whitespace-nowrap truncate">
-            {displayedText || greetingText}
+            {displayedText}
           </h2>
-          <span className="w-1.5 h-4 bg-emerald-500 dark:bg-emerald-400 rounded-full animate-pulse shrink-0 inline-block" />
+          <span className={`w-1.5 h-4 bg-emerald-500 dark:bg-emerald-400 rounded-full shrink-0 inline-block ${isTypingDone ? 'opacity-30' : 'animate-pulse'}`} />
         </div>
         <p className="text-[11px] sm:text-xs text-emerald-800/80 dark:text-slate-400 font-medium mt-0.5">
           Ready for your workout? Keep your momentum going!

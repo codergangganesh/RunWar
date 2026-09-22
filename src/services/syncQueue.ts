@@ -51,10 +51,16 @@ class SyncQueueManager {
       pointCount: points.length,
       workoutId,
     }, workoutId);
+  }
 
-    // If online, immediately attempt background sync
-    if (navigator.onLine) {
-      this.processPointBatch(newBatch.batchId);
+  /**
+   * Flush point batches for a confirmed saved workout
+   */
+  public async flushWorkoutPoints(workoutId: string) {
+    if (!navigator.onLine) return;
+    const batches = this.getPointBatches().filter((b) => b.workoutId === workoutId);
+    for (const batch of batches) {
+      await this.processPointBatch(batch.batchId);
     }
   }
 
@@ -120,6 +126,16 @@ class SyncQueueManager {
     } catch (err: any) {
       const currentBatches = this.getPointBatches();
       const idx = currentBatches.findIndex((b) => b.batchId === batchId);
+
+      // If parent workout record doesn't exist yet, keep PENDING without incrementing failure count
+      if (err?.message?.includes('foreign key constraint') || err?.code === '23503') {
+        if (idx !== -1) {
+          currentBatches[idx].status = 'PENDING';
+          this.savePointBatches(currentBatches);
+        }
+        return;
+      }
+
       if (idx !== -1) {
         currentBatches[idx].status = 'FAILED';
         currentBatches[idx].retryCount += 1;

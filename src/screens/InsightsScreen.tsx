@@ -57,10 +57,10 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({ workouts, profil
     return d >= prevCutoff && d < filterCutoff;
   });
   const prevDistanceMeters = prevPeriodWorkouts.reduce((sum, w) => sum + (w.distance_meters || 0), 0);
-  const diffDistanceKm = (totalDistanceMeters - prevDistanceMeters) / 1000;
-
   const distanceUnit = profile?.distance_unit || 'km';
   const paceUnit = profile?.pace_unit || 'min_km';
+  const diffDistanceMeters = totalDistanceMeters - prevDistanceMeters;
+  const diffDistanceConverted = distanceUnit === 'mi' ? diffDistanceMeters / 1609.34 : diffDistanceMeters / 1000;
 
   return (
     <div className="p-4 space-y-5 animate-fade-in">
@@ -125,14 +125,14 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({ workouts, profil
           {timeFilter !== 'all' && (
             <div
               className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${
-                diffDistanceKm >= 0
+                diffDistanceConverted >= 0
                   ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-400 dark:border-emerald-500/30'
                   : 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-500/15 dark:text-amber-400 dark:border-amber-500/30'
               }`}
             >
-              {diffDistanceKm >= 0 ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
+              {diffDistanceConverted >= 0 ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
               <span>
-                {diffDistanceKm >= 0 ? `+${diffDistanceKm.toFixed(1)}` : diffDistanceKm.toFixed(1)} km vs prev
+                {diffDistanceConverted >= 0 ? `+${diffDistanceConverted.toFixed(1)}` : diffDistanceConverted.toFixed(1)} {distanceUnit} vs prev
               </span>
             </div>
           )}

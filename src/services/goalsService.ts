@@ -1,11 +1,37 @@
 import { insforge } from '../lib/insforge';
 import { Goal } from '../types';
+import { workoutService } from './workoutService';
+
+const GOALS_CACHE_KEY = 'runwar_cached_goals';
+
+const isGuest = (userId: string) => !userId || userId === 'guest_user' || userId === 'usr_guest_demo';
+
+function getLocalGoals(): Goal[] {
+  try {
+    const raw = localStorage.getItem(GOALS_CACHE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalGoals(goals: Goal[]) {
+  try {
+    localStorage.setItem(GOALS_CACHE_KEY, JSON.stringify(goals));
+  } catch (e) {
+    console.warn('Failed to cache goals:', e);
+  }
+}
 
 export const goalsService = {
   /**
-   * Fetch user goals from InsForge
+   * Fetch user goals from InsForge or local cache for guest
    */
   async getGoals(userId: string): Promise<Goal[]> {
+    if (isGuest(userId)) {
+      return getLocalGoals();
+    }
+
     try {
       const { data, error } = await insforge.database
         .from('goals')
@@ -14,10 +40,12 @@ export const goalsService = {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      return (data as Goal[]) || [];
+      const goals = (data as Goal[]) || [];
+      saveLocalGoals(goals);
+      return goals;
     } catch (err) {
-      console.warn('Failed to fetch goals:', err);
-      return [];
+      console.warn('Failed to fetch goals from cloud, using cache:', err);
+      return getLocalGoals();
     }
   },
 
@@ -33,8 +61,20 @@ export const goalsService = {
       period: goal.period,
       start_date: goal.start_date || new Date().toISOString(),
       end_date: goal.end_date || null,
-      status: 'active',
+      status: 'active' as const,
     };
+
+    if (isGuest(goal.user_id)) {
+      const savedGoal: Goal = {
+        ...newGoalPayload,
+        id: crypto.randomUUID(),
+        created_at: new Date().toISOString(),
+      };
+      const existing = getLocalGoals();
+      saveLocalGoals([savedGoal, ...existing]);
+      await this.updateProgress(goal.user_id);
+      return savedGoal;
+    }
 
     const { data, error } = await insforge.database
       .from('goals')
@@ -54,24 +94,36 @@ export const goalsService = {
    * Update or pause goal status
    */
   async updateGoalStatus(goalId: string, status: 'active' | 'completed' | 'paused'): Promise<void> {
-    const { error } = await insforge.database
-      .from('goals')
-      .update({ status })
-      .eq('id', goalId);
+    const localGoals = getLocalGoals();
+    const updated = localGoals.map((g) => (g.id === goalId ? { ...g, status } : g));
+    saveLocalGoals(updated);
 
-    if (error) throw error;
+    try {
+      await insforge.database
+        .from('goals')
+        .update({ status })
+        .eq('id', goalId);
+    } catch (err) {
+      // Non-blocking for offline or guest
+    }
   },
 
   /**
    * Delete goal
    */
   async deleteGoal(goalId: string): Promise<void> {
-    const { error } = await insforge.database
-      .from('goals')
-      .delete()
-      .eq('id', goalId);
+    const localGoals = getLocalGoals();
+    const updated = localGoals.filter((g) => g.id !== goalId);
+    saveLocalGoals(updated);
 
-    if (error) throw error;
+    try {
+      await insforge.database
+        .from('goals')
+        .delete()
+        .eq('id', goalId);
+    } catch (err) {
+      // Non-blocking for offline or guest
+    }
   },
 
   /**
@@ -83,24 +135,32 @@ export const goalsService = {
       const activeGoals = goals.filter((g) => g.status === 'active');
       if (activeGoals.length === 0) return;
 
-      // Fetch only necessary workout fields within the relevant date range
-      // instead of downloading ALL workouts with full route_coordinates
-      const oldestGoalStart = new Date();
-      oldestGoalStart.setDate(oldestGoalStart.getDate() - 31); // Cover monthly period
-      const { data: workoutsData } = await insforge.database
-        .from('workouts')
-        .select('started_at, distance_meters, duration_seconds')
-        .eq('user_id', userId)
-        .gte('started_at', oldestGoalStart.toISOString());
+      let workouts: any[] = [];
 
-      const workouts = workoutsData || [];
+      if (isGuest(userId)) {
+        workouts = workoutService.getCachedWorkouts();
+      } else {
+        const oldestGoalStart = new Date();
+        oldestGoalStart.setDate(oldestGoalStart.getDate() - 31);
+        try {
+          const { data } = await insforge.database
+            .from('workouts')
+            .select('started_at, distance_meters, duration_seconds')
+            .eq('user_id', userId)
+            .gte('started_at', oldestGoalStart.toISOString());
+          workouts = data || workoutService.getCachedWorkouts();
+        } catch {
+          workouts = workoutService.getCachedWorkouts();
+        }
+      }
+
       const now = new Date();
+      const updatedGoals = [...goals];
 
       for (const goal of activeGoals) {
         let currentValue = 0;
 
         if (goal.period === 'weekly') {
-          // Calculate start of current week (Monday)
           const currentDay = now.getDay();
           const diffToMonday = currentDay === 0 ? -6 : 1 - currentDay;
           const startOfWeek = new Date(now);
@@ -111,15 +171,14 @@ export const goalsService = {
 
           if (goal.goal_type === 'weekly_distance') {
             const meters = weekWorkouts.reduce((acc, w) => acc + (w.distance_meters || 0), 0);
-            currentValue = Number((meters / 1000).toFixed(2)); // in km
+            currentValue = Number((meters / 1000).toFixed(2));
           } else if (goal.goal_type === 'workout_count') {
             currentValue = weekWorkouts.length;
           } else if (goal.goal_type === 'duration') {
             const sec = weekWorkouts.reduce((acc, w) => acc + (w.duration_seconds || 0), 0);
-            currentValue = Math.round(sec / 60); // in minutes
+            currentValue = Math.round(sec / 60);
           }
         } else if (goal.period === 'monthly') {
-          // Start of current month
           const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
           const monthWorkouts = workouts.filter((w) => new Date(w.started_at) >= startOfMonth);
 
@@ -130,21 +189,34 @@ export const goalsService = {
             currentValue = monthWorkouts.length;
           }
         } else if (goal.goal_type === 'single_run') {
-          // Check maximum single run
           const maxRunMeters = workouts.reduce((max, w) => Math.max(max, w.distance_meters || 0), 0);
           currentValue = Number((maxRunMeters / 1000).toFixed(2));
         }
 
         const isCompleted = currentValue >= goal.target_value;
 
-        await insforge.database
-          .from('goals')
-          .update({
+        // Update in-memory / local cache
+        const gIdx = updatedGoals.findIndex((g) => g.id === goal.id);
+        if (gIdx !== -1) {
+          updatedGoals[gIdx] = {
+            ...updatedGoals[gIdx],
             current_value: currentValue,
             status: isCompleted ? 'completed' : 'active',
-          })
-          .eq('id', goal.id);
+          };
+        }
+
+        if (!isGuest(userId)) {
+          await insforge.database
+            .from('goals')
+            .update({
+              current_value: currentValue,
+              status: isCompleted ? 'completed' : 'active',
+            })
+            .eq('id', goal.id);
+        }
       }
+
+      saveLocalGoals(updatedGoals);
     } catch (err) {
       console.warn('Error updating goals progress:', err);
     }

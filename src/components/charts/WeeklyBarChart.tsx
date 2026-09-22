@@ -1,5 +1,6 @@
 import React from 'react';
 import { DistanceUnit } from '../../types';
+import { formatDistance } from '../../utils/formatters';
 
 interface WeeklyBarChartProps {
   dayNames: string[];
@@ -16,7 +17,7 @@ export const WeeklyBarChart: React.FC<WeeklyBarChartProps> = ({
 }) => {
   const maxDistance = Math.max(...dailyDistanceMeters, 1000); // at least 1km scale
   const todayDayIndex = (new Date().getDay() + 6) % 7; // Convert 0(Sun)->6, 1(Mon)->0
-  const totalDistanceKm = (dailyDistanceMeters.reduce((a, b) => a + b, 0) / 1000);
+  const totalMeters = dailyDistanceMeters.reduce((a, b) => a + b, 0);
   const activeDaysCount = dailyDistanceMeters.filter((m) => m > 0).length;
 
   return (
@@ -33,7 +34,7 @@ export const WeeklyBarChart: React.FC<WeeklyBarChartProps> = ({
         </div>
         <div className="text-right">
           <span className="font-display text-base font-black text-emerald-600 dark:text-emerald-400">
-            {totalDistanceKm.toFixed(1)} {distanceUnit}
+            {formatDistance(totalMeters, distanceUnit, 1)} {distanceUnit}
           </span>
           <div className="text-[9px] text-emerald-700/70 dark:text-slate-500 uppercase font-semibold">total distance</div>
         </div>
@@ -52,7 +53,7 @@ export const WeeklyBarChart: React.FC<WeeklyBarChartProps> = ({
         <div className="flex items-end justify-between gap-2.5 h-full relative z-10 px-1">
           {dayNames.map((day, idx) => {
             const meters = dailyDistanceMeters[idx] || 0;
-            const km = (meters / 1000).toFixed(1);
+            const distVal = formatDistance(meters, distanceUnit, 1);
             const heightPct = meters > 0 ? Math.max(18, Math.min(100, (meters / maxDistance) * 100)) : 4;
             const isToday = idx === todayDayIndex;
             const hasActivity = meters > 0;
@@ -62,7 +63,7 @@ export const WeeklyBarChart: React.FC<WeeklyBarChartProps> = ({
                 {/* Value / Tooltip Indicator */}
                 {hasActivity ? (
                   <span className="text-[9px] font-mono font-bold text-emerald-700 dark:text-emerald-300 mb-1 opacity-80 group-hover:opacity-100 transition-opacity">
-                    {km}
+                    {distVal}
                   </span>
                 ) : (
                   <span className="text-[9px] font-mono text-transparent mb-1">-</span>

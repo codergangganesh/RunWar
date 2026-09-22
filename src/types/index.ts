@@ -190,4 +190,5 @@ export interface LiveWorkoutState {
   lastPointTime: number | null;
   pointSequence: number;
   pendingSyncPoints: number;
+  currentLocation?: GPSCoordinate | null;
 }

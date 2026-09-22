@@ -9,9 +9,10 @@ import {
   WorkoutSplit,
   WorkoutType,
 } from '../types';
-import { calculateCalories, calculateSplits } from '../utils/calculations';
+import { calculateCalories, calculateHaversineDistance, calculateSplits } from '../utils/calculations';
 import { LocationValidator } from './locationValidator';
 import { PaceCalculator } from './paceCalculator';
+import { GPSSmoother } from './gpsSmoother';
 import { syncQueue } from './syncQueue';
 import { audioCoach } from './audioCoach';
 import { mediaSessionManager } from './mediaSessionManager';
@@ -38,6 +39,8 @@ export class WorkoutEngine {
   private lastRecordedKm: number = 0;
   private isFirstPointAfterResume: boolean = false;
   private distanceUnit: 'km' | 'mi' = 'km';
+  private gpsSmoother = new GPSSmoother();
+  private distanceAnchor: GPSCoordinate | null = null;
 
   // Batched points buffer for syncQueue
   private pointBuffer: WorkoutPointRecord[] = [];
@@ -142,8 +145,8 @@ export class WorkoutEngine {
       PAUSED: ['RESUMING', 'ACTIVE', 'FINISHING', 'FAILED', 'IDLE'],
       RESUMING: ['ACTIVE', 'PAUSED', 'FAILED'],
       FINISHING: ['COMPLETED', 'SYNCING', 'FAILED'],
-      COMPLETED: ['IDLE'],
-      FAILED: ['IDLE', 'RECOVERING'],
+      COMPLETED: ['IDLE', 'STARTING'],
+      FAILED: ['IDLE', 'RECOVERING', 'STARTING'],
       RECOVERING: ['ACTIVE', 'PAUSED', 'IDLE'],
       SYNCING: ['COMPLETED', 'FAILED'],
     };
@@ -176,7 +179,9 @@ export class WorkoutEngine {
    * Start a new active workout session
    */
   public async startWorkout(type: WorkoutType = 'run'): Promise<boolean> {
-    if (this.state.engineState !== 'IDLE' && this.state.engineState !== 'RECOVERING') {
+    if (this.state.engineState === 'COMPLETED' || this.state.engineState === 'FAILED') {
+      this.reset();
+    } else if (this.state.engineState !== 'IDLE' && this.state.engineState !== 'RECOVERING') {
       workoutLogger.log('WORKOUT_STARTED', 'warn', { error: 'Workout already in progress' });
       return false;
     }
@@ -196,6 +201,7 @@ export class WorkoutEngine {
     this.stationaryCounterSec = 0;
     this.lastRecordedKm = 0;
     this.pointBuffer = [];
+    this.resetGPSProcessing();
 
     workoutLogger.log('WORKOUT_STARTED', 'info', {
       workoutId: this.state.workoutId,
@@ -223,6 +229,26 @@ export class WorkoutEngine {
 
     this.notify();
     return true;
+  }
+
+  /** Switch the active location source without resetting the current workout. */
+  public setSimulationMode(enabled: boolean): void {
+    if (this.isSimulationMode === enabled) return;
+
+    this.isSimulationMode = enabled;
+    this.resetGPSProcessing();
+
+    if (this.state.engineState === 'ACTIVE' || this.state.engineState === 'PAUSED') {
+      if (enabled) {
+        this.stopGPSWatcher();
+        this.startSimulation();
+      } else {
+        this.stopSimulation();
+        this.startGPSWatcher();
+      }
+    }
+
+    this.notify();
   }
 
   /**
@@ -271,6 +297,16 @@ export class WorkoutEngine {
     this.stationaryCounterSec = 0;
     this.isFirstPointAfterResume = true;
 
+    // Ensure timer and location watchers are active (critical when resuming recovered sessions)
+    if (!this.workerTimer && !this.fallbackInterval) {
+      this.startBackgroundTimer();
+    }
+    if (this.isSimulationMode) {
+      if (!this.simInterval) this.startSimulation();
+    } else {
+      if (this.watchId === null) this.startGPSWatcher();
+    }
+
     workoutLogger.log('WORKOUT_RESUMED', 'info', { elapsedTime: this.state.elapsedTime }, this.state.workoutId);
     audioCoach.announceWorkoutResumed();
     this.vibrate([100]);
@@ -286,6 +322,27 @@ export class WorkoutEngine {
     this.acquireWakeLock();
     this.notify();
     return true;
+  }
+
+  /**
+   * Reset engine cleanly to initial idle state
+   */
+  public reset(): void {
+    this.stopBackgroundTimer();
+    this.stopGPSWatcher();
+    this.stopSimulation();
+    this.releaseWakeLock();
+    audioCoach.stop();
+    mediaSessionManager.endSession();
+
+    this.state = this.createInitialState();
+    this.pointBuffer = [];
+    this.stationaryCounterSec = 0;
+    this.lastRecordedKm = 0;
+    this.isFirstPointAfterResume = false;
+    this.resetGPSProcessing();
+    localStorage.removeItem(BACKUP_STORAGE_KEY);
+    this.notify();
   }
 
   /**
@@ -322,7 +379,7 @@ export class WorkoutEngine {
       splitsCount: this.state.splits.length,
     }, this.state.workoutId);
 
-    audioCoach.announceWorkoutFinished(this.state.distanceMeters, this.state.elapsedTime);
+    audioCoach.announceWorkoutFinished(this.state.distanceMeters, this.state.elapsedTime, this.distanceUnit);
     this.vibrate([150, 100, 150, 100, 300]);
     mediaSessionManager.endSession();
 
@@ -345,6 +402,7 @@ export class WorkoutEngine {
 
     this.state = this.createInitialState();
     this.pointBuffer = [];
+    this.resetGPSProcessing();
     localStorage.removeItem(BACKUP_STORAGE_KEY);
     this.notify();
   }
@@ -357,7 +415,8 @@ export class WorkoutEngine {
     const timestamp = raw.timestamp || Date.now();
 
     this.state.gpsAccuracy = accuracy;
-    this.state.gpsStatus = accuracy <= 20 ? 'locked' : accuracy <= 40 ? 'weak' : 'searching';
+    // Keep the visible status aligned with LocationValidator's 35 m acceptance limit.
+    this.state.gpsStatus = accuracy <= 20 ? 'locked' : accuracy <= 35 ? 'weak' : 'searching';
 
     const rawPoint: GPSCoordinate = {
       latitude,
@@ -374,7 +433,16 @@ export class WorkoutEngine {
   /**
    * Core Coordinate Pipeline (Validation → Distance → Pace → Buffer → Splits)
    */
-  public processCoordinate(coord: GPSCoordinate) {
+  public processCoordinate(rawCoordinate: GPSCoordinate) {
+    const smoothed = this.gpsSmoother.smooth(rawCoordinate);
+    if (!smoothed) {
+      // Keep the live marker responsive while GPS warms up, without recording a route yet.
+      this.state.currentLocation = rawCoordinate;
+      this.notify();
+      return;
+    }
+
+    const coord = smoothed.coordinate;
     const coords = this.state.coordinates;
     const prevCoord = coords.length > 0 ? coords[coords.length - 1] : null;
 
@@ -385,7 +453,8 @@ export class WorkoutEngine {
       return;
     }
 
-    coord.distanceFromPrevious = validation.distanceFromPrevMeters;
+    coord.distanceFromPrevious = this.getNoiseAwareDistance(coord);
+    this.state.currentLocation = coord;
     this.state.pointSequence += 1;
     coord.sequence_number = this.state.pointSequence;
 
@@ -395,14 +464,14 @@ export class WorkoutEngine {
         this.isFirstPointAfterResume = false;
         // Accept the coordinate as baseline without adding distance
       } else {
-        this.state.distanceMeters += validation.distanceFromPrevMeters;
+        this.state.distanceMeters += coord.distanceFromPrevious;
       }
 
       // 3. Speed & Pace Calculation with Noise Smoothing
       let instSpeedKmh = 0;
-      if (prevCoord && validation.distanceFromPrevMeters > 0) {
+      if (prevCoord && coord.distanceFromPrevious > 0) {
         const dtSec = Math.max(1, (coord.timestamp - prevCoord.timestamp) / 1000);
-        instSpeedKmh = (validation.distanceFromPrevMeters / 1000) / (dtSec / 3600);
+        instSpeedKmh = (coord.distanceFromPrevious / 1000) / (dtSec / 3600);
       } else if (coord.speed && coord.speed > 0) {
         instSpeedKmh = coord.speed * 3.6;
       }
@@ -489,13 +558,46 @@ export class WorkoutEngine {
         lastSplitPace
       );
 
-      this.state.lastPointTime = coord.timestamp;
+    this.state.lastPointTime = coord.timestamp;
     } else {
-      // In IDLE or PAUSED, update marker pin position without adding distance
-      coords.push(coord);
+      // In IDLE or PAUSED, coordinate is tracked in this.state.currentLocation for marker positioning.
+      // We do NOT push to coords so stationary jitter/drift doesn't corrupt the route polyline or splits.
     }
 
     this.notify();
+  }
+
+  /**
+   * Only add distance after the smoothed position has moved beyond its likely
+   * GPS noise radius. This avoids false distance while standing still, while
+   * preserving normal walking and running movement over the next few samples.
+   */
+  private getNoiseAwareDistance(coord: GPSCoordinate): number {
+    if (!this.distanceAnchor) {
+      this.distanceAnchor = coord;
+      return 0;
+    }
+
+    const distanceMeters = calculateHaversineDistance(
+      this.distanceAnchor.latitude,
+      this.distanceAnchor.longitude,
+      coord.latitude,
+      coord.longitude
+    );
+    const averageAccuracy = ((this.distanceAnchor.accuracy ?? 35) + (coord.accuracy ?? 35)) / 2;
+    const noiseThresholdMeters = Math.max(2, Math.min(6, averageAccuracy * 0.24));
+
+    if (distanceMeters < noiseThresholdMeters) {
+      return 0;
+    }
+
+    this.distanceAnchor = coord;
+    return distanceMeters;
+  }
+
+  private resetGPSProcessing(): void {
+    this.gpsSmoother.reset();
+    this.distanceAnchor = null;
   }
 
   private flushPointBuffer() {

@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 
 interface WorkoutSummaryScreenProps {
-  workoutState: LiveWorkoutState;
+  workoutState: LiveWorkoutState | null;
   profile: UserProfile | null;
   onSaved: (savedWorkout: Workout) => void;
   onDone: () => void;
@@ -62,27 +62,42 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
   const distanceUnit = profile?.distance_unit || 'km';
   const paceUnit = profile?.pace_unit || 'min_km';
 
+  // Defensive field extraction
+  const avgSpeed = workoutState?.averageSpeed != null && !isNaN(workoutState.averageSpeed) ? workoutState.averageSpeed : 0;
+  const maxSpd = workoutState?.maxSpeed != null && !isNaN(workoutState.maxSpeed) ? workoutState.maxSpeed : 0;
+  const distM = workoutState?.distanceMeters || 0;
+  const avgPaceVal = workoutState?.averagePace || 0;
+  const elapsed = workoutState?.elapsedTime || 0;
+  const moving = workoutState?.movingTime || elapsed;
+  const paused = workoutState?.pausedTime || 0;
+  const cals = workoutState?.calories || 0;
+  const elevGain = workoutState?.elevationGain || 0;
+  const elevLoss = workoutState?.elevationLoss || 0;
+  const coords = workoutState?.coordinates || [];
+  const splitsList = workoutState?.splits || [];
+  const wType = workoutState?.type || 'run';
+
   // Construct workout object for immediate sharing or details
   const currentWorkoutObject: Workout = savedWorkout || {
-    id: 'temp_workout_' + Date.now(),
+    id: workoutState?.workoutId || 'temp_workout_' + Date.now(),
     user_id: profile?.user_id || 'guest_user',
-    type: workoutState.type,
-    title: `${workoutState.type.charAt(0).toUpperCase() + workoutState.type.slice(1)} Session`,
-    started_at: new Date(workoutState.startTime || Date.now() - workoutState.elapsedTime * 1000).toISOString(),
+    type: wType,
+    title: `${wType.charAt(0).toUpperCase() + wType.slice(1)} Session`,
+    started_at: new Date(workoutState?.startTime || Date.now() - elapsed * 1000).toISOString(),
     ended_at: new Date().toISOString(),
-    duration_seconds: workoutState.elapsedTime,
-    moving_duration_seconds: workoutState.movingTime || workoutState.elapsedTime,
-    paused_duration_seconds: workoutState.pausedTime || 0,
-    distance_meters: Math.round(workoutState.distanceMeters),
-    average_pace: Math.round(workoutState.averagePace),
-    average_speed: Number(workoutState.averageSpeed.toFixed(2)),
-    max_speed: Number(workoutState.maxSpeed.toFixed(2)),
-    calories: workoutState.calories,
-    elevation_gain: Math.round(workoutState.elevationGain || 0),
-    elevation_loss: Math.round(workoutState.elevationLoss || 0),
+    duration_seconds: elapsed,
+    moving_duration_seconds: moving,
+    paused_duration_seconds: paused,
+    distance_meters: Math.round(distM),
+    average_pace: Math.round(avgPaceVal),
+    average_speed: Number(avgSpeed.toFixed(2)),
+    max_speed: Number(maxSpd.toFixed(2)),
+    calories: cals,
+    elevation_gain: Math.round(elevGain),
+    elevation_loss: Math.round(elevLoss),
     status: 'completed',
-    route_coordinates: workoutState.coordinates,
-    splits: workoutState.splits,
+    route_coordinates: coords,
+    splits: splitsList,
     created_at: new Date().toISOString(),
   };
 
@@ -102,31 +117,32 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
 
   // 2. Auto-save workout immediately in background on mount
   const handleAutoSave = useCallback(async () => {
-    if (isSavingRef.current || savedWorkout) return;
+    if (!workoutState || isSavingRef.current || savedWorkout) return;
     isSavingRef.current = true;
     setSaving(true);
 
     try {
-      const payload: Omit<Workout, 'id' | 'created_at'> = {
+      const payload: Omit<Workout, 'id' | 'created_at'> & { id?: string } = {
+        id: workoutState.workoutId,
         user_id: profile?.user_id || 'guest_user',
-        type: workoutState.type,
-        title: `${workoutState.type.charAt(0).toUpperCase() + workoutState.type.slice(1)} Session`,
+        type: wType,
+        title: `${wType.charAt(0).toUpperCase() + wType.slice(1)} Session`,
         notes: '',
-        started_at: new Date(workoutState.startTime || Date.now() - workoutState.elapsedTime * 1000).toISOString(),
+        started_at: new Date(workoutState.startTime || Date.now() - elapsed * 1000).toISOString(),
         ended_at: new Date().toISOString(),
-        duration_seconds: workoutState.elapsedTime,
-        moving_duration_seconds: workoutState.movingTime || workoutState.elapsedTime,
-        paused_duration_seconds: workoutState.pausedTime || 0,
-        distance_meters: Math.round(workoutState.distanceMeters),
-        average_pace: Math.round(workoutState.averagePace),
-        average_speed: Number(workoutState.averageSpeed.toFixed(2)),
-        max_speed: Number(workoutState.maxSpeed.toFixed(2)),
-        calories: workoutState.calories,
-        elevation_gain: Math.round(workoutState.elevationGain || 0),
-        elevation_loss: Math.round(workoutState.elevationLoss || 0),
+        duration_seconds: elapsed,
+        moving_duration_seconds: moving,
+        paused_duration_seconds: paused,
+        distance_meters: Math.round(distM),
+        average_pace: Math.round(avgPaceVal),
+        average_speed: Number(avgSpeed.toFixed(2)),
+        max_speed: Number(maxSpd.toFixed(2)),
+        calories: cals,
+        elevation_gain: Math.round(elevGain),
+        elevation_loss: Math.round(elevLoss),
         status: 'completed',
-        route_coordinates: workoutState.coordinates,
-        splits: workoutState.splits,
+        route_coordinates: coords,
+        splits: splitsList,
       };
 
       const result = await workoutService.saveWorkout(payload);
@@ -137,7 +153,7 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
     } finally {
       setSaving(false);
     }
-  }, [workoutState, profile, onSaved, savedWorkout]);
+  }, [workoutState, profile, onSaved, savedWorkout, wType, elapsed, moving, paused, distM, avgPaceVal, avgSpeed, maxSpd, cals, elevGain, elevLoss, coords, splitsList]);
 
   useEffect(() => {
     handleAutoSave();
@@ -156,12 +172,12 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
       return;
     }
 
-    const distStr = formatDistance(workoutState.distanceMeters, distanceUnit);
-    const durMins = Math.floor(workoutState.elapsedTime / 60);
-    const durSecs = workoutState.elapsedTime % 60;
-    const paceStr = formatPace(workoutState.averagePace, paceUnit).replace(/\s\/\w+/, '');
+    const distStr = formatDistance(distM, distanceUnit);
+    const durMins = Math.floor(elapsed / 60);
+    const durSecs = elapsed % 60;
+    const paceStr = formatPace(avgPaceVal, paceUnit).replace(/\s\/\w+/, '');
 
-    const text = `Workout complete! Fantastic effort! You covered ${distStr} ${distanceUnit === 'km' ? 'kilometers' : 'miles'} in ${durMins} minutes and ${durSecs} seconds, with an average pace of ${paceStr} per ${distanceUnit === 'km' ? 'kilometer' : 'mile'}. You burned ${workoutState.calories} calories. Keep up the great consistency!`;
+    const text = `Workout complete! Fantastic effort! You covered ${distStr} ${distanceUnit === 'mi' ? 'miles' : 'kilometers'} in ${durMins} minutes and ${durSecs} seconds, with an average pace of ${paceStr} per ${distanceUnit === 'mi' ? 'mile' : 'kilometer'}. You burned ${cals} calories. Keep up the great consistency!`;
 
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = 1.0;
@@ -185,7 +201,7 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
   }, []);
 
   // Format Date and Time
-  const workoutDate = new Date(workoutState.startTime || Date.now());
+  const workoutDate = new Date(workoutState?.startTime || Date.now());
   const formattedDate = workoutDate.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
@@ -197,10 +213,24 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
     hour12: true,
   })}`;
 
-  const formattedDistance = (workoutState.distanceMeters / (distanceUnit === 'mi' ? 1609.34 : 1000)).toFixed(2);
-  const formattedDuration = formatDuration(workoutState.elapsedTime);
-  const formattedMovingTime = formatDuration(workoutState.movingTime || workoutState.elapsedTime);
-  const formattedPace = formatPace(workoutState.averagePace, paceUnit).replace(/\s\/\w+/, '');
+  const formattedDistance = (distM / (distanceUnit === 'mi' ? 1609.34 : 1000)).toFixed(2);
+  const formattedDuration = formatDuration(elapsed);
+  const formattedMovingTime = formatDuration(moving);
+  const formattedPace = formatPace(avgPaceVal, paceUnit).replace(/\s\/\w+/, '');
+
+  if (!workoutState) {
+    return (
+      <div className="p-8 text-center text-slate-400 flex flex-col items-center justify-center min-h-[50vh] space-y-4">
+        <p className="text-sm font-medium">No workout data found.</p>
+        <button
+          onClick={onDone}
+          className="px-6 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl font-bold text-sm shadow-md transition-all"
+        >
+          Back to Home
+        </button>
+      </div>
+    );
+  }
 
   // Handle View Details navigation
   const handleViewDetails = () => {
@@ -318,7 +348,7 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
 
         {/* Route Map */}
         <StaticRouteMap
-          coordinates={workoutState.coordinates}
+          coordinates={coords}
           className="h-56 sm:h-60 w-full rounded-2xl shadow-sm border border-slate-200/80 dark:border-slate-800"
           interactive={true}
         />
@@ -390,7 +420,7 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
               <span>Calories</span>
             </div>
             <div className="font-display text-base sm:text-lg font-black text-slate-950 dark:text-white">
-              {workoutState.calories}{' '}
+              {cals}{' '}
               <span className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 font-bold">
                 kcal
               </span>
@@ -416,7 +446,7 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
               <span>Elevation Gain</span>
             </div>
             <div className="font-mono text-sm sm:text-base font-bold text-slate-900 dark:text-white">
-              {Math.round(workoutState.elevationGain || 0)} m
+              {Math.round(elevGain)} m
             </div>
           </div>
 
@@ -426,7 +456,7 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
               <span>Elevation Loss</span>
             </div>
             <div className="font-mono text-sm sm:text-base font-bold text-slate-900 dark:text-white">
-              {Math.round(workoutState.elevationLoss || 0)} m
+              {Math.round(elevLoss)} m
             </div>
           </div>
         </div>

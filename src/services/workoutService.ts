@@ -161,6 +161,11 @@ export const workoutService = {
         created_at: new Date().toISOString(),
       });
 
+      // Flush queued point batches for this confirmed workout now that parent record exists
+      syncQueue.flushWorkoutPoints(savedWorkout.id).catch((ptErr) => {
+        console.warn('Non-blocking error flushing point batches:', ptErr);
+      });
+
       // 2. Batch insert splits if present
       if (normalized.splits && normalized.splits.length > 0) {
         const splitsPayload = normalized.splits.map((s) => ({
