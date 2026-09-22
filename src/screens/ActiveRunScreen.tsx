@@ -47,16 +47,21 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
   const [simMode, setSimMode] = useState(gpsEngine.isSimulationMode);
   const [activeToast, setActiveToast] = useState<SplitToastInfo | null>(null);
 
-  // Auto-dismiss kilometer split toast after 6 seconds
+  // Auto-dismiss kilometer split toast after 8 seconds
+  useEffect(() => {
+    if (!activeToast) return;
+    const timer = setTimeout(() => {
+      setActiveToast(null);
+    }, 8000);
+    return () => clearTimeout(timer);
+  }, [activeToast?.timestamp]);
+
   useEffect(() => {
     if (workoutState.activeSplitToast) {
       setActiveToast(workoutState.activeSplitToast);
-      const timer = setTimeout(() => {
-        setActiveToast(null);
-      }, 6000);
-      return () => clearTimeout(timer);
     }
   }, [workoutState.activeSplitToast?.timestamp]);
+
 
   // Subscribe to GPS & Engine updates
   useEffect(() => {
@@ -201,6 +206,7 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
             >
               {simMode ? '⚡ Sim ON' : 'Sim Mode'}
             </button>
+
           </div>
 
           {/* Voice Coach, Splits & View Switcher */}
@@ -246,52 +252,47 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
           </div>
         </div>
 
-        {/* Floating Kilometer Split Milestone Toast */}
+        {/* Milestone Split Toast - Simple, clean, standard look */}
         {activeToast && (
-          <div className="fixed top-14 left-4 right-4 z-50 flex justify-center pointer-events-none animate-bounce">
-            <div className="bg-white/95 dark:bg-slate-900/95 border-2 border-emerald-500 rounded-2xl p-3 shadow-2xl backdrop-blur-md flex items-center gap-3 text-slate-900 dark:text-white max-w-sm w-full pointer-events-auto transition-all">
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex flex-col items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
-                <span className="text-[10px] font-bold leading-none">KM</span>
-                <span className="text-base font-black leading-none">{activeToast.kilometer}</span>
+          <div className="fixed top-14 left-4 right-4 z-50 flex justify-center pointer-events-none animate-fade-in">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3 shadow-lg flex items-center gap-3 text-slate-900 dark:text-white max-w-sm w-full pointer-events-auto transition-all">
+              <div className="w-10 h-10 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 flex flex-col items-center justify-center text-emerald-700 dark:text-emerald-400 shrink-0">
+                <span className="text-[9px] font-bold uppercase leading-none text-emerald-600 dark:text-emerald-500">
+                  {distanceUnit === 'mi' ? 'MI' : 'KM'}
+                </span>
+                <span className="text-sm font-black leading-none mt-0.5">
+                  {activeToast.kilometer}
+                </span>
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
-                    KM {activeToast.kilometer} Complete! 🎉
+                  <span className="text-xs font-bold text-slate-900 dark:text-slate-100">
+                    {distanceUnit === 'mi' ? `Mile ${activeToast.kilometer}` : `Kilometer ${activeToast.kilometer}`}
                   </span>
-                  <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400">
+                  <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">
                     {formatDuration(activeToast.splitDuration)}
                   </span>
                 </div>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <span className="font-mono text-sm font-black">
+                <div className="flex items-center gap-2 mt-0.5 text-xs">
+                  <span className="font-mono text-slate-500 dark:text-slate-400">
                     {formatPace(activeToast.splitPace, paceUnit)}
                   </span>
                   {activeToast.diffPaceSeconds !== 0 && (
-                    <span
-                      className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full flex items-center gap-0.5 ${activeToast.diffPaceSeconds < 0
-                          ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-400'
-                          : 'bg-amber-500/20 text-amber-700 dark:text-amber-400'
-                        }`}
-                    >
-                      {activeToast.diffPaceSeconds < 0 ? (
-                        <>
-                          <TrendingUp size={9} />
-                          <span>{Math.abs(activeToast.diffPaceSeconds)}s faster</span>
-                        </>
-                      ) : (
-                        <>
-                          <TrendingDown size={9} />
-                          <span>+{activeToast.diffPaceSeconds}s slower</span>
-                        </>
-                      )}
+                    <span className={`text-[11px] font-medium ${
+                      activeToast.diffPaceSeconds < 0
+                        ? 'text-emerald-600 dark:text-emerald-400'
+                        : 'text-amber-600 dark:text-amber-400'
+                    }`}>
+                      {activeToast.diffPaceSeconds < 0
+                        ? `(-${Math.abs(activeToast.diffPaceSeconds)}s)`
+                        : `(+${activeToast.diffPaceSeconds}s)`}
                     </span>
                   )}
                 </div>
               </div>
               <button
                 onClick={() => setActiveToast(null)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-white p-1 text-xs"
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 text-xs"
                 aria-label="Dismiss"
               >
                 ✕

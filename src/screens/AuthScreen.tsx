@@ -595,6 +595,15 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   </svg>
                   <span>Continue with Google</span>
                 </button>
+
+                {/* Quick Demo / Guest Mode Access */}
+                <button
+                  type="button"
+                  onClick={onGuestAccess}
+                  className="w-full mt-2.5 py-3.5 px-4 rounded-2xl bg-emerald-50 hover:bg-emerald-100/80 active:scale-[0.98] text-emerald-800 font-bold text-xs flex items-center justify-center gap-2 border border-emerald-300 shadow-sm transition-all"
+                >
+                  <span>⚡ Quick Demo / Guest Mode</span>
+                </button>
               </>
             )}
 
