@@ -24,6 +24,8 @@ export type NetworkSyncStatus = 'online' | 'offline' | 'syncing' | 'synced' | 'f
 export interface UserProfile {
   id: string;
   user_id: string;
+  firebase_uid?: string | null;
+  phone_number?: string | null;
   name: string;
   email: string | null;
   age: number | null;

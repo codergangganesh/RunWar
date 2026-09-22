@@ -57,6 +57,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
         typical_workout_type: workoutType,
       });
 
+      localStorage.setItem(`runwar_profile_setup_done_${userId}`, 'true');
       onComplete(profile);
     } catch (err) {
       console.error('Error saving profile setup:', err);

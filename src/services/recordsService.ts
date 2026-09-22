@@ -1,5 +1,6 @@
 import { insforge } from '../lib/insforge';
 import { PersonalRecord, Workout } from '../types';
+import { toDeterministicUUID } from '../utils/uuid';
 
 const PR_CACHE_KEY = 'runwar_cached_prs';
 
@@ -31,11 +32,13 @@ export const recordsService = {
       return getLocalPRs();
     }
 
+    const normalizedId = toDeterministicUUID(userId);
+
     try {
       const { data, error } = await insforge.database
         .from('personal_records')
         .select('*')
-        .eq('user_id', userId);
+        .eq('user_id', normalizedId);
 
       if (error) throw error;
       const records = (data as PersonalRecord[]) || [];

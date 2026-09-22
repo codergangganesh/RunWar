@@ -294,3 +294,11 @@ ON CONFLICT (id) DO UPDATE SET
     category = EXCLUDED.category,
     requirement_type = EXCLUDED.requirement_type,
     requirement_value = EXCLUDED.requirement_value;
+
+-- ============================================================
+-- MIGRATION: FIREBASE PHONE OTP AUTHENTICATION SUPPORT
+-- ============================================================
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS firebase_uid TEXT UNIQUE;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS phone_number TEXT;
+CREATE INDEX IF NOT EXISTS idx_profiles_firebase_uid ON public.profiles(firebase_uid);
+

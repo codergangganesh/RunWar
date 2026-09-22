@@ -23,12 +23,14 @@ import { ErrorBoundary } from './components/ui/ErrorBoundary';
 
 import { insforge } from './lib/insforge';
 import { authService } from './services/authService';
+import { firebaseAuthService } from './services/firebaseAuthService';
 import { workoutService } from './services/workoutService';
 import { goalsService } from './services/goalsService';
 import { achievementsService } from './services/achievementsService';
 import { recordsService } from './services/recordsService';
 import { offlineSync } from './services/offlineSync';
 import { gpsEngine } from './services/gpsEngine';
+import { toDeterministicUUID } from './utils/uuid';
 import {
   Achievement,
   Goal,
@@ -202,11 +204,43 @@ export const App: React.FC = () => {
 
     const initAuth = async () => {
       try {
-        const user = await authService.getCurrentUser();
+        // 1. Check if InsForge session exists
+        let user = await authService.getCurrentUser();
+
+        // 2. If not in InsForge, check if Firebase user is logged in
+        if (!user) {
+          const fbUser = firebaseAuthService.getFirebaseUser();
+          if (fbUser) {
+            const token = await firebaseAuthService.getIdToken();
+            if (token && typeof (insforge as any).setAccessToken === 'function') {
+              (insforge as any).setAccessToken(token);
+            }
+            const normalizedFbId = toDeterministicUUID(fbUser.uid);
+            let fbProfile = await authService.getProfile(normalizedFbId);
+            if (!fbProfile) {
+              fbProfile = await authService.createProfileFromPhone(
+                fbUser.uid,
+                fbUser.phoneNumber || ''
+              );
+            }
+            user = {
+              id: normalizedFbId,
+              firebase_uid: fbUser.uid,
+              phone_number: fbUser.phoneNumber,
+              email: fbUser.email,
+              name: fbProfile?.name || 'Runner',
+            };
+            authService.setCachedUser(user);
+          }
+        }
+
         if (user) {
           setCurrentUser(user);
           authService.setCachedUser(user);
-          let userProfile = await authService.getProfile(user.id);
+          let userProfile = user.firebase_uid
+            ? await authService.getProfileByFirebaseUid(user.firebase_uid)
+            : await authService.getProfile(user.id);
+
           if (!userProfile) {
             await authService.createInitialProfile(
               user.id,
@@ -220,14 +254,26 @@ export const App: React.FC = () => {
           // If we are currently on splash or welcome, immediately route to main home screen
           setScreen((prev) => (prev === 'splash' || prev === 'welcome' ? 'main' : prev));
         } else {
-          setCurrentUser(null);
-          authService.clearCachedUser();
-          setScreen((prev) => (prev === 'splash' ? 'welcome' : prev));
+          // Check local cached session user
+          const cached = authService.getCachedUser();
+          if (cached?.id) {
+            setCurrentUser(cached);
+            let userProfile = cached.firebase_uid
+              ? await authService.getProfileByFirebaseUid(cached.firebase_uid)
+              : await authService.getProfile(cached.id);
+            if (userProfile) setProfile(userProfile);
+            await loadAppData(cached.id, true);
+            setScreen((prev) => (prev === 'splash' || prev === 'welcome' ? 'main' : prev));
+          } else {
+            setCurrentUser(null);
+            authService.clearCachedUser();
+            setScreen((prev) => (prev === 'splash' ? 'welcome' : prev));
+          }
         }
       } catch (e) {
         console.warn('Auth check error:', e);
         const cached = authService.getCachedUser();
-        if (cached) {
+        if (cached?.id) {
           setCurrentUser(cached);
           setScreen((prev) => (prev === 'splash' || prev === 'welcome' ? 'main' : prev));
         } else {
@@ -248,7 +294,17 @@ export const App: React.FC = () => {
 
     initAuth();
 
-    // Listen for auth state changes (e.g. Google OAuth redirect callback completion)
+    // Listen for Firebase Auth state changes
+    const unsubFirebase = firebaseAuthService.onAuthStateChanged(async (fbUser) => {
+      if (fbUser) {
+        const token = await firebaseAuthService.getIdToken();
+        if (token && typeof (insforge as any).setAccessToken === 'function') {
+          (insforge as any).setAccessToken(token);
+        }
+      }
+    });
+
+    // Listen for InsForge auth state changes (e.g. Google OAuth redirect callback completion)
     const unsubscribe = insforge.auth.onAuthStateChange(async (event) => {
       if (event === 'signedIn') {
         const user = await authService.getCurrentUser();
@@ -274,6 +330,7 @@ export const App: React.FC = () => {
     });
 
     return () => {
+      if (typeof unsubFirebase === 'function') unsubFirebase();
       if (typeof unsubscribe === 'function') unsubscribe();
       window.removeEventListener('runwar:sync_completed', handleSyncCompleted);
     };
@@ -337,10 +394,13 @@ export const App: React.FC = () => {
   const handleAuthSuccess = async (user: any, isNewUser = false) => {
     setCurrentUser(user);
     authService.setCachedUser(user);
-    const prof = await authService.getProfile(user.id);
+    const prof = user.firebase_uid
+      ? await authService.getProfileByFirebaseUid(user.firebase_uid)
+      : await authService.getProfile(user.id);
     const isSetupDone = localStorage.getItem(`runwar_profile_setup_done_${user.id}`);
 
     if (isNewUser || !prof || !isSetupDone) {
+      if (prof) setProfile(prof);
       setScreen('profile_setup');
     } else {
       setProfile(prof);

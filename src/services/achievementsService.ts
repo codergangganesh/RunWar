@@ -1,6 +1,7 @@
 import { insforge } from '../lib/insforge';
 import { Achievement, UserAchievement, Workout } from '../types';
 import { workoutService } from './workoutService';
+import { toDeterministicUUID } from '../utils/uuid';
 
 const USER_ACHIEVEMENTS_CACHE_KEY = 'runwar_cached_user_achievements';
 
@@ -186,11 +187,13 @@ export const achievementsService = {
       }));
     }
 
+    const normalizedId = toDeterministicUUID(userId);
+
     try {
       const { data, error } = await insforge.database
         .from('user_achievements')
         .select('*, achievement:achievements(*)')
-        .eq('user_id', userId);
+        .eq('user_id', normalizedId);
 
       if (error) throw error;
       const achievements = (data as UserAchievement[]) || [];

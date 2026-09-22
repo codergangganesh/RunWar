@@ -1,6 +1,7 @@
 import { insforge } from '../lib/insforge';
 import { Goal } from '../types';
 import { workoutService } from './workoutService';
+import { toDeterministicUUID } from '../utils/uuid';
 
 const GOALS_CACHE_KEY = 'runwar_cached_goals';
 
@@ -32,11 +33,13 @@ export const goalsService = {
       return getLocalGoals();
     }
 
+    const normalizedId = toDeterministicUUID(userId);
+
     try {
       const { data, error } = await insforge.database
         .from('goals')
         .select('*')
-        .eq('user_id', userId)
+        .eq('user_id', normalizedId)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
