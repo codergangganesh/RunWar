@@ -17,6 +17,9 @@ export interface SaveWorkoutResult {
 
 function normalizeWorkout(raw: any): Workout {
   const type: WorkoutType = ['run', 'jog', 'walk'].includes(raw.type) ? raw.type : 'run';
+  const status: 'completed' | 'paused' | 'discarded' = ['completed', 'paused', 'discarded'].includes(raw.status)
+    ? raw.status
+    : 'completed';
   return {
     id: raw.id || crypto.randomUUID(),
     user_id: raw.user_id || 'guest_user',
@@ -35,7 +38,7 @@ function normalizeWorkout(raw: any): Workout {
     calories: Math.round(Number(raw.calories) || 0),
     elevation_gain: Math.round(Number(raw.elevation_gain) || 0),
     elevation_loss: Math.round(Number(raw.elevation_loss) || 0),
-    status: (raw.status as any) || 'completed',
+    status,
     route_coordinates: Array.isArray(raw.route_coordinates) ? raw.route_coordinates : [],
     splits: Array.isArray(raw.splits) ? raw.splits : [],
     created_at: raw.created_at || new Date().toISOString(),
@@ -61,7 +64,7 @@ export const workoutService = {
       type,
     });
 
-    const newWorkoutPayload = {
+    const newWorkoutPayload: Omit<Workout, 'id' | 'created_at'> & { id: string } = {
       id: normalized.id,
       user_id: normalized.user_id,
       type: normalized.type,
