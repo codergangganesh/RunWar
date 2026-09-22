@@ -137,53 +137,44 @@ export const authService = {
    */
   async updateProfile(userId: string, updates: Partial<UserProfile>): Promise<UserProfile> {
     const existing = await this.getProfile(userId);
-    let result: UserProfile;
+    const profilePayload: any = {
+      id: existing?.id || userId,
+      user_id: userId,
+      name: updates.name ?? existing?.name ?? 'Runner',
+      email: updates.email ?? existing?.email ?? null,
+      age: updates.age ?? existing?.age ?? 25,
+      gender: updates.gender ?? existing?.gender ?? 'unspecified',
+      height: updates.height ?? existing?.height ?? 175,
+      weight: updates.weight ?? existing?.weight ?? 70,
+      distance_unit: updates.distance_unit ?? existing?.distance_unit ?? 'km',
+      pace_unit: updates.pace_unit ?? existing?.pace_unit ?? 'min_km',
+      weight_unit: updates.weight_unit ?? existing?.weight_unit ?? 'kg',
+      fitness_goal: updates.fitness_goal ?? existing?.fitness_goal ?? '5k_run',
+      typical_workout_type: updates.typical_workout_type ?? existing?.typical_workout_type ?? 'run',
+      avatar_url: updates.avatar_url ?? existing?.avatar_url ?? null,
+      created_at: existing?.created_at || new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
 
-    if (existing) {
+    try {
       const { data, error } = await insforge.database
         .from('profiles')
-        .update({
-          ...updates,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('user_id', userId)
+        .upsert([profilePayload], { onConflict: 'user_id' })
         .select()
-        .single();
+        .maybeSingle();
 
-      if (error) throw error;
-      result = data as UserProfile;
-    } else {
-      const newProfile = {
-        id: userId,
-        user_id: userId,
-        name: updates.name || 'Runner',
-        email: updates.email || null,
-        age: updates.age || 25,
-        gender: updates.gender || 'unspecified',
-        height: updates.height || 175,
-        weight: updates.weight || 70,
-        distance_unit: updates.distance_unit || 'km',
-        pace_unit: updates.pace_unit || 'min_km',
-        weight_unit: updates.weight_unit || 'kg',
-        fitness_goal: updates.fitness_goal || '5k_run',
-        typical_workout_type: updates.typical_workout_type || 'run',
-        avatar_url: updates.avatar_url || null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-
-      const { data, error } = await insforge.database
-        .from('profiles')
-        .insert([newProfile])
-        .select()
-        .single();
-
-      if (error) throw error;
-      result = data as UserProfile;
+      if (error) {
+        console.warn('Cloud DB profile upsert warning:', error);
+      }
+      const result = (data || profilePayload) as UserProfile;
+      localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(result));
+      return result;
+    } catch (err) {
+      console.warn('Failed to upsert profile to DB, fallback to local cache:', err);
+      const fallback = profilePayload as UserProfile;
+      localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(fallback));
+      return fallback;
     }
-
-    localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(result));
-    return result;
   },
 
   /**
@@ -278,18 +269,32 @@ export const authService = {
    * Update user settings
    */
   async updateSettings(userId: string, updates: Partial<UserSettings>): Promise<UserSettings> {
-    const { data, error } = await insforge.database
-      .from('user_settings')
-      .update({
-        ...updates,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('user_id', userId)
-      .select()
-      .single();
+    const existing = await this.getSettings(userId);
+    const settingsPayload: any = {
+      user_id: userId,
+      ...(existing || {}),
+      ...updates,
+      updated_at: new Date().toISOString(),
+    };
 
-    if (error) throw error;
-    localStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify(data));
-    return data as UserSettings;
+    try {
+      const { data, error } = await insforge.database
+        .from('user_settings')
+        .upsert([settingsPayload], { onConflict: 'user_id' })
+        .select()
+        .maybeSingle();
+
+      if (error) {
+        console.warn('Cloud DB settings upsert warning:', error);
+      }
+      const finalSettings = (data || settingsPayload) as UserSettings;
+      localStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify(finalSettings));
+      return finalSettings;
+    } catch (err) {
+      console.warn('Failed to upsert settings to DB, fallback to local cache:', err);
+      const fallback = settingsPayload as UserSettings;
+      localStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify(fallback));
+      return fallback;
+    }
   },
 };

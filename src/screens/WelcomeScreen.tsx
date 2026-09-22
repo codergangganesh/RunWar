@@ -25,6 +25,8 @@ const HERO_SLOGANS = [
 
 export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   onStartOnboarding,
+  onLogin,
+  onGuestAccess,
 }) => {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
@@ -156,7 +158,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
             </div>
 
             {/* Bottom Arranged Primary Action Button & Security Badge */}
-            <div className="mt-8 mb-2 flex flex-col gap-4">
+            <div className="mt-6 mb-2 flex flex-col gap-2.5">
               <button
                 onClick={onStartOnboarding}
                 className="w-full py-4 px-6 rounded-2xl bg-[#00d09c] hover:bg-[#00ba8b] active:scale-[0.98] text-slate-950 font-black text-base shadow-lg shadow-[#00d09c]/25 flex items-center justify-center gap-2 transition-all"
@@ -165,8 +167,15 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                 <ArrowRight size={18} strokeWidth={2.5} />
               </button>
 
+              <button
+                onClick={onLogin}
+                className="w-full py-3.5 px-6 rounded-2xl bg-slate-900/80 hover:bg-slate-800 active:scale-[0.98] text-white border border-slate-700/80 font-bold text-sm flex items-center justify-center gap-2 transition-all"
+              >
+                <span>Already have an account? <strong className="text-[#00d09c]">Log In</strong></span>
+              </button>
+
               {/* Bottom Security Badge & Script Watermark */}
-              <div className="pt-1 flex flex-col items-center gap-1 text-center">
+              <div className="pt-2 flex flex-col items-center gap-1 text-center">
                 <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
                   <Shield size={13} className="text-emerald-400" />
                   <span>Your data is secure and private.</span>
