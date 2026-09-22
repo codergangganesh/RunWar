@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { UserProfile, Workout } from '../types';
 import { formatDistance, formatDuration, formatPace } from '../utils/formatters';
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Footprints, Flame, Timer } from 'lucide-react';
+import { getLocalDateKey, isSameLocalDate } from '../utils/dateUtils';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface CalendarScreenProps {
   workouts: Workout[];
@@ -38,23 +39,24 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
     'July', 'August', 'September', 'October', 'November', 'December',
   ];
 
-  // Map workouts by date YYYY-MM-DD
+  // Map workouts by local date key YYYY-MM-DD
   const workoutsByDate = new Map<string, Workout[]>();
   workouts.forEach((w) => {
-    const key = new Date(w.started_at).toISOString().split('T')[0];
+    const key = getLocalDateKey(w.started_at);
+    if (!key) return;
     const existing = workoutsByDate.get(key) || [];
     existing.push(w);
     workoutsByDate.set(key, existing);
   });
 
-  const selectedDateKey = selectedDate.toISOString().split('T')[0];
+  const selectedDateKey = getLocalDateKey(selectedDate);
   const selectedDayWorkouts = workoutsByDate.get(selectedDateKey) || [];
 
   const distanceUnit = profile?.distance_unit || 'km';
   const paceUnit = profile?.pace_unit || 'min_km';
 
   return (
-    <div className="p-4 space-y-5 animate-fade-in">
+    <div className="p-4 space-y-5 animate-fade-in max-w-xl md:max-w-2xl mx-auto">
       {/* Header */}
       <div className="pt-1">
         <h2 className="font-display text-2xl font-black text-emerald-950 dark:text-white tracking-tight">
@@ -110,11 +112,11 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
           {Array.from({ length: daysInMonth }).map((_, i) => {
             const dayNum = i + 1;
             const dateObj = new Date(year, month, dayNum);
-            const dateKey = dateObj.toISOString().split('T')[0];
+            const dateKey = getLocalDateKey(dateObj);
             const dayWorkouts = workoutsByDate.get(dateKey) || [];
             const hasWorkouts = dayWorkouts.length > 0;
             const isSelected = selectedDateKey === dateKey;
-            const isToday = new Date().toDateString() === dateObj.toDateString();
+            const isToday = isSameLocalDate(dateObj, new Date());
 
             return (
               <button

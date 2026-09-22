@@ -55,12 +55,15 @@ export const App: React.FC = () => {
   // Navigation & Screen States
   const [screen, setScreen] = useState<ScreenState>('splash');
   const [activeTab, setActiveTab] = useState<ActiveTab>('home');
-  const [navHistory, setNavHistory] = useState<ScreenState[]>([]);
 
   // User & Settings
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [settings, setSettings] = useState<UserSettings | null>(null);
+
+  // Loading & error states
+  const [isDataLoading, setIsDataLoading] = useState(false);
+  const [dataError, setDataError] = useState<string | null>(null);
 
   // Core Data
   const [workouts, setWorkouts] = useState<Workout[]>([]);
@@ -81,6 +84,7 @@ export const App: React.FC = () => {
     avgPace: 0,
     dayNames: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
     dailyDistance: [0, 0, 0, 0, 0, 0, 0],
+    longestRunMeters: 0,
   });
   const [goals, setGoals] = useState<Goal[]>([]);
   const [achievements, setAchievements] = useState<Achievement[]>([]);
@@ -95,8 +99,11 @@ export const App: React.FC = () => {
   // Recovery modal state
   const [recoveredWorkoutBackup, setRecoveredWorkoutBackup] = useState<LiveWorkoutState | null>(null);
 
-  // Fetch all app data
-  const loadAppData = useCallback(async (userId: string) => {
+  // Fetch all app data with optional background/silent mode
+  const loadAppData = useCallback(async (userId: string, silent = false) => {
+    if (!silent) setIsDataLoading(true);
+    setDataError(null);
+
     try {
       const [
         userProfile,
@@ -129,8 +136,11 @@ export const App: React.FC = () => {
       setAchievements(allAch);
       setUserAchievements(userAch);
       setRecords(userPrs);
-    } catch (err) {
+    } catch (err: any) {
       console.warn('Error loading app data:', err);
+      setDataError("Couldn't load your latest workouts.");
+    } finally {
+      if (!silent) setIsDataLoading(false);
     }
   }, []);
 
@@ -170,6 +180,14 @@ export const App: React.FC = () => {
   // Initial authentication check & recovery detection
   useEffect(() => {
     offlineSync.initSyncListener();
+
+    const handleSyncCompleted = () => {
+      if (currentUser?.id) {
+        loadAppData(currentUser.id, true);
+      }
+    };
+
+    window.addEventListener('runwar:sync_completed', handleSyncCompleted);
 
     const initAuth = async () => {
       try {
@@ -231,6 +249,7 @@ export const App: React.FC = () => {
 
     return () => {
       if (typeof unsubscribe === 'function') unsubscribe();
+      window.removeEventListener('runwar:sync_completed', handleSyncCompleted);
     };
   }, [loadAppData]);
 
@@ -239,12 +258,7 @@ export const App: React.FC = () => {
     if (currentUser) {
       setScreen('main');
     } else {
-      const hasSeenOnboarding = localStorage.getItem('runwar_onboarding_done');
-      if (hasSeenOnboarding) {
-        setScreen('welcome');
-      } else {
-        setScreen('welcome');
-      }
+      setScreen('welcome');
     }
   };
 
@@ -302,10 +316,10 @@ export const App: React.FC = () => {
     setScreen('workout_summary');
   };
 
-  // When summary saves workout
+  // When summary saves workout -> immediately refresh store
   const handleWorkoutSaved = async (newWorkout: Workout) => {
-    if (currentUser) {
-      await loadAppData(currentUser.id);
+    if (currentUser?.id) {
+      await loadAppData(currentUser.id, true);
     }
   };
 
@@ -314,6 +328,9 @@ export const App: React.FC = () => {
     setFinishedWorkoutState(null);
     setScreen('main');
     setActiveTab('home');
+    if (currentUser?.id) {
+      loadAppData(currentUser.id, true);
+    }
   };
 
   // Select workout for details
@@ -324,11 +341,12 @@ export const App: React.FC = () => {
 
   // Workout deleted
   const handleWorkoutDeleted = async (workoutId: string) => {
-    if (currentUser) {
-      await loadAppData(currentUser.id);
+    if (currentUser?.id) {
+      await loadAppData(currentUser.id, true);
     }
     setSelectedWorkout(null);
     setScreen('main');
+    setActiveTab('history');
   };
 
   // Sign out
@@ -340,11 +358,14 @@ export const App: React.FC = () => {
     setScreen('welcome');
   };
 
-  // Tab switcher with custom screens
+  // Tab switcher with fresh data fetch when entering History or Home
   const handleTabChange = (tab: ActiveTab) => {
     setActiveTab(tab);
     if (screen !== 'main') {
       setScreen('main');
+    }
+    if ((tab === 'history' || tab === 'home') && currentUser?.id) {
+      loadAppData(currentUser.id, true);
     }
   };
 
@@ -441,8 +462,7 @@ export const App: React.FC = () => {
             activeTab={activeTab}
             setActiveTab={handleTabChange}
             profile={profile}
-            headerTitle="Workout Summary"
-            showBack={false}
+            hideTopHeader={true}
             streakCount={todayStats.streak.currentStreak}
             theme={theme}
             onToggleTheme={handleToggleTheme}
@@ -452,6 +472,15 @@ export const App: React.FC = () => {
               profile={profile}
               onSaved={handleWorkoutSaved}
               onDone={handleSummaryDone}
+              onDoAnotherWorkout={() => {
+                const type = finishedWorkoutState.type;
+                setFinishedWorkoutState(null);
+                handleStartRun(type);
+              }}
+              onViewDetails={(workout) => {
+                setFinishedWorkoutState(null);
+                handleSelectWorkout(workout);
+              }}
             />
           </AppShell>
         );
@@ -536,6 +565,7 @@ export const App: React.FC = () => {
             {activeTab === 'home' && (
               <HomeScreen
                 profile={profile}
+                isLoading={isDataLoading}
                 todayStats={todayStats}
                 weeklyStats={weeklyStats}
                 activeGoals={goals.filter((g) => g.status === 'active')}
@@ -550,6 +580,9 @@ export const App: React.FC = () => {
               <HistoryScreen
                 workouts={workouts}
                 profile={profile}
+                isLoading={isDataLoading}
+                error={dataError}
+                onRefresh={() => currentUser?.id ? loadAppData(currentUser.id) : Promise.resolve()}
                 onSelectWorkout={handleSelectWorkout}
                 onStartRun={() => handleStartRun('run')}
               />

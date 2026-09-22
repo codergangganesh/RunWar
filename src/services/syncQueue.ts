@@ -63,12 +63,23 @@ class SyncQueueManager {
    */
   public queueCompletedWorkout(workout: Omit<Workout, 'id' | 'created_at'> & { id?: string }) {
     const queue = this.getWorkoutQueue();
-    queue.push({
-      workout,
-      status: 'PENDING',
-      retryCount: 0,
-      createdAt: Date.now(),
-    });
+    // Avoid duplicate queue entries for the same workout ID
+    const existingIndex = queue.findIndex((item) => item.workout.id === workout.id);
+    if (existingIndex >= 0) {
+      queue[existingIndex] = {
+        workout,
+        status: 'PENDING',
+        retryCount: 0,
+        createdAt: Date.now(),
+      };
+    } else {
+      queue.push({
+        workout,
+        status: 'PENDING',
+        retryCount: 0,
+        createdAt: Date.now(),
+      });
+    }
     this.saveWorkoutQueue(queue);
 
     if (navigator.onLine) {
@@ -155,15 +166,17 @@ class SyncQueueManager {
     if (queue.length === 0) return;
 
     const remaining: typeof queue = [];
+    let syncedAny = false;
 
     for (const item of queue) {
       try {
         const { error } = await insforge.database
           .from('workouts')
-          .insert([item.workout]);
+          .upsert([item.workout], { onConflict: 'id' });
 
         if (error) throw error;
 
+        syncedAny = true;
         workoutLogger.log('SYNC_SUCCESS', 'info', {
           type: 'completed_workout',
           title: item.workout.title,
@@ -176,11 +189,19 @@ class SyncQueueManager {
     }
 
     this.saveWorkoutQueue(remaining);
+
+    if (syncedAny && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('runwar:sync_completed'));
+    }
   }
 
   public getPendingPointsCount(): number {
     const batches = this.getPointBatches();
     return batches.reduce((sum, b) => sum + b.points.length, 0);
+  }
+
+  public getPendingWorkoutsCount(): number {
+    return this.getWorkoutQueue().length;
   }
 
   private getPointBatches(): QueuedPointBatch[] {

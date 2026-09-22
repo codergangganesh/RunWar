@@ -420,8 +420,8 @@ html.light div[class*="bg-slate-950"] .rounded-full {
 }
 
 /* Modals & Bottom Sheet in Light Mode */
-html.light .fixed.inset-0 > div:first-child {
-  background-color: rgba(6, 78, 59, 0.35) !important;
+html.light .modal-backdrop {
+  background-color: rgba(6, 78, 59, 0.25) !important;
 }
 
 html.light div[class*="rounded-t-[32px]"],

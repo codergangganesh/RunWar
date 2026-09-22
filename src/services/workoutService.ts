@@ -5,68 +5,123 @@ import { recordsService } from './recordsService';
 import { goalsService } from './goalsService';
 import { syncQueue } from './syncQueue';
 import { workoutLogger } from '../utils/workoutLogger';
+import { getLocalDateKey, getStartOfLocalWeek, isSameLocalDate } from '../utils/dateUtils';
 
 const WORKOUTS_CACHE_KEY = 'runwar_cached_workouts';
 
+export interface SaveWorkoutResult {
+  workout: Workout;
+  isCloudSynced: boolean;
+  message: string;
+}
+
+function normalizeWorkout(raw: any): Workout {
+  const type: WorkoutType = ['run', 'jog', 'walk'].includes(raw.type) ? raw.type : 'run';
+  return {
+    id: raw.id || crypto.randomUUID(),
+    user_id: raw.user_id || 'guest_user',
+    type,
+    title: raw.title || `${type.charAt(0).toUpperCase() + type.slice(1)} Session`,
+    notes: raw.notes || null,
+    started_at: raw.started_at || new Date().toISOString(),
+    ended_at: raw.ended_at || new Date().toISOString(),
+    duration_seconds: Math.round(Number(raw.duration_seconds) || 0),
+    moving_duration_seconds: Math.round(Number(raw.moving_duration_seconds) || Number(raw.duration_seconds) || 0),
+    paused_duration_seconds: Math.round(Number(raw.paused_duration_seconds) || 0),
+    distance_meters: Math.round(Number(raw.distance_meters) || 0),
+    average_pace: Math.round(Number(raw.average_pace) || 0),
+    average_speed: Number(Number(raw.average_speed || 0).toFixed(2)),
+    max_speed: Number(Number(raw.max_speed || 0).toFixed(2)),
+    calories: Math.round(Number(raw.calories) || 0),
+    elevation_gain: Math.round(Number(raw.elevation_gain) || 0),
+    elevation_loss: Math.round(Number(raw.elevation_loss) || 0),
+    status: (raw.status as any) || 'completed',
+    route_coordinates: Array.isArray(raw.route_coordinates) ? raw.route_coordinates : [],
+    splits: Array.isArray(raw.splits) ? raw.splits : [],
+    created_at: raw.created_at || new Date().toISOString(),
+  };
+}
+
 export const workoutService = {
   /**
-   * Save a newly finished workout to InsForge database with offline fallback
+   * Save a newly finished workout to database with offline fallback and validation
    */
-  async saveWorkout(workout: Omit<Workout, 'id' | 'created_at'> & { id?: string }): Promise<Workout> {
+  async saveWorkout(
+    workout: Omit<Workout, 'id' | 'created_at'> & { id?: string }
+  ): Promise<SaveWorkoutResult> {
     const workoutId = workout.id || crypto.randomUUID();
 
-    const newWorkoutPayload = {
+    // Ensure valid workout type
+    const validTypes: WorkoutType[] = ['run', 'jog', 'walk'];
+    const type: WorkoutType = validTypes.includes(workout.type) ? workout.type : 'run';
+
+    const normalized = normalizeWorkout({
+      ...workout,
       id: workoutId,
-      user_id: workout.user_id,
-      type: workout.type,
-      title: workout.title || `${workout.type.charAt(0).toUpperCase() + workout.type.slice(1)} Workout`,
-      notes: workout.notes || '',
-      started_at: workout.started_at,
-      ended_at: workout.ended_at,
-      duration_seconds: workout.duration_seconds,
-      moving_duration_seconds: workout.moving_duration_seconds || workout.duration_seconds,
-      paused_duration_seconds: workout.paused_duration_seconds || 0,
-      distance_meters: workout.distance_meters,
-      average_pace: workout.average_pace,
-      average_speed: workout.average_speed,
-      max_speed: workout.max_speed || 0,
-      calories: workout.calories,
-      elevation_gain: workout.elevation_gain || 0,
-      elevation_loss: workout.elevation_loss || 0,
-      status: workout.status || 'completed',
-      route_coordinates: workout.route_coordinates || [],
-      splits: workout.splits || [],
+      type,
+    });
+
+    const newWorkoutPayload = {
+      id: normalized.id,
+      user_id: normalized.user_id,
+      type: normalized.type,
+      title: normalized.title,
+      notes: normalized.notes || '',
+      started_at: normalized.started_at,
+      ended_at: normalized.ended_at,
+      duration_seconds: normalized.duration_seconds,
+      moving_duration_seconds: normalized.moving_duration_seconds,
+      paused_duration_seconds: normalized.paused_duration_seconds,
+      distance_meters: normalized.distance_meters,
+      average_pace: normalized.average_pace,
+      average_speed: normalized.average_speed,
+      max_speed: normalized.max_speed,
+      calories: normalized.calories,
+      elevation_gain: normalized.elevation_gain,
+      elevation_loss: normalized.elevation_loss,
+      status: 'completed',
+      route_coordinates: normalized.route_coordinates,
+      splits: normalized.splits,
     };
 
     if (!navigator.onLine) {
       // Local-first: immediately cache and queue for background sync
       const localWorkout: Workout = {
-        ...newWorkoutPayload,
+        ...normalized,
         created_at: new Date().toISOString(),
       };
       this.addWorkoutToCache(localWorkout);
       syncQueue.queueCompletedWorkout(newWorkoutPayload);
-      workoutLogger.log('SYNC_BATCH_QUEUED', 'info', {
-        workoutId,
-        offline: true,
-      }, workoutId);
-      return localWorkout;
+      workoutLogger.log(
+        'SYNC_BATCH_QUEUED',
+        'info',
+        { workoutId, offline: true },
+        workoutId
+      );
+      return {
+        workout: localWorkout,
+        isCloudSynced: false,
+        message: "Workout saved locally. We'll sync it when you're connected.",
+      };
     }
 
     try {
-      // 1. Insert into workouts table (with upsert/idempotency)
+      // 1. Insert or upsert into workouts table (idempotent)
       const { data: insertedWorkout, error: workoutError } = await insforge.database
         .from('workouts')
-        .insert([newWorkoutPayload])
+        .upsert([newWorkoutPayload], { onConflict: 'id' })
         .select()
         .single();
 
       if (workoutError) throw workoutError;
-      const savedWorkout = insertedWorkout as Workout;
+      const savedWorkout = normalizeWorkout(insertedWorkout || {
+        ...newWorkoutPayload,
+        created_at: new Date().toISOString(),
+      });
 
-      // 2. Batch insert splits if any
-      if (workout.splits && workout.splits.length > 0) {
-        const splitsPayload = workout.splits.map((s) => ({
+      // 2. Batch insert splits if present
+      if (normalized.splits && normalized.splits.length > 0) {
+        const splitsPayload = normalized.splits.map((s) => ({
           workout_id: savedWorkout.id,
           user_id: savedWorkout.user_id,
           split_number: s.split_number,
@@ -75,14 +130,18 @@ export const workoutService = {
           pace: s.pace,
         }));
 
-        await insforge.database.from('workout_splits').insert(splitsPayload);
+        try {
+          await insforge.database.from('workout_splits').insert(splitsPayload);
+        } catch (splitErr) {
+          console.warn('Non-blocking error saving splits:', splitErr);
+        }
       }
 
-      // 3. Batch insert GPS points (in chunks of 50 to prevent packet overflow)
-      if (workout.route_coordinates && workout.route_coordinates.length > 0) {
+      // 3. Batch insert GPS points (in chunks of 50)
+      if (normalized.route_coordinates && normalized.route_coordinates.length > 0) {
         const chunkSize = 50;
-        for (let i = 0; i < workout.route_coordinates.length; i += chunkSize) {
-          const chunk = workout.route_coordinates.slice(i, i + chunkSize);
+        for (let i = 0; i < normalized.route_coordinates.length; i += chunkSize) {
+          const chunk = normalized.route_coordinates.slice(i, i + chunkSize);
           const pointsPayload = chunk.map((pt, idx) => ({
             workout_id: savedWorkout.id,
             user_id: savedWorkout.user_id,
@@ -95,7 +154,11 @@ export const workoutService = {
             sequence_number: pt.sequence_number || (i + idx + 1),
           }));
 
-          await insforge.database.from('workout_points').insert(pointsPayload);
+          try {
+            await insforge.database.from('workout_points').insert(pointsPayload);
+          } catch (ptErr) {
+            console.warn('Non-blocking error saving point chunk:', ptErr);
+          }
         }
       }
 
@@ -110,77 +173,167 @@ export const workoutService = {
         console.warn('Error evaluating badges/goals after save:', e);
       }
 
-      // Update local cache
+      // 5. Update local cache with confirmed record
       this.addWorkoutToCache(savedWorkout);
-      return savedWorkout;
+      return {
+        workout: savedWorkout,
+        isCloudSynced: true,
+        message: 'Workout saved successfully!',
+      };
     } catch (error) {
       console.error('Failed to save workout to cloud DB, falling back to local queue:', error);
       const fallbackWorkout: Workout = {
-        ...newWorkoutPayload,
+        ...normalized,
         created_at: new Date().toISOString(),
       };
       this.addWorkoutToCache(fallbackWorkout);
       syncQueue.queueCompletedWorkout(newWorkoutPayload);
-      return fallbackWorkout;
+      return {
+        workout: fallbackWorkout,
+        isCloudSynced: false,
+        message: "Workout saved locally. We'll sync it when you're connected.",
+      };
     }
   },
 
   /**
-   * Fetch workouts for a user with optional filtering and sorting
+   * Fetch workouts for a user with category filtering and sorting.
+   * Merges cloud and cached local workouts so no saved session is ever missed.
    */
   async getWorkouts(
     userId: string,
     filterType: WorkoutType | 'all' = 'all',
     sortBy: 'newest' | 'oldest' | 'longest' | 'fastest' | 'calories' = 'newest',
-    limit: number = 50
+    limit: number = 100
   ): Promise<Workout[]> {
+    let cloudWorkouts: Workout[] = [];
+
     try {
       let query = insforge.database
         .from('workouts')
-        .select('*')
-        .eq('user_id', userId);
+        .select('*');
 
-      if (filterType !== 'all') {
-        query = query.eq('type', filterType);
+      if (userId && userId !== 'guest_user' && userId !== 'usr_guest_demo') {
+        query = query.eq('user_id', userId);
       }
-
-      switch (sortBy) {
-        case 'oldest':
-          query = query.order('started_at', { ascending: true });
-          break;
-        case 'longest':
-          query = query.order('distance_meters', { ascending: false });
-          break;
-        case 'fastest':
-          query = query.order('average_pace', { ascending: true });
-          break;
-        case 'calories':
-          query = query.order('calories', { ascending: false });
-          break;
-        case 'newest':
-        default:
-          query = query.order('started_at', { ascending: false });
-          break;
-      }
-
-      query = query.limit(limit);
 
       const { data, error } = await query;
-      if (error) throw error;
-
-      if (data) {
-        this.saveWorkoutsCache(data as Workout[]);
-        return data as Workout[];
+      if (!error && data && Array.isArray(data)) {
+        cloudWorkouts = data.map(normalizeWorkout);
       }
-      return [];
     } catch (err) {
-      console.warn('Failed to fetch workouts from DB, using cached workouts:', err);
-      const cached = this.getCachedWorkouts();
-      let filtered = cached.filter((w) => w.user_id === userId);
-      if (filterType !== 'all') {
-        filtered = filtered.filter((w) => w.type === filterType);
+      console.warn('Cloud fetch workouts warning:', err);
+    }
+
+    // Merge cloud and cached local workouts
+    const cachedWorkouts = this.getCachedWorkouts().map(normalizeWorkout);
+    const map = new Map<string, Workout>();
+
+    // Put cached first
+    cachedWorkouts.forEach((w) => {
+      if (!userId || w.user_id === userId || w.user_id === 'guest_user' || w.user_id === 'usr_guest_demo') {
+        map.set(w.id, w);
       }
-      return filtered;
+    });
+
+    // Overlay cloud workouts (source of truth for synced records)
+    cloudWorkouts.forEach((w) => {
+      map.set(w.id, w);
+    });
+
+    const allWorkouts = Array.from(map.values()).filter((w) => w.status === 'completed' || !w.status);
+    this.saveWorkoutsCache(allWorkouts);
+
+    // Filter by type if requested
+    let filtered = allWorkouts;
+    if (filterType !== 'all') {
+      filtered = filtered.filter((w) => w.type === filterType);
+    }
+
+    // Sort
+    filtered.sort((a, b) => {
+      if (sortBy === 'oldest') return new Date(a.started_at).getTime() - new Date(b.started_at).getTime();
+      if (sortBy === 'longest') return b.distance_meters - a.distance_meters;
+      if (sortBy === 'fastest') return (a.average_pace || 9999) - (b.average_pace || 9999);
+      if (sortBy === 'calories') return b.calories - a.calories;
+      return new Date(b.started_at).getTime() - new Date(a.started_at).getTime();
+    });
+
+    return filtered.slice(0, limit);
+  },
+
+  /**
+   * Fetch full workout details including points and splits from DB if needed
+   */
+  async getWorkoutDetails(workoutId: string): Promise<Workout | null> {
+    try {
+      const { data, error } = await insforge.database
+        .from('workouts')
+        .select('*')
+        .eq('id', workoutId)
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data) {
+        const cached = this.getCachedWorkouts().find((w) => w.id === workoutId);
+        return cached ? normalizeWorkout(cached) : null;
+      }
+
+      const workout = normalizeWorkout(data);
+
+      // If route_coordinates is empty, fetch high-res points from workout_points table
+      if (!workout.route_coordinates || workout.route_coordinates.length === 0) {
+        try {
+          const { data: pointsData } = await insforge.database
+            .from('workout_points')
+            .select('*')
+            .eq('workout_id', workoutId)
+            .order('sequence_number', { ascending: true });
+
+          if (pointsData && pointsData.length > 0) {
+            workout.route_coordinates = pointsData.map((pt: any) => ({
+              latitude: Number(pt.latitude),
+              longitude: Number(pt.longitude),
+              altitude: pt.altitude != null ? Number(pt.altitude) : null,
+              accuracy: pt.accuracy != null ? Number(pt.accuracy) : null,
+              speed: pt.speed != null ? Number(pt.speed) : null,
+              timestamp: new Date(pt.timestamp).getTime(),
+              sequence_number: Number(pt.sequence_number),
+            }));
+          }
+        } catch (ptErr) {
+          console.warn('Failed to load points for workout details:', ptErr);
+        }
+      }
+
+      // If splits is empty, fetch splits from workout_splits table
+      if (!workout.splits || workout.splits.length === 0) {
+        try {
+          const { data: splitsData } = await insforge.database
+            .from('workout_splits')
+            .select('*')
+            .eq('workout_id', workoutId)
+            .order('split_number', { ascending: true });
+
+          if (splitsData && splitsData.length > 0) {
+            workout.splits = splitsData.map((s: any) => ({
+              split_number: Number(s.split_number),
+              distance_meters: Math.round(Number(s.distance_meters)),
+              duration_seconds: Math.round(Number(s.duration_seconds)),
+              pace: Math.round(Number(s.pace)),
+            }));
+          }
+        } catch (splitErr) {
+          console.warn('Failed to load splits for workout details:', splitErr);
+        }
+      }
+
+      this.updateCachedWorkout(workout);
+      return workout;
+    } catch (err) {
+      console.warn('Error fetching workout details from DB, checking cache:', err);
+      const cached = this.getCachedWorkouts().find((w) => w.id === workoutId);
+      return cached ? normalizeWorkout(cached) : null;
     }
   },
 
@@ -188,19 +341,7 @@ export const workoutService = {
    * Fetch single workout by ID
    */
   async getWorkoutById(workoutId: string): Promise<Workout | null> {
-    try {
-      const { data, error } = await insforge.database
-        .from('workouts')
-        .select('*')
-        .eq('id', workoutId)
-        .single();
-
-      if (error) throw error;
-      return data as Workout;
-    } catch (err) {
-      const cached = this.getCachedWorkouts().find((w) => w.id === workoutId);
-      return cached || null;
-    }
+    return this.getWorkoutDetails(workoutId);
   },
 
   /**
@@ -215,8 +356,9 @@ export const workoutService = {
       .single();
 
     if (error) throw error;
-    this.updateCachedWorkout(data as Workout);
-    return data as Workout;
+    const normalized = normalizeWorkout(data);
+    this.updateCachedWorkout(normalized);
+    return normalized;
   },
 
   /**
@@ -233,21 +375,22 @@ export const workoutService = {
   },
 
   /**
-   * Get summary activity for Today
+   * Get summary activity for Today (using user's local timezone)
+   * Supports multiple workouts on the same day without overwriting
    */
   async getTodayStats(userId: string) {
     const workouts = await this.getWorkouts(userId, 'all', 'newest', 100);
-    const todayStr = new Date().toDateString();
+    const now = new Date();
 
     const todayWorkouts = workouts.filter((w) => {
-      return new Date(w.started_at).toDateString() === todayStr;
+      return isSameLocalDate(w.started_at, now);
     });
 
-    const totalDistanceMeters = todayWorkouts.reduce((acc, w) => acc + (w.distance_meters || 0), 0);
-    const totalDurationSeconds = todayWorkouts.reduce((acc, w) => acc + (w.duration_seconds || 0), 0);
-    const totalCalories = todayWorkouts.reduce((acc, w) => acc + (w.calories || 0), 0);
+    const totalDistanceMeters = todayWorkouts.reduce((acc, w) => acc + (Number(w.distance_meters) || 0), 0);
+    const totalDurationSeconds = todayWorkouts.reduce((acc, w) => acc + (Number(w.duration_seconds) || 0), 0);
+    const totalCalories = todayWorkouts.reduce((acc, w) => acc + (Number(w.calories) || 0), 0);
     const workoutCount = todayWorkouts.length;
-    const avgPace = totalDistanceMeters > 0 ? (totalDurationSeconds / (totalDistanceMeters / 1000)) : 0;
+    const avgPace = totalDistanceMeters > 0 ? totalDurationSeconds / (totalDistanceMeters / 1000) : 0;
 
     // Calculate streak
     const streak = this.calculateStreak(workouts);
@@ -264,29 +407,23 @@ export const workoutService = {
   },
 
   /**
-   * Get weekly metrics and Monday-Sunday breakdown
+   * Get weekly metrics and Monday-Sunday breakdown in local timezone
    */
   async getWeeklyStats(userId: string) {
     const workouts = await this.getWorkouts(userId, 'all', 'newest', 150);
     const now = new Date();
-    
-    // Start of current week (Monday)
-    const currentDay = now.getDay(); // 0 is Sunday, 1 is Mon...
-    const diffToMonday = currentDay === 0 ? -6 : 1 - currentDay;
-    const startOfWeek = new Date(now);
-    startOfWeek.setDate(now.getDate() + diffToMonday);
-    startOfWeek.setHours(0, 0, 0, 0);
+    const startOfWeek = getStartOfLocalWeek(now);
 
     const weekWorkouts = workouts.filter((w) => {
       const workoutDate = new Date(w.started_at);
       return workoutDate >= startOfWeek;
     });
 
-    const totalDistanceMeters = weekWorkouts.reduce((acc, w) => acc + (w.distance_meters || 0), 0);
-    const totalDurationSeconds = weekWorkouts.reduce((acc, w) => acc + (w.duration_seconds || 0), 0);
-    const totalCalories = weekWorkouts.reduce((acc, w) => acc + (w.calories || 0), 0);
+    const totalDistanceMeters = weekWorkouts.reduce((acc, w) => acc + (Number(w.distance_meters) || 0), 0);
+    const totalDurationSeconds = weekWorkouts.reduce((acc, w) => acc + (Number(w.duration_seconds) || 0), 0);
+    const totalCalories = weekWorkouts.reduce((acc, w) => acc + (Number(w.calories) || 0), 0);
     const workoutCount = weekWorkouts.length;
-    const avgPace = totalDistanceMeters > 0 ? (totalDurationSeconds / (totalDistanceMeters / 1000)) : 0;
+    const avgPace = totalDistanceMeters > 0 ? totalDurationSeconds / (totalDistanceMeters / 1000) : 0;
 
     // Daily breakdown for Mon-Sun
     const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -295,7 +432,7 @@ export const workoutService = {
     weekWorkouts.forEach((w) => {
       const d = new Date(w.started_at);
       const dayIndex = (d.getDay() + 6) % 7; // Convert 0(Sun)->6, 1(Mon)->0
-      dailyDistance[dayIndex] += w.distance_meters;
+      dailyDistance[dayIndex] += Number(w.distance_meters) || 0;
     });
 
     return {
@@ -306,37 +443,43 @@ export const workoutService = {
       avgPace,
       dayNames,
       dailyDistance,
-      longestRunMeters: weekWorkouts.reduce((max, w) => Math.max(max, w.distance_meters), 0),
+      longestRunMeters: weekWorkouts.reduce((max, w) => Math.max(max, Number(w.distance_meters) || 0), 0),
     };
   },
 
   /**
-   * Streak calculation (consecutive active days)
+   * Streak calculation (consecutive active calendar days in local timezone)
    */
   calculateStreak(workouts: Workout[]): { currentStreak: number; longestStreak: number } {
     if (workouts.length === 0) return { currentStreak: 0, longestStreak: 0 };
 
     const activeDates = new Set(
-      workouts.map((w) => new Date(w.started_at).toISOString().split('T')[0])
+      workouts.map((w) => getLocalDateKey(w.started_at)).filter(Boolean)
     );
 
     const sortedDates = Array.from(activeDates).sort().reverse();
     if (sortedDates.length === 0) return { currentStreak: 0, longestStreak: 0 };
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    const todayKey = getLocalDateKey(now);
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().split('T')[0];
+    const yesterdayKey = getLocalDateKey(yesterday);
 
     let currentStreak = 0;
-    let checkDate = activeDates.has(todayStr) ? new Date() : activeDates.has(yesterdayStr) ? yesterday : null;
+    let checkDate = activeDates.has(todayKey)
+      ? new Date()
+      : activeDates.has(yesterdayKey)
+      ? yesterday
+      : null;
 
     if (checkDate) {
+      const cursor = new Date(checkDate);
       while (true) {
-        const dateStr = checkDate.toISOString().split('T')[0];
-        if (activeDates.has(dateStr)) {
+        const dateKey = getLocalDateKey(cursor);
+        if (activeDates.has(dateKey)) {
           currentStreak++;
-          checkDate.setDate(checkDate.getDate() - 1);
+          cursor.setDate(cursor.getDate() - 1);
         } else {
           break;
         }
@@ -346,7 +489,7 @@ export const workoutService = {
     // Longest streak calculation
     let longestStreak = 0;
     let tempStreak = 0;
-    const chronDates = Array.from(activeDates).sort().map((d) => new Date(d));
+    const chronDates = Array.from(activeDates).sort().map((d) => new Date(`${d}T00:00:00`));
 
     for (let i = 0; i < chronDates.length; i++) {
       if (i === 0) {
@@ -357,7 +500,7 @@ export const workoutService = {
         );
         if (diffDays === 1) {
           tempStreak++;
-        } else {
+        } else if (diffDays > 1) {
           tempStreak = 1;
         }
       }
@@ -387,13 +530,15 @@ export const workoutService = {
 
   addWorkoutToCache(workout: Workout) {
     const cached = this.getCachedWorkouts();
-    const updated = [workout, ...cached.filter((w) => w.id !== workout.id)];
+    const normalized = normalizeWorkout(workout);
+    const updated = [normalized, ...cached.filter((w) => w.id !== normalized.id)];
     this.saveWorkoutsCache(updated);
   },
 
   updateCachedWorkout(workout: Workout) {
     const cached = this.getCachedWorkouts();
-    const updated = cached.map((w) => (w.id === workout.id ? workout : w));
+    const normalized = normalizeWorkout(workout);
+    const updated = cached.map((w) => (w.id === normalized.id ? normalized : w));
     this.saveWorkoutsCache(updated);
   },
 

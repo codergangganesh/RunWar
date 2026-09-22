@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile, Workout, WorkoutType, Goal } from '../types';
 import { formatDistance, formatDuration, formatPace } from '../utils/formatters';
+import { formatLocalTime } from '../utils/dateUtils';
 import { WeeklyBarChart } from '../components/charts/WeeklyBarChart';
-import { Play, Flame, Zap, Trophy, Target, Sparkles, Footprints, Calendar, ArrowRight } from 'lucide-react';
+import { Play, Zap, Footprints, Target, ArrowRight, Clock } from 'lucide-react';
 
 interface HomeScreenProps {
   profile: UserProfile | null;
+  isLoading?: boolean;
   todayStats: {
     totalDistanceMeters: number;
     totalDurationSeconds: number;
@@ -33,6 +35,7 @@ interface HomeScreenProps {
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   profile,
+  isLoading = false,
   todayStats,
   weeklyStats,
   activeGoals,
@@ -65,7 +68,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       if (i >= greetingText.length) {
         clearInterval(timer);
       }
-    }, 40);
+    }, 35);
     return () => clearInterval(timer);
   }, [greetingText]);
 
@@ -84,21 +87,21 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           <span className="w-1.5 h-4 bg-emerald-500 dark:bg-emerald-400 rounded-full animate-pulse shrink-0 inline-block" />
         </div>
         <p className="text-[11px] sm:text-xs text-emerald-800/80 dark:text-slate-400 font-medium mt-0.5">
-          Ready for your daily run? Keep the momentum going!
+          Ready for your workout? Keep your momentum going!
         </p>
       </div>
 
       {/* Brand New User Empty State Banner */}
-      {isFirstTimeUser && (
+      {isFirstTimeUser && !isLoading && (
         <div className="rounded-2xl bg-gradient-to-br from-emerald-50 via-emerald-100/70 to-emerald-50 dark:from-emerald-950/40 dark:via-slate-900 dark:to-slate-900 border border-emerald-300/80 dark:border-emerald-500/30 p-3.5 shadow-sm dark:shadow-glow-brand relative overflow-hidden">
           <div className="flex items-start gap-2.5">
             <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
               <Footprints size={18} />
             </div>
             <div>
-              <h3 className="text-xs font-bold text-emerald-950 dark:text-white">Your first run starts here</h3>
+              <h3 className="text-xs font-bold text-emerald-950 dark:text-white">Start your first workout</h3>
               <p className="text-[11px] text-emerald-800 dark:text-slate-400 mt-0.5 leading-relaxed">
-                Track your distance, pace, and GPS route while building your streaks.
+                Track your distance, pace, and GPS route while building your daily streaks.
               </p>
             </div>
           </div>
@@ -152,7 +155,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         </div>
       </div>
 
-      {/* Ultra-Compact QUICK START Section */}
+      {/* QUICK START Section */}
       <div className="rounded-2xl bg-white dark:bg-gradient-to-b dark:from-slate-900/95 dark:to-slate-950 border border-emerald-100 dark:border-slate-800/90 p-3.5 shadow-md dark:shadow-xl space-y-2.5">
         <div className="flex items-center justify-between">
           <span className="text-[10px] font-black uppercase tracking-wider text-emerald-800 dark:text-slate-400">
@@ -177,7 +180,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </div>
         </div>
 
-        {/* Sleek Compact Action Start Button */}
+        {/* Sleek Action Start Button */}
         <button
           onClick={() => onStartRun(selectedActivity)}
           className="w-full py-3 px-5 rounded-xl bg-gradient-to-r from-emerald-500 via-emerald-600 to-emerald-500 hover:from-emerald-600 hover:to-emerald-500 text-white font-black text-sm shadow-md shadow-emerald-500/30 active:scale-98 flex items-center justify-center gap-2.5 transition-all"
@@ -238,18 +241,18 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         </div>
       )}
 
-      {/* Today's Workouts List */}
+      {/* Today's Workouts List (Multiple sessions in one day) */}
       {todayStats.todayWorkouts.length > 0 && (
         <div className="space-y-2">
           <div className="flex items-center justify-between px-1">
             <h3 className="text-[11px] font-bold uppercase tracking-wider text-emerald-800 dark:text-slate-400">
-              Today's Sessions
+              Today's Sessions ({todayStats.todayWorkouts.length})
             </h3>
             <button
               onClick={onViewHistory}
               className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold hover:underline"
             >
-              History
+              View History
             </button>
           </div>
 
@@ -264,10 +267,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   {w.type === 'run' ? '🏃' : w.type === 'jog' ? '🚶' : '🚶‍♂️'}
                 </span>
                 <div>
-                  <h4 className="text-xs font-bold text-emerald-950 dark:text-white capitalize">{w.title || w.type}</h4>
-                  <span className="text-[10px] text-emerald-700 dark:text-slate-400 font-mono">
-                    {formatDuration(w.duration_seconds)} · {formatPace(w.average_pace, paceUnit)}
-                  </span>
+                  <h4 className="text-xs font-bold text-emerald-950 dark:text-white capitalize">{w.title || `${w.type} Session`}</h4>
+                  <div className="flex items-center gap-2 text-[10px] text-emerald-700 dark:text-slate-400 font-mono">
+                    <span>{formatLocalTime(w.started_at)}</span>
+                    <span>·</span>
+                    <span>{formatDuration(w.duration_seconds)}</span>
+                    <span>·</span>
+                    <span>{formatPace(w.average_pace, paceUnit)}</span>
+                  </div>
                 </div>
               </div>
 

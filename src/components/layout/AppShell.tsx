@@ -18,6 +18,7 @@ interface AppShellProps {
   streakCount?: number;
   theme?: 'dark' | 'light';
   onToggleTheme?: () => void;
+  hideTopHeader?: boolean;
 }
 
 export const AppShell: React.FC<AppShellProps> = ({
@@ -33,6 +34,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   streakCount = 0,
   theme = 'dark',
   onToggleTheme,
+  hideTopHeader = false,
 }) => {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [isDeviceFrame, setIsDeviceFrame] = useState(false);
@@ -62,19 +64,21 @@ export const AppShell: React.FC<AppShellProps> = ({
         }`}
       >
         {/* Top Header */}
-        <TopHeader
-          title={headerTitle}
-          showBack={showBack}
-          onBack={onBack}
-          profile={profile}
-          onOpenProfile={() => setActiveTab('profile')}
-          isOnline={isOnline}
-          isDeviceFrame={isDeviceFrame}
-          onToggleFrame={() => setIsDeviceFrame(!isDeviceFrame)}
-          streakCount={streakCount}
-          theme={theme}
-          onToggleTheme={onToggleTheme}
-        />
+        {!hideTopHeader && (
+          <TopHeader
+            title={headerTitle}
+            showBack={showBack}
+            onBack={onBack}
+            profile={profile}
+            onOpenProfile={() => setActiveTab('profile')}
+            isOnline={isOnline}
+            isDeviceFrame={isDeviceFrame}
+            onToggleFrame={() => setIsDeviceFrame(!isDeviceFrame)}
+            streakCount={streakCount}
+            theme={theme}
+            onToggleTheme={onToggleTheme}
+          />
+        )}
 
         {/* Scrollable Screen Content */}
         <main className="flex-1 overflow-y-auto overflow-x-hidden relative overscroll-contain pb-6">

@@ -30,11 +30,34 @@ interface MapControllerProps {
 
 function MapController({ center, followUser }: MapControllerProps) {
   const map = useMap();
+
   useEffect(() => {
+    map.invalidateSize();
     if (followUser && center[0] !== 0 && center[1] !== 0) {
       map.setView(center, map.getZoom() || 16, { animate: true });
     }
   }, [center, followUser, map]);
+
+  useEffect(() => {
+    const container = map.getContainer();
+    if (!container) return;
+
+    const ro = new ResizeObserver(() => {
+      map.invalidateSize();
+    });
+    ro.observe(container);
+
+    const t1 = setTimeout(() => map.invalidateSize(), 50);
+    const t2 = setTimeout(() => map.invalidateSize(), 200);
+    const t3 = setTimeout(() => map.invalidateSize(), 600);
+
+    return () => {
+      ro.disconnect();
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+    };
+  }, [map]);
 
   return null;
 }
@@ -44,6 +67,7 @@ interface LiveWorkoutMapProps {
   isTracking: boolean;
   gpsAccuracy?: number | null;
   className?: string;
+  children?: React.ReactNode;
 }
 
 export const LiveWorkoutMap: React.FC<LiveWorkoutMapProps> = ({
@@ -51,9 +75,10 @@ export const LiveWorkoutMap: React.FC<LiveWorkoutMapProps> = ({
   isTracking,
   gpsAccuracy,
   className = 'h-full w-full',
+  children,
 }) => {
   const [followUser, setFollowUser] = useState(true);
-  const [mapStyle, setMapStyle] = useState<'dark' | 'outdoor' | 'satellite'>('dark');
+  const [mapStyle, setMapStyle] = useState<'outdoor' | 'dark' | 'satellite'>('outdoor');
   const [mapReady, setMapReady] = useState(false);
 
   // Default to San Francisco if no coordinates yet
@@ -65,15 +90,16 @@ export const LiveWorkoutMap: React.FC<LiveWorkoutMapProps> = ({
 
   const polylinePositions: [number, number][] = coordinates.map((c) => [c.latitude, c.longitude]);
 
-  // Tile layers
+  // High-reliability athletic tile layers (100% free, zero watermark artifacts)
   const tileLayers = {
-    dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    outdoor: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    outdoor: 'https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
+    streets: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
     satellite: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
   };
 
   return (
-    <div className={`relative overflow-hidden rounded-2xl bg-slate-900 border border-slate-800 ${className}`}>
+    <div className={`relative overflow-hidden rounded-2xl bg-emerald-50 dark:bg-slate-900 border border-emerald-200/80 dark:border-slate-800 ${className}`}>
       <MapContainer
         center={currentCenter}
         zoom={16}
@@ -81,10 +107,12 @@ export const LiveWorkoutMap: React.FC<LiveWorkoutMapProps> = ({
         zoomControl={false}
         whenReady={() => setMapReady(true)}
         className="h-full w-full z-0"
+        style={{ height: '100%', width: '100%' }}
       >
         <TileLayer
           attribution='&copy; <a href="https://carto.com/">CARTO</a>'
           url={tileLayers[mapStyle]}
+          subdomains="abcd"
           maxZoom={19}
         />
 
@@ -113,7 +141,7 @@ export const LiveWorkoutMap: React.FC<LiveWorkoutMapProps> = ({
             <Polyline
               positions={polylinePositions}
               pathOptions={{
-                color: '#34d399',
+                color: '#059669',
                 weight: 4,
                 opacity: 1.0,
                 lineCap: 'round',
@@ -153,10 +181,10 @@ export const LiveWorkoutMap: React.FC<LiveWorkoutMapProps> = ({
         {/* Map style toggle */}
         <button
           onClick={() => {
-            const next = mapStyle === 'dark' ? 'outdoor' : mapStyle === 'outdoor' ? 'satellite' : 'dark';
+            const next = mapStyle === 'outdoor' ? 'dark' : mapStyle === 'dark' ? 'satellite' : 'outdoor';
             setMapStyle(next);
           }}
-          className="p-2.5 rounded-xl bg-slate-900/80 backdrop-blur-md border border-slate-700/60 text-slate-300 hover:text-white shadow-lg active:scale-95 transition-all"
+          className="p-2.5 rounded-xl bg-white/90 dark:bg-slate-900/80 backdrop-blur-md border border-emerald-200 dark:border-slate-700/60 text-emerald-900 dark:text-slate-300 hover:text-emerald-950 dark:hover:text-white shadow-md active:scale-95 transition-all"
           title="Toggle map style"
         >
           <Layers size={18} />
@@ -165,10 +193,10 @@ export const LiveWorkoutMap: React.FC<LiveWorkoutMapProps> = ({
         {/* Recenter & Follow Toggle */}
         <button
           onClick={() => setFollowUser(!followUser)}
-          className={`p-2.5 rounded-xl backdrop-blur-md border shadow-lg active:scale-95 transition-all ${
+          className={`p-2.5 rounded-xl backdrop-blur-md border shadow-md active:scale-95 transition-all ${
             followUser
-              ? 'bg-emerald-500/90 border-emerald-400 text-white shadow-glow-brand'
-              : 'bg-slate-900/80 border-slate-700/60 text-slate-400 hover:text-white'
+              ? 'bg-emerald-500 border-emerald-400 text-white shadow-sm'
+              : 'bg-white/90 dark:bg-slate-900/80 border-emerald-200 dark:border-slate-700/60 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
           }`}
           title={followUser ? 'Follow runner: ON' : 'Follow runner: OFF'}
         >
@@ -178,11 +206,14 @@ export const LiveWorkoutMap: React.FC<LiveWorkoutMapProps> = ({
 
       {/* GPS Accuracy Status Tag */}
       {lastCoord && (
-        <div className="absolute bottom-3 left-3 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-900/85 backdrop-blur-md border border-slate-700/60 text-[11px] font-medium text-slate-300 shadow-md">
+        <div className="absolute bottom-3 left-3 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/90 dark:bg-slate-900/85 backdrop-blur-md border border-emerald-200 dark:border-slate-700/60 text-[11px] font-bold text-emerald-950 dark:text-slate-300 shadow-sm">
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
           <span>GPS {gpsAccuracy ? `±${Math.round(gpsAccuracy)}m` : 'Active'}</span>
         </div>
       )}
+
+      {/* Children (e.g. Floating overlay HUD in full map mode) */}
+      {children}
     </div>
   );
 };

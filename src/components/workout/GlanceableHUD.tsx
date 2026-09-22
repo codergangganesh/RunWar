@@ -50,126 +50,124 @@ export const GlanceableHUD: React.FC<GlanceableHUDProps> = ({
   const displaySpeed = formatSpeed(currentSpeedKmh, distanceUnit);
 
   return (
-    <div className="flex flex-col gap-3">
-      {/* Massive Distance Hero Display */}
+    <div className="flex flex-col gap-2 w-full">
+      {/* Compact, Professional Distance Display */}
       <div
-        className={`relative overflow-hidden rounded-3xl p-5 sm:p-6 text-center border transition-all duration-300 ${
+        className={`relative overflow-hidden rounded-2xl py-2.5 px-4 text-center border transition-all duration-300 ${
           isAutoPaused
-            ? 'bg-amber-950/30 border-amber-500/40 shadow-glow-amber'
+            ? 'bg-amber-500/10 border-amber-500/40'
             : isPaused
             ? 'bg-slate-900/90 border-amber-500/30'
-            : 'bg-gradient-to-b from-slate-900 to-slate-950 border-slate-800 shadow-xl'
+            : 'bg-white dark:bg-slate-900/90 border-emerald-100 dark:border-slate-800/90 shadow-sm'
         }`}
       >
-        {/* Status Pill in Corner */}
+        {/* Status Pill in Top Corner */}
         {isAutoPaused ? (
-          <div className="absolute top-3 right-4 flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 text-xs font-bold uppercase tracking-wider animate-pulse border border-amber-500/30">
-            <PauseCircle size={13} />
+          <div className="absolute top-2 right-3 flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-300 text-[10px] font-bold uppercase tracking-wider animate-pulse border border-amber-500/30">
+            <PauseCircle size={10} />
             <span>Auto-Paused</span>
           </div>
         ) : isPaused ? (
-          <div className="absolute top-3 right-4 flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 text-xs font-bold uppercase tracking-wider border border-amber-500/30">
-            <span className="w-2 h-2 rounded-full bg-amber-400" />
+          <div className="absolute top-2 right-3 flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400 text-[10px] font-bold uppercase tracking-wider border border-amber-500/30">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
             <span>Paused</span>
           </div>
         ) : null}
 
-        <div className="text-[11px] font-extrabold tracking-widest uppercase text-slate-400 mb-0.5 flex items-center justify-center gap-1.5">
-          <Zap size={13} className="text-emerald-400" />
+        <div className="text-[10px] font-bold tracking-widest uppercase text-emerald-800/80 dark:text-slate-400 flex items-center justify-center gap-1">
+          <Zap size={11} className="text-emerald-500 dark:text-emerald-400" />
           <span>DISTANCE</span>
         </div>
-        <div className="flex items-baseline justify-center gap-2">
-          <span className="font-display text-7xl sm:text-8xl font-black tracking-tight text-white drop-shadow-md">
+        <div className="flex items-baseline justify-center gap-1 mt-0.5">
+          <span className="font-display text-3xl sm:text-4xl font-black tracking-tight text-emerald-950 dark:text-white">
             {formattedDistance}
           </span>
-          <span className="text-2xl sm:text-3xl font-bold uppercase text-emerald-400 tracking-wider">
+          <span className="text-xs sm:text-sm font-bold uppercase text-emerald-600 dark:text-emerald-400 tracking-wider">
             {distanceUnit}
           </span>
         </div>
       </div>
 
-      {/* Primary Metrics Grid (Time & Pace) */}
-      <div className="grid grid-cols-2 gap-3">
-        {/* Time Card with Elapsed/Moving toggle */}
+      {/* Primary Metrics Grid (Time & Pace) - Smaller, Simpler, Clean */}
+      <div className="grid grid-cols-2 gap-2">
+        {/* Moving Time Card */}
         <button
           onClick={() => setTimeViewMode(timeViewMode === 'moving' ? 'elapsed' : 'moving')}
-          className="rounded-2xl bg-slate-900/90 border border-slate-800 hover:border-slate-700 p-3.5 flex flex-col justify-between shadow-md text-left transition-all active:scale-[0.99]"
+          className="rounded-2xl bg-white dark:bg-slate-900/90 border border-emerald-100 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-slate-700 p-2.5 sm:p-3 flex flex-col justify-between shadow-sm text-left transition-all active:scale-[0.99]"
           title="Click to toggle Moving Time vs Total Elapsed Time"
         >
-          <div className="flex items-center justify-between text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">
-            <div className="flex items-center gap-1.5">
-              <Timer size={14} className="text-emerald-400" />
+          <div className="flex items-center justify-between text-emerald-800/80 dark:text-slate-400 text-[10px] font-bold uppercase tracking-wider mb-0.5">
+            <div className="flex items-center gap-1">
+              <Timer size={11} className="text-emerald-600 dark:text-emerald-400" />
               <span>{timeViewMode === 'moving' ? 'MOVING TIME' : 'TOTAL TIME'}</span>
             </div>
-            <span className="text-[10px] text-slate-500 bg-slate-800/80 px-1.5 py-0.5 rounded">
+            <span className="text-[9px] text-emerald-700 dark:text-slate-400 bg-emerald-50 dark:bg-slate-800 px-1 rounded font-mono">
               {timeViewMode === 'moving' ? 'active' : 'total'}
             </span>
           </div>
-          <div className="font-mono text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
+          <div className="font-mono text-lg sm:text-xl font-bold text-emerald-950 dark:text-white tracking-tight">
             {formattedTime}
           </div>
-          {pausedTimeSeconds > 0 && (
-            <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-              Paused: {formatDuration(pausedTimeSeconds)}
-            </div>
-          )}
+          <div className="text-[9px] text-emerald-700/70 dark:text-slate-500 font-mono mt-0.5">
+            {pausedTimeSeconds > 0 ? `Paused: ${formatDuration(pausedTimeSeconds)}` : 'Live tracking'}
+          </div>
         </button>
 
         {/* Current Pace Card */}
-        <div className="rounded-2xl bg-slate-900/90 border border-slate-800 p-3.5 flex flex-col justify-between shadow-md">
-          <div className="flex items-center gap-1.5 text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">
-            <Gauge size={14} className="text-emerald-400" />
+        <div className="rounded-2xl bg-white dark:bg-slate-900/90 border border-emerald-100 dark:border-slate-800 p-2.5 sm:p-3 flex flex-col justify-between shadow-sm">
+          <div className="flex items-center gap-1 text-emerald-800/80 dark:text-slate-400 text-[10px] font-bold uppercase tracking-wider mb-0.5">
+            <Gauge size={11} className="text-emerald-600 dark:text-emerald-400" />
             <span>CURRENT PACE</span>
           </div>
           <div className="flex items-baseline gap-1">
-            <span className="font-mono text-3xl sm:text-4xl font-extrabold text-emerald-400 tracking-tight">
+            <span className="font-mono text-lg sm:text-xl font-bold text-emerald-600 dark:text-emerald-400 tracking-tight">
               {currentPaceStr}
             </span>
-            <span className="text-xs font-medium text-slate-400">{paceUnitLabel}</span>
+            <span className="text-[10px] font-medium text-emerald-800/70 dark:text-slate-400">{paceUnitLabel}</span>
           </div>
-          <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+          <div className="text-[9px] text-emerald-700/70 dark:text-slate-500 font-mono mt-0.5">
             Speed: {displaySpeed} {speedUnitLabel}
           </div>
         </div>
       </div>
 
-      {/* Secondary Metrics Strip */}
-      <div className="grid grid-cols-3 gap-2.5">
+      {/* Secondary Metrics Strip (Average Pace, Calories, Elevation) */}
+      <div className="grid grid-cols-3 gap-2">
         {/* Avg Pace */}
-        <div className="rounded-2xl bg-slate-900/70 border border-slate-800/80 p-3 text-center">
-          <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide flex items-center justify-center gap-1">
-            <Activity size={12} className="text-slate-400" />
+        <div className="rounded-2xl bg-white dark:bg-slate-900/80 border border-emerald-100 dark:border-slate-800/80 p-2 text-center shadow-sm">
+          <div className="text-[9px] font-bold text-emerald-800/80 dark:text-slate-400 uppercase tracking-wide flex items-center justify-center gap-0.5">
+            <Activity size={10} className="text-emerald-600 dark:text-slate-400" />
             <span>AVG PACE</span>
           </div>
-          <div className="font-mono text-lg font-bold text-slate-100 mt-0.5">
+          <div className="font-mono text-sm sm:text-base font-bold text-emerald-950 dark:text-slate-100 mt-0.5">
             {avgPaceStr}
           </div>
-          <div className="text-[10px] text-slate-500">{paceUnitLabel}</div>
+          <div className="text-[9px] text-emerald-700/70 dark:text-slate-500">{paceUnitLabel}</div>
         </div>
 
         {/* Calories */}
-        <div className="rounded-2xl bg-slate-900/70 border border-slate-800/80 p-3 text-center">
-          <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide flex items-center justify-center gap-1">
-            <Flame size={12} className="text-amber-400" />
+        <div className="rounded-2xl bg-white dark:bg-slate-900/80 border border-emerald-100 dark:border-slate-800/80 p-2 text-center shadow-sm">
+          <div className="text-[9px] font-bold text-emerald-800/80 dark:text-slate-400 uppercase tracking-wide flex items-center justify-center gap-0.5">
+            <Flame size={10} className="text-amber-500" />
             <span>CALORIES</span>
           </div>
-          <div className="font-mono text-lg font-bold text-amber-400 mt-0.5">
+          <div className="font-mono text-sm sm:text-base font-bold text-amber-600 dark:text-amber-400 mt-0.5">
             {calories}
           </div>
-          <div className="text-[10px] text-slate-500">kcal</div>
+          <div className="text-[9px] text-amber-700/70 dark:text-slate-500">kcal</div>
         </div>
 
         {/* Elevation Gain & Loss */}
-        <div className="rounded-2xl bg-slate-900/70 border border-slate-800/80 p-3 text-center">
-          <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide flex items-center justify-center gap-1">
-            <Mountain size={12} className="text-sky-400" />
+        <div className="rounded-2xl bg-white dark:bg-slate-900/80 border border-emerald-100 dark:border-slate-800/80 p-2 text-center shadow-sm">
+          <div className="text-[9px] font-bold text-emerald-800/80 dark:text-slate-400 uppercase tracking-wide flex items-center justify-center gap-0.5">
+            <Mountain size={10} className="text-sky-500" />
             <span>ELEVATION</span>
           </div>
-          <div className="font-mono text-lg font-bold text-sky-400 mt-0.5">
-            +{Math.round(elevationGainMeters)}
+          <div className="font-mono text-sm sm:text-base font-bold text-sky-600 dark:text-sky-400 mt-0.5">
+            +{Math.round(elevationGainMeters)}m
           </div>
-          <div className="text-[10px] text-slate-500">
-            {elevationLossMeters > 0 ? `-${Math.round(elevationLossMeters)}m` : 'm'}
+          <div className="text-[9px] text-sky-700/70 dark:text-slate-500">
+            {elevationLossMeters > 0 ? `-${Math.round(elevationLossMeters)}m` : 'gain'}
           </div>
         </div>
       </div>
