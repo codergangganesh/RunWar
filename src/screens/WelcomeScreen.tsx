@@ -43,17 +43,16 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   return (
     <div className="min-h-screen w-full bg-[#e8f3f0] flex flex-col justify-between items-center select-none relative overflow-x-hidden font-sans">
       <div className="w-full max-w-xl md:max-w-2xl flex flex-col flex-1 min-h-screen justify-between relative">
-        
+
         {/* Upper Hero Area with 5 Auto-Cycling Background Images */}
         <div className="relative pt-3 px-5 sm:px-6 pb-8 min-h-[340px] sm:min-h-[380px] flex flex-col justify-between overflow-hidden">
-          
+
           {/* 5 Cross-Fading Hero Background Images */}
           {HERO_IMAGES.map((imgSrc, idx) => (
             <div
               key={imgSrc}
-              className={`absolute inset-0 bg-cover bg-center z-0 transition-opacity duration-1000 ease-in-out ${
-                idx === currentImageIndex ? 'opacity-100 scale-105' : 'opacity-0 scale-100'
-              }`}
+              className={`absolute inset-0 bg-cover bg-center z-0 transition-opacity duration-1000 ease-in-out ${idx === currentImageIndex ? 'opacity-100 scale-105' : 'opacity-0 scale-100'
+                }`}
               style={{
                 backgroundImage: `url('${imgSrc}')`,
                 backgroundPosition: 'right 20% center',
@@ -110,11 +109,10 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                   <button
                     key={idx}
                     onClick={() => setCurrentImageIndex(idx)}
-                    className={`h-1.5 rounded-full transition-all duration-500 ${
-                      idx === currentImageIndex
-                        ? 'w-6 bg-[#00d09c]'
-                        : 'w-2 bg-slate-300 hover:bg-slate-400'
-                    }`}
+                    className={`h-1.5 rounded-full transition-all duration-500 ${idx === currentImageIndex
+                      ? 'w-6 bg-[#00d09c]'
+                      : 'w-2 bg-slate-300 hover:bg-slate-400'
+                      }`}
                     aria-label={`Go to slide ${idx + 1}`}
                   />
                 ))}
@@ -138,7 +136,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
 
         {/* Bottom Sheet Dark Card */}
         <div className="w-full bg-[#09151f] rounded-t-[36px] shadow-2xl px-6 sm:px-8 pt-7 pb-8 z-20 flex-1 flex flex-col justify-between border-t border-slate-800/80 relative">
-          
+
           {/* Subtle wave background watermark */}
           <div className="absolute inset-x-0 bottom-0 h-32 opacity-15 pointer-events-none overflow-hidden">
             <svg className="w-full h-full text-emerald-500 fill-current" viewBox="0 0 400 120" preserveAspectRatio="none">
@@ -167,12 +165,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                 <ArrowRight size={18} strokeWidth={2.5} />
               </button>
 
-              <button
-                onClick={onLogin}
-                className="w-full py-3.5 px-6 rounded-2xl bg-slate-900/80 hover:bg-slate-800 active:scale-[0.98] text-white border border-slate-700/80 font-bold text-sm flex items-center justify-center gap-2 transition-all"
-              >
-                <span>Already have an account? <strong className="text-[#00d09c]">Log In</strong></span>
-              </button>
+
 
               {/* Bottom Security Badge & Script Watermark */}
               <div className="pt-2 flex flex-col items-center gap-1 text-center">
