@@ -1,26 +1,24 @@
-const CACHE_NAME = 'runwar-cache-v1';
-const ASSETS_TO_CACHE = [
-  '/',
-  '/index.html',
+const CACHE_NAME = 'runwar-cache-v2';
+const STATIC_ASSETS = [
   '/logo.png',
+  '/manifest.webmanifest',
   '/images/runner_hero_1.jpg',
   '/images/runner_hero_2.jpg',
   '/images/runner_hero_3.jpg',
   '/images/runner_hero_4.jpg',
   '/images/runner_hero_5.jpg',
-  '/manifest.webmanifest',
 ];
 
 // Install Event
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS_TO_CACHE);
+      return cache.addAll(STATIC_ASSETS);
     }).then(() => self.skipWaiting())
   );
 });
 
-// Activate Event
+// Activate Event - clear old caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
@@ -37,35 +35,51 @@ self.addEventListener('activate', (event) => {
 
 // Fetch Interceptor
 self.addEventListener('fetch', (event) => {
-  // Only handle GET requests and skip API/database network calls
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
 
-  // Allow InsForge backend and external APIs to go direct to network
-  if (url.origin.includes('insforge.app') || url.origin.includes('tile.openstreetmap.org')) {
+  // Skip APIs, InsForge backend, and map tiles
+  if (
+    url.origin.includes('insforge.app') ||
+    url.origin.includes('tile.openstreetmap.org') ||
+    url.pathname.startsWith('/api')
+  ) {
     return;
   }
 
+  // 1. Navigation / HTML requests: Network-First (always get latest Vercel deployment)
+  if (event.request.mode === 'navigate' || event.request.headers.get('accept')?.includes('text/html')) {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const copy = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          }
+          return networkResponse;
+        })
+        .catch(() => {
+          // Offline fallback
+          return caches.match(event.request).then((cached) => cached || caches.match('/index.html'));
+        })
+    );
+    return;
+  }
+
+  // 2. Static Assets (JS, CSS, Images): Stale-While-Revalidate
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-      return fetch(event.request).then((networkResponse) => {
-        if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') {
+      const fetchPromise = fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const copy = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          }
           return networkResponse;
-        }
-        const responseToCache = networkResponse.clone();
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(event.request, responseToCache);
-        });
-        return networkResponse;
-      }).catch(() => {
-        // Offline fallback
-        if (event.request.mode === 'navigate') {
-          return caches.match('/index.html');
-        }
-      });
+        })
+        .catch(() => null);
+
+      return cachedResponse || fetchPromise;
     })
   );
 });
