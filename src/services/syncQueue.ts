@@ -170,9 +170,31 @@ class SyncQueueManager {
 
     for (const item of queue) {
       try {
+        const w = item.workout;
+        const dbPayload = {
+          id: w.id,
+          user_id: w.user_id,
+          type: w.type,
+          title: w.title,
+          notes: w.notes || null,
+          started_at: w.started_at,
+          ended_at: w.ended_at,
+          duration_seconds: w.duration_seconds,
+          distance_meters: w.distance_meters,
+          average_pace: w.average_pace,
+          average_speed: w.average_speed,
+          max_speed: w.max_speed || 0,
+          calories: w.calories || 0,
+          elevation_gain: w.elevation_gain || 0,
+          elevation_loss: w.elevation_loss || 0,
+          status: w.status || 'completed',
+          route_coordinates: Array.isArray(w.route_coordinates) ? w.route_coordinates : [],
+          splits: Array.isArray(w.splits) ? w.splits : [],
+        };
+
         const { error } = await insforge.database
           .from('workouts')
-          .upsert([item.workout], { onConflict: 'id' });
+          .upsert([dbPayload], { onConflict: 'id' });
 
         if (error) throw error;
 

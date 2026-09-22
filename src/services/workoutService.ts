@@ -87,6 +87,28 @@ export const workoutService = {
       splits: normalized.splits,
     };
 
+    // Clean payload matching PostgreSQL workouts table schema
+    const dbWorkoutPayload = {
+      id: normalized.id,
+      user_id: normalized.user_id,
+      type: normalized.type,
+      title: normalized.title,
+      notes: normalized.notes || null,
+      started_at: normalized.started_at,
+      ended_at: normalized.ended_at,
+      duration_seconds: normalized.duration_seconds,
+      distance_meters: normalized.distance_meters,
+      average_pace: normalized.average_pace,
+      average_speed: normalized.average_speed,
+      max_speed: normalized.max_speed,
+      calories: normalized.calories,
+      elevation_gain: normalized.elevation_gain,
+      elevation_loss: normalized.elevation_loss,
+      status: normalized.status,
+      route_coordinates: normalized.route_coordinates,
+      splits: normalized.splits,
+    };
+
     if (!navigator.onLine) {
       // Local-first: immediately cache and queue for background sync
       const localWorkout: Workout = {
@@ -112,7 +134,7 @@ export const workoutService = {
       // 1. Insert or upsert into workouts table (idempotent)
       const { data: insertedWorkout, error: workoutError } = await insforge.database
         .from('workouts')
-        .upsert([newWorkoutPayload], { onConflict: 'id' })
+        .upsert([dbWorkoutPayload], { onConflict: 'id' })
         .select()
         .single();
 
