@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, Wifi, WifiOff, Sparkles, Smartphone, Maximize2, Flame, Sun, Moon } from 'lucide-react';
+import { ArrowLeft, Wifi, WifiOff, Sparkles, Smartphone, Maximize2, Flame, Sun, Moon, RefreshCw, CloudCheck } from 'lucide-react';
 import { UserProfile } from '../../types';
 
 interface TopHeaderProps {
@@ -9,6 +9,8 @@ interface TopHeaderProps {
   profile?: UserProfile | null;
   onOpenProfile?: () => void;
   isOnline?: boolean;
+  isSyncing?: boolean;
+  onSync?: () => void;
   isDeviceFrame?: boolean;
   onToggleFrame?: () => void;
   streakCount?: number;
@@ -23,6 +25,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   profile,
   onOpenProfile,
   isOnline = true,
+  isSyncing = false,
+  onSync,
   isDeviceFrame = false,
   onToggleFrame,
   streakCount = 0,
@@ -97,17 +101,28 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           </button>
         )}
 
-        {/* Network Status Indicator - Proper Circle Shape */}
-        <div
-          className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${
-            isOnline
-              ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20'
-              : 'bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20'
+        {/* Network & Cloud Sync Status Button */}
+        <button
+          onClick={onSync}
+          disabled={!isOnline || isSyncing}
+          className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition-all ${
+            isSyncing
+              ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-500/40 animate-pulse'
+              : isOnline
+              ? 'bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20 active:scale-90 cursor-pointer'
+              : 'bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20 opacity-80'
           }`}
-          title={isOnline ? 'Online - Cloud Sync Active' : 'Offline - Sync queued'}
+          title={isSyncing ? 'Syncing with InsForge Cloud...' : isOnline ? 'Connected to InsForge Cloud (Click to refresh)' : 'Offline (Changes will sync when online)'}
+          aria-label="Cloud sync status"
         >
-          {isOnline ? <Wifi size={13} /> : <WifiOff size={13} />}
-        </div>
+          {isSyncing ? (
+            <RefreshCw size={13} className="animate-spin text-emerald-500" />
+          ) : isOnline ? (
+            <Wifi size={13} />
+          ) : (
+            <WifiOff size={13} />
+          )}
+        </button>
 
         {/* Profile Avatar button */}
         {profile && (

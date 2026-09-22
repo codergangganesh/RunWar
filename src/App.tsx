@@ -521,6 +521,12 @@ export const App: React.FC = () => {
             streakCount={todayStats.streak.currentStreak}
             theme={theme}
             onToggleTheme={handleToggleTheme}
+            isSyncing={isDataLoading}
+            onSync={() => {
+              if (currentUser?.id) {
+                loadAppData(currentUser.id, false);
+              }
+            }}
           >
             <PrivacyScreen
               profile={profile}
@@ -545,6 +551,12 @@ export const App: React.FC = () => {
             streakCount={todayStats.streak.currentStreak}
             theme={theme}
             onToggleTheme={handleToggleTheme}
+            isSyncing={isDataLoading}
+            onSync={() => {
+              if (currentUser?.id) {
+                loadAppData(currentUser.id, false);
+              }
+            }}
             headerTitle={
               activeTab === 'home'
                 ? undefined

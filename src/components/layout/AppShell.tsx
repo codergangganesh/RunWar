@@ -15,6 +15,8 @@ interface AppShellProps {
   headerTitle?: string;
   showBack?: boolean;
   onBack?: () => void;
+  isSyncing?: boolean;
+  onSync?: () => void;
   streakCount?: number;
   theme?: 'dark' | 'light';
   onToggleTheme?: () => void;
@@ -31,6 +33,8 @@ export const AppShell: React.FC<AppShellProps> = ({
   headerTitle,
   showBack = false,
   onBack,
+  isSyncing = false,
+  onSync,
   streakCount = 0,
   theme = 'dark',
   onToggleTheme,
@@ -72,6 +76,8 @@ export const AppShell: React.FC<AppShellProps> = ({
             profile={profile}
             onOpenProfile={() => setActiveTab('profile')}
             isOnline={isOnline}
+            isSyncing={isSyncing}
+            onSync={onSync}
             isDeviceFrame={isDeviceFrame}
             onToggleFrame={() => setIsDeviceFrame(!isDeviceFrame)}
             streakCount={streakCount}
