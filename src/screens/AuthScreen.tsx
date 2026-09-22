@@ -16,7 +16,7 @@ import {
 
 interface AuthScreenProps {
   initialMode?: 'signin' | 'signup';
-  onAuthSuccess: (user: any) => void;
+  onAuthSuccess: (user: any, isNewUser?: boolean) => void;
   onGuestAccess: () => void;
 }
 
@@ -72,7 +72,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
         const result = await authService.signUp(email.trim(), password, name.trim());
         if (result?.user && result?.user?.emailVerified) {
-          onAuthSuccess(result.user);
+          onAuthSuccess(result.user, true);
         } else {
           setSuccessMsg('Account created! A 6-digit verification code was sent to your email.');
           setMode('verify');
@@ -80,7 +80,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       } else if (mode === 'signin') {
         const result = await authService.signIn(email.trim(), password);
         if (result?.user) {
-          onAuthSuccess(result.user);
+          onAuthSuccess(result.user, false);
         }
       } else if (mode === 'verify') {
         if (!otp.trim() || otp.trim().length < 4) {
@@ -88,11 +88,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         }
         const result = await authService.verifyEmail(email.trim(), otp.trim());
         if (result?.user) {
-          onAuthSuccess(result.user);
+          onAuthSuccess(result.user, true);
         } else {
           const signinResult = await authService.signIn(email.trim(), password);
           if (signinResult?.user) {
-            onAuthSuccess(signinResult.user);
+            onAuthSuccess(signinResult.user, true);
           }
         }
       } else if (mode === 'forgot') {

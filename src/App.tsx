@@ -255,17 +255,14 @@ export const App: React.FC = () => {
           setCurrentUser(user);
           authService.setCachedUser(user);
           let userProfile = await authService.getProfile(user.id);
-          if (!userProfile) {
-            await authService.createInitialProfile(
-              user.id,
-              user.name || user.email?.split('@')[0] || 'Runner',
-              user.email || ''
-            );
-            userProfile = await authService.getProfile(user.id);
+          const isSetupDone = localStorage.getItem(`runwar_profile_setup_done_${user.id}`);
+          if (!userProfile || !isSetupDone) {
+            setScreen('profile_setup');
+          } else {
+            setProfile(userProfile);
+            await loadAppData(user.id);
+            setScreen('main');
           }
-          if (userProfile) setProfile(userProfile);
-          await loadAppData(user.id);
-          setScreen('main');
         }
       } else if (event === 'signedOut') {
         setCurrentUser(null);
@@ -322,11 +319,13 @@ export const App: React.FC = () => {
   };
 
   // Auth success
-  const handleAuthSuccess = async (user: any) => {
+  const handleAuthSuccess = async (user: any, isNewUser = false) => {
     setCurrentUser(user);
     authService.setCachedUser(user);
     const prof = await authService.getProfile(user.id);
-    if (!prof) {
+    const isSetupDone = localStorage.getItem(`runwar_profile_setup_done_${user.id}`);
+
+    if (isNewUser || !prof || !isSetupDone) {
       setScreen('profile_setup');
     } else {
       setProfile(prof);
@@ -465,11 +464,18 @@ export const App: React.FC = () => {
       case 'profile_setup':
         return (
           <ProfileSetupScreen
-            userId={currentUser?.id || 'guest_user'}
-            initialName={currentUser?.name || currentUser?.profile?.name || ''}
+            userId={currentUser?.id || authService.getCachedUser()?.id || 'guest_user'}
+            initialName={currentUser?.name || currentUser?.profile?.name || currentUser?.user_metadata?.name || ''}
             initialEmail={currentUser?.email || ''}
-            onComplete={(prof) => {
+            onComplete={async (prof) => {
+              const activeUserId = prof.user_id || currentUser?.id;
+              if (activeUserId) {
+                localStorage.setItem(`runwar_profile_setup_done_${activeUserId}`, 'true');
+              }
               setProfile(prof);
+              if (currentUser?.id) {
+                await loadAppData(currentUser.id);
+              }
               setScreen('main');
             }}
           />
