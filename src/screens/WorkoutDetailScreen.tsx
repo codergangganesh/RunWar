@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { UserProfile, Workout } from '../types';
 import { workoutService } from '../services/workoutService';
-import { downloadFile, generateGPX, generateWorkoutsCSV } from '../utils/exportGenerators';
+import { downloadFile, generateGPX, generateTCX, generateWorkoutsCSV } from '../utils/exportGenerators';
 import { formatDistance, formatDuration, formatPace, formatSpeed } from '../utils/formatters';
 import { formatLocalDateFull, formatLocalTime } from '../utils/dateUtils';
 import { StaticRouteMap } from '../components/map/StaticRouteMap';
@@ -79,18 +79,31 @@ export const WorkoutDetailScreen: React.FC<WorkoutDetailScreenProps> = ({
 
   const handleExportGPX = () => {
     const gpxContent = generateGPX(workout);
-    const filename = `runwar_${workout.type}_${workout.id.slice(0, 8)}.gpx`;
+    const datePart = (workout.started_at || new Date().toISOString()).slice(0, 10);
+    const distPart = (workout.distance_meters / 1000).toFixed(1) + 'km';
+    const filename = `runwar_${workout.type}_${datePart}_${distPart}.gpx`;
     downloadFile(gpxContent, filename, 'application/gpx+xml');
     setExportedType('GPX');
-    setTimeout(() => setExportedType(null), 2500);
+    setTimeout(() => setExportedType(null), 3000);
+  };
+
+  const handleExportTCX = () => {
+    const tcxContent = generateTCX(workout);
+    const datePart = (workout.started_at || new Date().toISOString()).slice(0, 10);
+    const distPart = (workout.distance_meters / 1000).toFixed(1) + 'km';
+    const filename = `runwar_${workout.type}_${datePart}_${distPart}.tcx`;
+    downloadFile(tcxContent, filename, 'application/vnd.garmin.tcx+xml');
+    setExportedType('TCX');
+    setTimeout(() => setExportedType(null), 3000);
   };
 
   const handleExportCSV = () => {
     const csvContent = generateWorkoutsCSV([workout]);
-    const filename = `runwar_${workout.type}_${workout.id.slice(0, 8)}.csv`;
+    const datePart = (workout.started_at || new Date().toISOString()).slice(0, 10);
+    const filename = `runwar_${workout.type}_${datePart}.csv`;
     downloadFile(csvContent, filename, 'text/csv');
     setExportedType('CSV');
-    setTimeout(() => setExportedType(null), 2500);
+    setTimeout(() => setExportedType(null), 3000);
   };
 
   const distanceUnit = profile?.distance_unit || 'km';
@@ -245,11 +258,19 @@ export const WorkoutDetailScreen: React.FC<WorkoutDetailScreenProps> = ({
         paceUnit={paceUnit}
       />
 
-      {/* 7. Export & Share Card Options (No Sparkles Icon) */}
-      <div className="rounded-3xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-slate-800 p-4 space-y-3 shadow-sm">
-        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-          Share & Export
-        </h3>
+      {/* 7. Export & Share Card Options */}
+      <div className="rounded-3xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-slate-800 p-4 sm:p-5 space-y-3.5 shadow-sm">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            Share & Export
+          </h3>
+          {exportedType && (
+            <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 text-[11px] font-bold animate-fade-in">
+              <Check size={12} strokeWidth={3} />
+              <span>Downloaded {exportedType}!</span>
+            </span>
+          )}
+        </div>
 
         {/* Share Story Card Button */}
         <button
@@ -260,7 +281,55 @@ export const WorkoutDetailScreen: React.FC<WorkoutDetailScreenProps> = ({
           <span>Generate Story Share Card</span>
         </button>
 
+        {/* Export Formats Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+          {/* GPX Export for Strava & Garmin */}
+          <button
+            onClick={handleExportGPX}
+            className="w-full py-3 px-3.5 rounded-2xl bg-emerald-50/60 dark:bg-slate-800/80 hover:bg-emerald-100/70 dark:hover:bg-slate-800 border border-emerald-200/80 dark:border-slate-700/80 text-slate-900 dark:text-slate-100 font-bold text-xs flex items-center justify-between active:scale-95 transition-all group"
+          >
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                <Download size={15} strokeWidth={2.5} />
+              </div>
+              <div className="text-left">
+                <div className="text-xs font-bold text-slate-950 dark:text-white">Export GPX</div>
+                <div className="text-[10px] text-slate-500 dark:text-slate-400">Strava, Garmin, NRC</div>
+              </div>
+            </div>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-[#fc5200]/15 text-[#fc5200] dark:bg-[#fc5200]/25 dark:text-[#ff7438]">
+              Strava
+            </span>
+          </button>
 
+          {/* TCX Export for Garmin & Polar */}
+          <button
+            onClick={handleExportTCX}
+            className="w-full py-3 px-3.5 rounded-2xl bg-emerald-50/60 dark:bg-slate-800/80 hover:bg-emerald-100/70 dark:hover:bg-slate-800 border border-emerald-200/80 dark:border-slate-700/80 text-slate-900 dark:text-slate-100 font-bold text-xs flex items-center justify-between active:scale-95 transition-all group"
+          >
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-sky-500/10 dark:bg-sky-500/20 text-sky-600 dark:text-sky-400 flex items-center justify-center shrink-0">
+                <Download size={15} strokeWidth={2.5} />
+              </div>
+              <div className="text-left">
+                <div className="text-xs font-bold text-slate-950 dark:text-white">Export TCX</div>
+                <div className="text-[10px] text-slate-500 dark:text-slate-400">Garmin Connect, Polar</div>
+              </div>
+            </div>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-sky-500/15 text-sky-600 dark:bg-sky-500/25 dark:text-sky-300">
+              Garmin
+            </span>
+          </button>
+        </div>
+
+        {/* CSV Raw Data Export */}
+        <button
+          onClick={handleExportCSV}
+          className="w-full py-2.5 px-3 rounded-xl bg-slate-100/80 dark:bg-slate-800/40 hover:bg-slate-200/80 dark:hover:bg-slate-800/80 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 font-semibold text-[11px] flex items-center justify-center gap-1.5 transition-all"
+        >
+          <Download size={12} />
+          <span>Export Metrics as CSV</span>
+        </button>
       </div>
 
       {/* 8. Delete Workout Action */}

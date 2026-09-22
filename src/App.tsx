@@ -18,6 +18,7 @@ import { PersonalRecordsScreen } from './screens/PersonalRecordsScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
 import { PrivacyScreen } from './screens/PrivacyScreen';
 import { RecoveryModal } from './components/ui/RecoveryModal';
+import { PWAInstallBanner } from './components/ui/PWAInstallBanner';
 
 import { insforge } from './lib/insforge';
 import { authService } from './services/authService';
@@ -649,6 +650,9 @@ export const App: React.FC = () => {
   return (
     <>
       {renderScreen()}
+
+      {/* PWA Add to Home Screen Banner */}
+      {screen !== 'active_run' && screen !== 'splash' && <PWAInstallBanner />}
 
       {/* Unsaved Workout Recovery Modal */}
       {recoveredWorkoutBackup && screen !== 'active_run' && (

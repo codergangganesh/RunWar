@@ -2,28 +2,35 @@ import { Workout } from '../types';
 import { formatDuration, formatPace, formatDistance, formatSpeed } from './formatters';
 
 /**
- * Generate standard GPX XML format for GPS devices and fitness platforms (Strava, Garmin, etc.)
+ * Generate standard GPX 1.1 XML format with Garmin TrackPoint Extensions
+ * Supported by Strava, Garmin Connect, Nike Run Club, Apple Health, Relive, Komoot.
  */
 export function generateGPX(workout: Workout): string {
   const dateStr = workout.started_at || new Date().toISOString();
   const name = workout.title || `${workout.type.toUpperCase()} - ${new Date(dateStr).toLocaleDateString()}`;
 
-  const trackPointsXml = workout.route_coordinates
+  const trackPointsXml = (workout.route_coordinates || [])
     .map((pt) => {
       const timeIso = new Date(pt.timestamp).toISOString();
-      const eleXml = pt.altitude != null ? `\n        <ele>${pt.altitude.toFixed(1)}</ele>` : '';
+      const eleXml = pt.altitude != null ? `\n        <ele>${Number(pt.altitude).toFixed(1)}</ele>` : '';
+      const speedExtXml =
+        pt.speed != null
+          ? `\n        <extensions>\n          <gpxtpx:TrackPointExtension>\n            <gpxtpx:speed>${Number(pt.speed).toFixed(2)}</gpxtpx:speed>\n          </gpxtpx:TrackPointExtension>\n        </extensions>`
+          : '';
+
       return `      <trkpt lat="${pt.latitude}" lon="${pt.longitude}">${eleXml}
-        <time>${timeIso}</time>
-        ${pt.speed != null ? `<speed>${pt.speed.toFixed(2)}</speed>` : ''}
+        <time>${timeIso}</time>${speedExtXml}
       </trkpt>`;
     })
     .join('\n');
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="RunWar Fitness App - https://insforge.dev"
+<gpx version="1.1" creator="RunWar Fitness App - https://runwar.app"
   xmlns="http://www.topografix.com/GPX/1/1"
+  xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1"
+  xmlns:gpxx="http://www.garmin.com/xmlschemas/GpxExtensions/v3"
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
+  xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd http://www.garmin.com/xmlschemas/TrackPointExtension/v1 http://www.garmin.com/xmlschemas/TrackPointExtensionv1.xsd">
   <metadata>
     <name>${escapeXml(name)}</name>
     <time>${dateStr}</time>
@@ -36,6 +43,52 @@ ${trackPointsXml}
     </trkseg>
   </trk>
 </gpx>`;
+}
+
+/**
+ * Generate Garmin Training Center XML (TCX) format
+ * Supported by Garmin Connect, Strava, Polar Flow, TrainingPeaks.
+ */
+export function generateTCX(workout: Workout): string {
+  const dateStr = workout.started_at || new Date().toISOString();
+  const sport = workout.type === 'run' ? 'Running' : workout.type === 'walk' ? 'Walking' : 'Running';
+
+  const trackpointsXml = (workout.route_coordinates || [])
+    .map((pt) => {
+      const timeIso = new Date(pt.timestamp).toISOString();
+      const altXml = pt.altitude != null ? `\n            <AltitudeMeters>${Number(pt.altitude).toFixed(1)}</AltitudeMeters>` : '';
+      return `          <Trackpoint>
+            <Time>${timeIso}</Time>
+            <Position>
+              <LatitudeDegrees>${pt.latitude}</LatitudeDegrees>
+              <LongitudeDegrees>${pt.longitude}</LongitudeDegrees>
+            </Position>${altXml}
+          </Trackpoint>`;
+    })
+    .join('\n');
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<TrainingCenterDatabase
+  xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2 http://www.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd">
+  <Activities>
+    <Activity Sport="${sport}">
+      <Id>${dateStr}</Id>
+      <Lap StartTime="${dateStr}">
+        <TotalTimeSeconds>${workout.duration_seconds}</TotalTimeSeconds>
+        <DistanceMeters>${workout.distance_meters}</DistanceMeters>
+        <MaximumSpeed>${workout.max_speed ? (workout.max_speed / 3.6).toFixed(2) : '0.00'}</MaximumSpeed>
+        <Calories>${workout.calories}</Calories>
+        <Intensity>Active</Intensity>
+        <TriggerMethod>Manual</TriggerMethod>
+        <Track>
+${trackpointsXml}
+        </Track>
+      </Lap>
+    </Activity>
+  </Activities>
+</TrainingCenterDatabase>`;
 }
 
 /**
@@ -103,7 +156,7 @@ function escapeXml(unsafe: string): string {
         return '&gt;';
       case '&':
         return '&amp;';
-      case '\'':
+      case "'":
         return '&apos;';
       case '"':
         return '&quot;';
