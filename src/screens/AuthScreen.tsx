@@ -316,8 +316,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     type="button"
                     onClick={() => setCurrentImageIndex(idx)}
                     className={`h-1.5 rounded-full transition-all duration-500 ${idx === currentImageIndex
-                        ? 'w-6 bg-[#00d09c]'
-                        : 'w-2 bg-slate-300 hover:bg-slate-400'
+                      ? 'w-6 bg-[#00d09c]'
+                      : 'w-2 bg-slate-300 hover:bg-slate-400'
                       }`}
                     aria-label={`Go to slide ${idx + 1}`}
                   />
@@ -400,8 +400,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     setSuccessMsg(null);
                   }}
                   className={`flex-1 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${authMethod === 'email_otp'
-                      ? 'bg-white text-slate-950 shadow-sm border border-slate-200/80 font-black'
-                      : 'text-slate-600 hover:text-slate-900'
+                    ? 'bg-white text-slate-950 shadow-sm border border-slate-200/80 font-black'
+                    : 'text-slate-600 hover:text-slate-900'
                     }`}
                 >
                   <Mail size={14} className={authMethod === 'email_otp' ? 'text-[#00d09c]' : ''} />
@@ -418,8 +418,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     setSuccessMsg(null);
                   }}
                   className={`flex-1 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${authMethod === 'password'
-                      ? 'bg-white text-slate-950 shadow-sm border border-slate-200/80 font-black'
-                      : 'text-slate-600 hover:text-slate-900'
+                    ? 'bg-white text-slate-950 shadow-sm border border-slate-200/80 font-black'
+                    : 'text-slate-600 hover:text-slate-900'
                     }`}
                 >
                   <Lock size={14} className={authMethod === 'password' ? 'text-[#00d09c]' : ''} />
@@ -524,7 +524,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
                     {/* Subtitle / Tip */}
                     <div className="flex items-center gap-1.5 px-1 text-[11px] text-slate-500">
-                      <Sparkles size={12} className="text-[#00d09c]" />
+
                       <span>Instant 6-digit code delivered via InsForge SMTP</span>
                     </div>
 
@@ -583,8 +583,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         onClick={handleResendEmailOtp}
                         disabled={emailOtpCountdown > 0 || resending}
                         className={`font-bold flex items-center gap-1 transition-all cursor-pointer ${emailOtpCountdown > 0
-                            ? 'text-slate-400 cursor-not-allowed'
-                            : 'text-emerald-700 hover:underline'
+                          ? 'text-slate-400 cursor-not-allowed'
+                          : 'text-emerald-700 hover:underline'
                           }`}
                       >
                         <RefreshCw size={12} className={resending ? 'animate-spin' : ''} />
