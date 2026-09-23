@@ -38,6 +38,9 @@ export const ConnectedHealthScreen: React.FC<ConnectedHealthScreenProps> = ({
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
 
   useEffect(() => {
+    // Check initial state from service
+    setHealthState(healthService.getPrimaryConnectionState());
+
     // Subscribe to live health state and progress updates
     const unsubscribe = healthService.subscribe((state) => {
       setHealthState(state);
@@ -53,7 +56,7 @@ export const ConnectedHealthScreen: React.FC<ConnectedHealthScreenProps> = ({
     setIsConnecting(true);
     setSyncFeedback(null);
     try {
-      const result = await healthService.connect('google_health');
+      const result = await healthService.connect('google_health', 'connected_health');
       const updated = healthService.getPrimaryConnectionState();
       setHealthState(updated);
 

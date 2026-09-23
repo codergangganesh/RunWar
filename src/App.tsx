@@ -413,15 +413,36 @@ export const App: React.FC = () => {
     };
   }, [currentUser?.id, profile?.user_id, loadAppData]);
 
-  // Handle splash completion
+  // Handle splash completion and URL route preservation (e.g. returning from Google Health OAuth)
   const handleSplashFinish = () => {
     const cached = authService.getCachedUser();
     if (currentUser || cached) {
-      setScreen('main');
+      const params = new URLSearchParams(window.location.search);
+      const targetScreen = params.get('screen') as ScreenState | null;
+      const targetTab = params.get('tab') as ActiveTab | null;
+      if (targetScreen === 'connected_health' || targetScreen === 'privacy') {
+        setScreen(targetScreen);
+      } else {
+        setScreen('main');
+        if (targetTab) setActiveTab(targetTab);
+      }
     } else if (!isAuthInitializing) {
       setScreen('welcome');
     }
   };
+
+  // Handle URL navigation params after authentication resolves
+  useEffect(() => {
+    if (isAuthInitializing) return;
+    const params = new URLSearchParams(window.location.search);
+    const targetScreen = params.get('screen') as ScreenState | null;
+    const targetTab = params.get('tab') as ActiveTab | null;
+    if (targetScreen === 'connected_health' || targetScreen === 'privacy') {
+      setScreen(targetScreen);
+    } else if (targetTab) {
+      setActiveTab(targetTab);
+    }
+  }, [isAuthInitializing]);
 
   // Handle PWA manifest shortcut ?start=run
   useEffect(() => {

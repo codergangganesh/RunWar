@@ -108,7 +108,8 @@ export const DailyActivityScreen: React.FC<DailyActivityScreenProps> = ({
     try {
       const fresh = await dailyActivityService.getTodayMetrics(userId, workouts, profile);
       setMetrics(fresh);
-      setHasGoogleToken(Boolean(healthService.getGoogleAccessToken()));
+      const isConnected = fresh.isGoogleConnected || fresh.source === 'google_health' || Boolean(healthService.getGoogleAccessToken()) || healthService.getPrimaryConnectionState().isConnected;
+      setHasGoogleToken(isConnected);
       if (!silent) {
         setSyncToast('Live Google Health data updated!');
         setTimeout(() => setSyncToast(null), 2500);
@@ -120,30 +121,40 @@ export const DailyActivityScreen: React.FC<DailyActivityScreenProps> = ({
     }
   }, [userId, workouts, profile]);
 
-  // On mount: restore persistent connection (token + auto-refresh timer), then fetch metrics
+  // On mount: restore persistent connection, listen for updates, then fetch metrics
   useEffect(() => {
     let cancelled = false;
+
+    // Subscribe to real-time health connection updates
+    const unsubscribe = healthService.subscribe((state) => {
+      if (!cancelled) {
+        setHasGoogleToken(state.isConnected);
+      }
+    });
+
     const init = async () => {
-      const tokenExists = Boolean(healthService.getGoogleAccessToken());
-      setHasGoogleToken(tokenExists);
-      if (!tokenExists) {
-        // Try to restore connection silently (startPersistentConnection handles
-        // both the valid-token-exists case and the silent re-auth case)
+      const isConnected = healthService.getPrimaryConnectionState().isConnected || Boolean(healthService.getGoogleAccessToken());
+      setHasGoogleToken(isConnected);
+      if (!isConnected) {
         const ok = await healthService.startPersistentConnection().catch(() => false);
         if (!cancelled) setHasGoogleToken(ok);
       }
       if (!cancelled) {
-        await refreshMetrics(true).catch(() => {});
+        await refreshMetrics(true).catch(() => { });
       }
     };
     init();
-    return () => { cancelled = true; };
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Re-sync whenever workouts/profile change
   useEffect(() => {
     if (userId && userId !== 'guest_user') {
-      refreshMetrics(true).catch(() => {});
+      refreshMetrics(true).catch(() => { });
     }
   }, [refreshMetrics]);
 
@@ -151,7 +162,7 @@ export const DailyActivityScreen: React.FC<DailyActivityScreenProps> = ({
   const handleConnectGoogleHealth = async () => {
     setIsConnectingGoogle(true);
     try {
-      const res = await healthService.connect('google_health');
+      const res = await healthService.connect('google_health', 'activity');
       if (res.success) {
         setSyncToast('Connected to Google Health! Streaming live data...');
         await refreshMetrics(false);
@@ -167,8 +178,8 @@ export const DailyActivityScreen: React.FC<DailyActivityScreenProps> = ({
     }
   };
 
-  // isGoogleConnected: true only when we have an actual valid OAuth token
-  const isGoogleConnected = hasGoogleToken || metrics.source === 'google_health';
+  // isGoogleConnected: true whenever tokens exist, source is google_health, or connection is active
+  const isGoogleConnected = hasGoogleToken || metrics.source === 'google_health' || connectionState.isConnected || metrics.isGoogleConnected;
 
   // Compute maximum steps in any hour for relative bar scaling
   const maxHourlySteps = Math.max(
@@ -268,56 +279,13 @@ export const DailyActivityScreen: React.FC<DailyActivityScreenProps> = ({
                 value={metrics.caloriesBurned > 0 ? metrics.caloriesBurned.toLocaleString() : '0 kcal'}
                 variant="teal"
               />
-              <MetricPillCard
-                icon={<Dumbbell size={18} />}
-                label="Exercise days"
-                value={`${metrics.exerciseDaysThisWeek} of ${metrics.targetExerciseDays}`}
-                variant="teal"
-              />
+
             </div>
           </div>
 
-          {/* Section 2: Sleep (Purple) + Floors (Teal) */}
-          <div className="grid grid-cols-2 gap-2.5">
-            <MetricPillCard
-              icon={<Moon size={18} />}
-              label="Sleep"
-              value={
-                metrics.sleepDurationMinutes
-                  ? `${Math.floor(metrics.sleepDurationMinutes / 60)}h ${metrics.sleepDurationMinutes % 60}m`
-                  : 'No data'
-              }
-              variant="purple"
-            />
-            <MetricPillCard
-              icon={<Zap size={18} />}
-              label="Floors"
-              value={metrics.floorsClimbed.toString()}
-              variant="teal"
-            />
-          </div>
 
-          {/* Section 3: Hourly Activity (Teal) + Weight (Slate) */}
-          <div className="grid grid-cols-2 gap-2.5">
-            <MetricPillCard
-              icon={<Footprints size={18} />}
-              label="Hourly activity"
-              value={`${metrics.hourlyActiveHours} of ${metrics.targetHourlyHours}`}
-              variant="teal"
-            />
-            <MetricPillCard
-              icon={<Scale size={18} />}
-              label="Weight"
-              value={
-                metrics.weightKg
-                  ? `${metrics.weightKg} kg`
-                  : profile?.weight
-                    ? `${profile.weight} kg`
-                    : 'Not set'
-              }
-              variant="slate"
-            />
-          </div>
+
+
 
           {/* Section 4: Steps (Teal) + Run Distance (Teal) */}
           <div className="grid grid-cols-2 gap-2.5">
@@ -367,14 +335,14 @@ export const DailyActivityScreen: React.FC<DailyActivityScreenProps> = ({
                 <Radio size={22} className="animate-pulse" />
               </div>
               <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                    Real-time Google Health Streams
-                  </h3>
-                  <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-800/60">
-                    Not Connected
-                  </span>
-                </div>
+
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                  Real-time Google Health Streams
+                </h3>
+                <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-800/60">
+                  Not Connected
+                </span>
+
                 <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
                   Connect your Google account to fetch real-time continuous steps, 24-hour hourly movement distribution, active minutes, and calories directly from Google Health sensors.
                 </p>
@@ -395,7 +363,7 @@ export const DailyActivityScreen: React.FC<DailyActivityScreenProps> = ({
                 <>
                   <Radio size={16} />
                   <span>Connect Google Health</span>
-                  <ExternalLink size={14} className="opacity-70" />
+
                 </>
               )}
             </button>

@@ -59,12 +59,12 @@ export class HealthService {
   /**
    * Connect to specified health provider
    */
-  async connect(type: HealthProviderType = 'google_health'): Promise<{ success: boolean; error?: string; accountEmail?: string }> {
-    const provider = this.getProvider(type);
+  async connect(type: HealthProviderType = 'google_health', source?: string): Promise<{ success: boolean; error?: string; accountEmail?: string }> {
+    const provider = this.getProvider(type) as any;
     if (!provider) {
       return { success: false, error: 'Unsupported health provider.' };
     }
-    return provider.connect();
+    return provider.connect(source);
   }
 
   /**

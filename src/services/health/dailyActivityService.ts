@@ -3,6 +3,7 @@ import { UserProfile, Workout } from '../../types';
 import { workoutService } from '../workoutService';
 import { healthService } from './healthService';
 import { toDeterministicUUID } from '../../utils/uuid';
+import { googleHealthProvider, FN_DATA } from './googleHealthProvider';
 
 const GOOGLE_FIT_AUTH_STORAGE_KEY = 'runwar_google_fit_token';
 
@@ -150,10 +151,68 @@ class DailyActivityService {
     // can be stale after a page refresh even when authorization is still valid.
     const isGoogleConnected = Boolean(googleToken);
 
+    // ─── 2.5 Query persistent Google Health data via InsForge Backend ───
+    let backendFitLoaded = false;
+    const activeUserId = googleHealthProvider.getUserId();
+    const userEmail = googleHealthProvider.getUserEmail();
+    const deviceId = localStorage.getItem('runwar_device_user_id') || undefined;
+
+    try {
+      const backendRes = await fetch(FN_DATA, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: activeUserId,
+          email: userEmail,
+          device_id: deviceId,
+          start_ms: todayStartMs,
+          end_ms: todayEndMs,
+        }),
+      });
+
+      if (backendRes.ok) {
+        const bData = await backendRes.json();
+        if (bData && (bData.steps > 0 || bData.calories > 0 || bData.hourlyBuckets || bData.source === 'google_health')) {
+          backendFitLoaded = true;
+          totalSteps = Math.max(totalSteps, Number(bData.steps) || 0);
+          totalCalories = Math.max(totalCalories, Number(bData.calories) || 0);
+          totalDistanceMeters = Math.max(totalDistanceMeters, Number(bData.distanceMeters) || 0);
+          activeMinutes = Math.max(activeMinutes, Number(bData.activeMinutes) || 0);
+          source = 'google_health';
+
+          // Store freshly obtained/refreshed access token and email
+          if (bData.access_token) {
+            googleHealthProvider.setAccessTokenDirectly(bData.access_token, Number(bData.expires_in) || 3600);
+          }
+          if (bData.accountEmail) {
+            googleHealthProvider.setConnectionStateDirectly({
+              isConnected: true,
+              status: 'connected',
+              accountEmail: bData.accountEmail,
+            });
+          }
+
+          if (Array.isArray(bData.hourlyBuckets) && bData.hourlyBuckets.length > 0) {
+            let activeHoursCount = 0;
+            bData.hourlyBuckets.forEach((b: any) => {
+              if (hourlyBuckets[b.hour]) {
+                hourlyBuckets[b.hour].steps = b.steps;
+                hourlyBuckets[b.hour].isActive = Boolean(b.isActive);
+                if (b.isActive) activeHoursCount++;
+              }
+            });
+            if (activeHoursCount > 0) hourlyActiveHours = activeHoursCount;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[DailyActivity] Backend google-fit-data fetch error:', e);
+    }
+
     let hrMin: number | null = null;
     let hrMax: number | null = null;
 
-    if (googleToken && isGoogleConnected) {
+    if (!backendFitLoaded && googleToken && isGoogleConnected) {
       try {
         const nowMs = Date.now();
 
@@ -417,7 +476,7 @@ class DailyActivityService {
       weeklyHistory: weeklyHistory,
       lastSyncedAt: new Date().toISOString(),
       source,
-      isGoogleConnected,
+      isGoogleConnected: Boolean(googleToken) || source === 'google_health' || googleHealthProvider.getConnectionState().isConnected,
     };
 
     // Cache to local storage
