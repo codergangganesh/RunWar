@@ -511,7 +511,118 @@ export class TakeoutImporter {
   }
 
   /**
-   * Unified file parser supporting TCX, GPX, and JSON
+   * Parse CSV workout exports (including Fitbit/Google Health UserExercises)
+   */
+  parseCsv(csvText: string, userId: string): Workout[] {
+    try {
+      const lines = csvText.trim().split(/\r?\n/);
+      if (lines.length < 2) return [];
+
+      const headers = lines[0].split(',').map((h) => h.trim().toLowerCase());
+      const idxStart = headers.indexOf('exercise_start');
+      const idxEnd = headers.indexOf('exercise_end');
+      const idxActivity = headers.indexOf('activity_name');
+      const idxDistMm = headers.indexOf('tracker_total_distance_mm');
+      const idxManDistMm = headers.indexOf('manually_logged_total_distance_mm');
+      const idxCal = headers.indexOf('tracker_total_calories');
+      const idxManCal = headers.indexOf('manually_logged_total_calories');
+      const idxSteps = headers.indexOf('tracker_total_steps');
+      const idxAvgHr = headers.indexOf('tracker_avg_heart_rate');
+      const idxExerciseId = headers.indexOf('exercise_id');
+
+      const workouts: Workout[] = [];
+
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        const cols = line.split(',');
+
+        let startTime = new Date().toISOString();
+        let endTime = new Date().toISOString();
+        let durationSec = 1800;
+        let distanceMeters = 3000;
+        let cal = 200;
+        let type: WorkoutType = 'run';
+        let activityName = 'Outdoor Run';
+        let avgHr: number | null = null;
+        let externalId = `csv_${Date.now()}_${i}`;
+
+        if (idxStart !== -1 && idxEnd !== -1 && cols[idxStart] && cols[idxEnd]) {
+          startTime = new Date(cols[idxStart]).toISOString();
+          endTime = new Date(cols[idxEnd]).toISOString();
+          durationSec = Math.max(
+            60,
+            Math.round((new Date(endTime).getTime() - new Date(startTime).getTime()) / 1000)
+          );
+
+          activityName = cols[idxActivity]?.trim() || 'Outdoor Run';
+          type = activityName.toLowerCase().includes('walk')
+            ? 'walk'
+            : activityName.toLowerCase().includes('jog')
+              ? 'jog'
+              : 'run';
+
+          const distMm = parseFloat(cols[idxDistMm]) || parseFloat(cols[idxManDistMm]) || 0;
+          distanceMeters = Math.round(distMm / 1000);
+
+          const steps = parseInt(cols[idxSteps] || '0', 10);
+          if (distanceMeters <= 0 && steps > 0) {
+            distanceMeters = Math.round(steps * 0.85);
+          }
+          if (distanceMeters <= 0) {
+            const speedEst = type === 'run' ? 2.78 : type === 'jog' ? 2.08 : 1.39;
+            distanceMeters = Math.round(durationSec * speedEst);
+          }
+
+          cal = Math.round(
+            parseFloat(cols[idxCal]) ||
+              parseFloat(cols[idxManCal]) ||
+              Math.max(25, durationSec * 0.12)
+          );
+          avgHr = parseInt(cols[idxAvgHr] || '0', 10) || null;
+          externalId = cols[idxExerciseId]?.trim() || `csv_${i}_${new Date(startTime).getTime()}`;
+        }
+
+        const avgSpeed = Number(((distanceMeters / 1000) / (durationSec / 3600)).toFixed(2));
+        const avgPace = distanceMeters > 0 ? Math.round(durationSec / (distanceMeters / 1000)) : 0;
+
+        workouts.push({
+          id: crypto.randomUUID(),
+          user_id: userId,
+          type,
+          title: `Google Health ${activityName}`,
+          notes: 'Imported from Google Health / Fitbit CSV',
+          started_at: startTime,
+          ended_at: endTime,
+          duration_seconds: durationSec,
+          moving_duration_seconds: durationSec,
+          paused_duration_seconds: 0,
+          distance_meters: distanceMeters,
+          average_pace: avgPace,
+          average_speed: avgSpeed,
+          max_speed: Number((avgSpeed * 1.25).toFixed(2)),
+          calories: cal,
+          elevation_gain: 0,
+          elevation_loss: 0,
+          status: 'completed',
+          route_coordinates: [],
+          splits: this.generateSplits(distanceMeters, durationSec),
+          heart_rate_avg: avgHr,
+          source_provider: 'google_health',
+          external_record_id: externalId,
+          created_at: new Date().toISOString(),
+        });
+      }
+
+      return workouts;
+    } catch (e) {
+      console.warn('Error parsing CSV workouts:', e);
+      return [];
+    }
+  }
+
+  /**
+   * Unified file parser supporting TCX, GPX, JSON, and CSV
    */
   parseFile(fileText: string, fileName: string, userId: string): Workout[] {
     const lower = fileName.toLowerCase();
@@ -523,6 +634,8 @@ export class TakeoutImporter {
       return workout ? [workout] : [];
     } else if (lower.endsWith('.json')) {
       return this.parseJson(fileText, userId);
+    } else if (lower.endsWith('.csv')) {
+      return this.parseCsv(fileText, userId);
     }
     return [];
   }

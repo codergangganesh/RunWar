@@ -1,9 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { Home, History, TrendingUp, User, Play, Compass, Target, Award } from 'lucide-react';
+import { Home, History, TrendingUp, User, Play, Activity, Target } from 'lucide-react';
 import { TopHeader } from './TopHeader';
 import { UserProfile } from '../../types';
 
-export type ActiveTab = 'home' | 'history' | 'run' | 'insights' | 'profile' | 'goals' | 'achievements' | 'records' | 'calendar';
+export type ActiveTab =
+  | 'home'
+  | 'activity'
+  | 'history'
+  | 'run'
+  | 'insights'
+  | 'profile'
+  | 'goals'
+  | 'achievements'
+  | 'records'
+  | 'calendar';
 
 interface AppShellProps {
   activeTab: ActiveTab;
@@ -91,77 +101,113 @@ export const AppShell: React.FC<AppShellProps> = ({
           {children}
         </main>
 
-        {/* Bottom Mobile Tab Navigation (Fixed & locked properly at bottom) */}
+        {/* Bottom Mobile Tab Navigation (Symmetrical Wings + Dead-Center Elevated RUN Play Button) */}
         {!isTrackingActive && (
-          <nav className="shrink-0 z-40 bg-white/95 dark:bg-slate-950/95 backdrop-blur-2xl border-t border-emerald-100 dark:border-slate-900 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] flex items-center justify-around select-none shadow-[0_-10px_25px_rgba(16,185,129,0.08)] dark:shadow-[0_-10px_25px_rgba(0,0,0,0.6)]">
-            {/* Home Tab */}
-            <button
-              onClick={() => setActiveTab('home')}
-              className={`flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition-all ${
-                activeTab === 'home'
-                  ? 'text-emerald-600 dark:text-emerald-400 font-bold'
-                  : 'text-slate-500 dark:text-slate-400 hover:text-emerald-800 dark:hover:text-slate-200 font-medium'
-              }`}
-            >
-              <Home size={20} className={activeTab === 'home' ? 'text-emerald-600 dark:text-emerald-400' : ''} />
-              <span className="text-[10px] tracking-tight">Home</span>
-            </button>
+          <nav className="shrink-0 z-40 bg-white/95 dark:bg-slate-950/95 backdrop-blur-2xl border-t border-emerald-100 dark:border-slate-900 px-2 sm:px-3 py-1.5 pb-[max(0.6rem,env(safe-area-inset-bottom))] flex items-center justify-between relative select-none shadow-[0_-10px_25px_rgba(16,185,129,0.08)] dark:shadow-[0_-10px_25px_rgba(0,0,0,0.6)]">
+            {/* Left Wing (3 items: Home, Today, Insights) */}
+            <div className="flex-1 flex items-center justify-around pr-7 sm:pr-8">
+              {/* Home Tab */}
+              <button
+                onClick={() => setActiveTab('home')}
+                className={`flex flex-col items-center gap-0.5 py-1 px-1.5 rounded-xl transition-all ${
+                  activeTab === 'home'
+                    ? 'text-emerald-600 dark:text-emerald-400 font-bold'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-emerald-800 dark:hover:text-slate-200 font-medium'
+                }`}
+              >
+                <Home size={18} className={activeTab === 'home' ? 'text-emerald-600 dark:text-emerald-400' : ''} />
+                <span className="text-[9px] sm:text-[10px] tracking-tight">Home</span>
+              </button>
 
-            {/* History Tab */}
-            <button
-              onClick={() => setActiveTab('history')}
-              className={`flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition-all ${
-                activeTab === 'history'
-                  ? 'text-emerald-600 dark:text-emerald-400 font-bold'
-                  : 'text-slate-500 dark:text-slate-400 hover:text-emerald-800 dark:hover:text-slate-200 font-medium'
-              }`}
-            >
-              <History size={20} className={activeTab === 'history' ? 'text-emerald-600 dark:text-emerald-400' : ''} />
-              <span className="text-[10px] tracking-tight">History</span>
-            </button>
+              {/* Today / Daily Activity Tab */}
+              <button
+                onClick={() => setActiveTab('activity')}
+                className={`flex flex-col items-center gap-0.5 py-1 px-1.5 rounded-xl transition-all ${
+                  activeTab === 'activity'
+                    ? 'text-cyan-500 dark:text-cyan-400 font-bold'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-cyan-600 dark:hover:text-slate-200 font-medium'
+                }`}
+              >
+                <Activity size={18} className={activeTab === 'activity' ? 'text-cyan-500 dark:text-cyan-400' : ''} />
+                <span className="text-[9px] sm:text-[10px] tracking-tight">Today</span>
+              </button>
 
-            {/* Elevated RUN Primary Button */}
-            <div className="relative -top-4 flex flex-col items-center">
+              {/* Insights Tab */}
+              <button
+                onClick={() => setActiveTab('insights')}
+                className={`flex flex-col items-center gap-0.5 py-1 px-1.5 rounded-xl transition-all ${
+                  activeTab === 'insights'
+                    ? 'text-emerald-600 dark:text-emerald-400 font-bold'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-emerald-800 dark:hover:text-slate-200 font-medium'
+                }`}
+              >
+                <TrendingUp size={18} className={activeTab === 'insights' ? 'text-emerald-600 dark:text-emerald-400' : ''} />
+                <span className="text-[9px] sm:text-[10px] tracking-tight">Insights</span>
+              </button>
+            </div>
+
+            {/* Center Elevated RUN Primary Button (Higher elevation, mathematically centered at 50% screen width) */}
+            <div className="absolute left-1/2 -translate-x-1/2 -top-6 sm:-top-7 flex flex-col items-center justify-center z-50 pointer-events-auto">
               <button
                 onClick={() => {
                   if (onQuickStartRun) onQuickStartRun();
                   else setActiveTab('run');
                 }}
-                className="w-14 h-14 rounded-full bg-gradient-to-tr from-emerald-500 to-lime-400 border-4 border-white dark:border-slate-950 text-white dark:text-slate-950 flex items-center justify-center shadow-glow-brand animate-pulse-glow active:scale-90 transition-all group"
+                className="w-14 h-14 sm:w-15 sm:h-15 rounded-full bg-gradient-to-tr from-emerald-500 via-emerald-400 to-lime-300 border-4 border-white dark:border-slate-950 text-slate-950 flex items-center justify-center shadow-[0_6px_25px_rgba(16,185,129,0.6)] active:scale-90 hover:scale-110 hover:shadow-[0_8px_30px_rgba(16,185,129,0.75)] transition-all duration-200 group"
                 aria-label="Start Run"
               >
-                <Play size={24} fill="currentColor" className="ml-0.5 text-white dark:text-slate-950 group-hover:scale-110 transition-transform" />
+                <Play
+                  size={25}
+                  fill="currentColor"
+                  className="translate-x-0.5 text-slate-950 transition-transform group-hover:scale-110"
+                />
               </button>
-              <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 mt-0.5">
+              <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 mt-1 drop-shadow-sm">
                 RUN
               </span>
             </div>
 
-            {/* Insights Tab */}
-            <button
-              onClick={() => setActiveTab('insights')}
-              className={`flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition-all ${
-                activeTab === 'insights'
-                  ? 'text-emerald-600 dark:text-emerald-400 font-bold'
-                  : 'text-slate-500 dark:text-slate-400 hover:text-emerald-800 dark:hover:text-slate-200 font-medium'
-              }`}
-            >
-              <TrendingUp size={20} className={activeTab === 'insights' ? 'text-emerald-600 dark:text-emerald-400' : ''} />
-              <span className="text-[10px] tracking-tight">Insights</span>
-            </button>
+            {/* Right Wing (3 items: Goals, History, Profile) */}
+            <div className="flex-1 flex items-center justify-around pl-7 sm:pl-8">
+              {/* Goals Tab */}
+              <button
+                onClick={() => setActiveTab('goals')}
+                className={`flex flex-col items-center gap-0.5 py-1 px-1.5 rounded-xl transition-all ${
+                  activeTab === 'goals'
+                    ? 'text-emerald-600 dark:text-emerald-400 font-bold'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-emerald-800 dark:hover:text-slate-200 font-medium'
+                }`}
+              >
+                <Target size={18} className={activeTab === 'goals' ? 'text-emerald-600 dark:text-emerald-400' : ''} />
+                <span className="text-[9px] sm:text-[10px] tracking-tight">Goals</span>
+              </button>
 
-            {/* Profile Tab */}
-            <button
-              onClick={() => setActiveTab('profile')}
-              className={`flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition-all ${
-                activeTab === 'profile'
-                  ? 'text-emerald-600 dark:text-emerald-400 font-bold'
-                  : 'text-slate-500 dark:text-slate-400 hover:text-emerald-800 dark:hover:text-slate-200 font-medium'
-              }`}
-            >
-              <User size={20} className={activeTab === 'profile' ? 'text-emerald-600 dark:text-emerald-400' : ''} />
-              <span className="text-[10px] tracking-tight">Profile</span>
-            </button>
+              {/* History Tab */}
+              <button
+                onClick={() => setActiveTab('history')}
+                className={`flex flex-col items-center gap-0.5 py-1 px-1.5 rounded-xl transition-all ${
+                  activeTab === 'history'
+                    ? 'text-emerald-600 dark:text-emerald-400 font-bold'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-emerald-800 dark:hover:text-slate-200 font-medium'
+                }`}
+              >
+                <History size={18} className={activeTab === 'history' ? 'text-emerald-600 dark:text-emerald-400' : ''} />
+                <span className="text-[9px] sm:text-[10px] tracking-tight">History</span>
+              </button>
+
+              {/* Profile Tab */}
+              <button
+                onClick={() => setActiveTab('profile')}
+                className={`flex flex-col items-center gap-0.5 py-1 px-1.5 rounded-xl transition-all ${
+                  activeTab === 'profile'
+                    ? 'text-emerald-600 dark:text-emerald-400 font-bold'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-emerald-800 dark:hover:text-slate-200 font-medium'
+                }`}
+              >
+                <User size={18} className={activeTab === 'profile' ? 'text-emerald-600 dark:text-emerald-400' : ''} />
+                <span className="text-[9px] sm:text-[10px] tracking-tight">Profile</span>
+              </button>
+            </div>
           </nav>
         )}
       </div>

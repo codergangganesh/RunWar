@@ -27,6 +27,7 @@ export class GoogleHealthProvider implements HealthProvider {
   private memoryState: HealthConnectionState | null = null;
   private listeners = new Set<(state: HealthConnectionState) => void>();
   private isSyncingActive = false;
+  private refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   /**
    * Subscribe to real-time health connection and sync progress updates
@@ -140,32 +141,215 @@ export class GoogleHealthProvider implements HealthProvider {
   }
 
   /**
-   * Get cached access token if valid
+   * Get cached access token if valid (checks localStorage for persistence across reloads)
    */
-  private getAccessToken(): string | null {
+  public getValidAccessToken(): string | null {
     try {
-      const item = sessionStorage.getItem(GOOGLE_FIT_AUTH_STORAGE_KEY);
-      if (!item) return null;
-      const { token, expiresAt } = JSON.parse(item);
-      if (Date.now() > expiresAt) {
-        sessionStorage.removeItem(GOOGLE_FIT_AUTH_STORAGE_KEY);
-        return null;
+      // Check localStorage first (persists across reloads)
+      const item = localStorage.getItem(GOOGLE_FIT_AUTH_STORAGE_KEY);
+      if (item) {
+        if (item.startsWith('{')) {
+          const { token, expiresAt } = JSON.parse(item);
+          if (expiresAt && Date.now() > expiresAt) {
+            // Token expired — clean up
+            localStorage.removeItem(GOOGLE_FIT_AUTH_STORAGE_KEY);
+            return null;
+          }
+          return token || null;
+        }
+        return item;
       }
-      return token;
+      // Legacy: fall back to sessionStorage (migrate if found)
+      const sessionItem = sessionStorage.getItem(GOOGLE_FIT_AUTH_STORAGE_KEY);
+      if (sessionItem) {
+        // Migrate to localStorage so it survives refreshes
+        localStorage.setItem(GOOGLE_FIT_AUTH_STORAGE_KEY, sessionItem);
+        sessionStorage.removeItem(GOOGLE_FIT_AUTH_STORAGE_KEY);
+        const parsed = JSON.parse(sessionItem);
+        if (parsed.expiresAt && Date.now() > parsed.expiresAt) return null;
+        return parsed.token || null;
+      }
     } catch {
-      return null;
+      // ignore
     }
+    return null;
+  }
+
+  private getAccessToken(): string | null {
+    return this.getValidAccessToken();
   }
 
   /**
-   * Save access token securely in session storage with expiry
+   * Save access token in localStorage with expiry so it survives page reloads.
+   * Also schedules a silent refresh before the token expires.
    */
   private setAccessToken(token: string, expiresInSec: number) {
     const expiresAt = Date.now() + (expiresInSec - 60) * 1000;
-    sessionStorage.setItem(
+    localStorage.setItem(
       GOOGLE_FIT_AUTH_STORAGE_KEY,
       JSON.stringify({ token, expiresAt })
     );
+    // Also clear any legacy session storage entry
+    try { sessionStorage.removeItem(GOOGLE_FIT_AUTH_STORAGE_KEY); } catch { }
+    // Schedule automatic token refresh before this token expires
+    this.scheduleTokenRefresh(expiresAt);
+  }
+
+  /**
+   * Read the stored token expiry timestamp from localStorage.
+   */
+  private getTokenExpiresAt(): number | null {
+    try {
+      const item = localStorage.getItem(GOOGLE_FIT_AUTH_STORAGE_KEY);
+      if (!item) return null;
+      if (item.startsWith('{')) {
+        const { expiresAt } = JSON.parse(item);
+        return expiresAt ? Number(expiresAt) : null;
+      }
+    } catch { }
+    return null;
+  }
+
+  /**
+   * Schedule a silent background token refresh 5 minutes before the current token expires.
+   * This keeps the connection alive indefinitely without user interaction.
+   */
+  private scheduleTokenRefresh(expiresAt: number) {
+    // Clear any existing refresh timer
+    if (this.refreshTimer) {
+      clearTimeout(this.refreshTimer);
+      this.refreshTimer = null;
+    }
+
+    const refreshInMs = expiresAt - Date.now() - 5 * 60 * 1000; // 5 min before expiry
+    if (refreshInMs <= 0) {
+      // Already close to expiry or expired — refresh immediately
+      this.silentRefresh();
+      return;
+    }
+
+    this.refreshTimer = setTimeout(() => {
+      this.silentRefresh();
+    }, refreshInMs);
+  }
+
+  /**
+   * Perform a silent token refresh using GIS without showing any UI.
+   * Called automatically by the refresh timer.
+   */
+  private async silentRefresh(): Promise<void> {
+    if (!GOOGLE_CLIENT_ID) return;
+
+    const storedState = (() => {
+      try { return JSON.parse(localStorage.getItem(GOOGLE_FIT_STATE_STORAGE_KEY) || 'null'); } catch { return null; }
+    })();
+    if (!storedState?.isConnected) return;
+
+    const gsiLoaded = await this.ensureGsiLoaded().catch(() => false);
+    if (!gsiLoaded) return;
+
+    return new Promise<void>((resolve) => {
+      try {
+        const client = (window as any).google?.accounts?.oauth2?.initTokenClient({
+          client_id: GOOGLE_CLIENT_ID,
+          scope: SCOPES,
+          prompt: '',
+          error_callback: () => resolve(),
+          callback: (response: any) => {
+            if (response.access_token) {
+              // setAccessToken also re-schedules the next refresh automatically
+              this.setAccessToken(response.access_token, Number(response.expires_in) || 3600);
+              this.setConnectionState({ isConnected: true, status: 'connected' });
+            }
+            resolve();
+          },
+        });
+        if (client) {
+          client.requestAccessToken({ prompt: '' });
+        } else {
+          resolve();
+        }
+      } catch {
+        resolve();
+      }
+    });
+  }
+
+  /**
+   * Call this on app startup to restore the persistent connection and start the refresh cycle.
+   * - If user deliberately disconnected (isConnected: false in storage) → do nothing.
+   * - If a valid token exists → schedule refresh timer, return true immediately.
+   * - If token expired but user was connected → attempt silent re-auth (no popup).
+   */
+  public async startPersistentConnection(): Promise<boolean> {
+    // Respect the user's explicit disconnect — never auto-reconnect if they disconnected
+    const storedState = (() => {
+      try { return JSON.parse(localStorage.getItem(GOOGLE_FIT_STATE_STORAGE_KEY) || 'null'); } catch { return null; }
+    })();
+
+    // If no stored state at all, or user explicitly disconnected → don't auto-connect
+    if (!storedState || storedState.isConnected === false) return false;
+
+    const existingToken = this.getValidAccessToken();
+    if (existingToken) {
+      // Token still valid — schedule refresh before it expires
+      const expiresAt = this.getTokenExpiresAt();
+      if (expiresAt) this.scheduleTokenRefresh(expiresAt);
+      this.setConnectionState({ isConnected: true, status: 'connected' });
+      return true;
+    }
+
+    // Token expired but user was connected — attempt silent re-auth (no popup)
+    return this.tryAutoReconnect();
+  }
+
+
+  /**
+   * Silently attempt to re-obtain a Google access token without showing a popup.
+   * Uses prompt:'' so Google reuses existing consent — only works if user already authorized.
+   * Returns true if a valid token was obtained.
+   */
+  public async tryAutoReconnect(): Promise<boolean> {
+    // If we already have a valid token, nothing to do
+    if (this.getValidAccessToken()) return true;
+
+    if (!GOOGLE_CLIENT_ID) return false;
+
+    // Only attempt silent re-auth if we have a persisted connected state
+    const storedState = (() => {
+      try { return JSON.parse(localStorage.getItem(GOOGLE_FIT_STATE_STORAGE_KEY) || 'null'); } catch { return null; }
+    })();
+    if (!storedState?.isConnected) return false;
+
+    const gsiLoaded = await this.ensureGsiLoaded();
+    if (!gsiLoaded) return false;
+
+    return new Promise((resolve) => {
+      try {
+        const client = (window as any).google?.accounts?.oauth2?.initTokenClient({
+          client_id: GOOGLE_CLIENT_ID,
+          scope: SCOPES,
+          prompt: '', // no UI prompt — silent re-auth using existing consent
+          error_callback: () => resolve(false),
+          callback: (response: any) => {
+            if (response.access_token) {
+              this.setAccessToken(response.access_token, Number(response.expires_in) || 3600);
+              this.setConnectionState({ isConnected: true, status: 'connected' });
+              resolve(true);
+            } else {
+              resolve(false);
+            }
+          },
+        });
+        if (client) {
+          client.requestAccessToken({ prompt: '' });
+        } else {
+          resolve(false);
+        }
+      } catch {
+        resolve(false);
+      }
+    });
   }
 
   /**
@@ -211,144 +395,56 @@ export class GoogleHealthProvider implements HealthProvider {
       };
     }
 
-    // Await Google Identity Services script
-    await this.ensureGsiLoaded();
-
-    return new Promise((resolve) => {
-      // 1. Primary: Official Google Identity Services (GIS) Token Client
-      if (typeof (window as any).google?.accounts?.oauth2?.initTokenClient === 'function') {
-        try {
-          const client = (window as any).google.accounts.oauth2.initTokenClient({
-            client_id: GOOGLE_CLIENT_ID,
-            scope: SCOPES,
-            error_callback: (err: any) => {
-              console.warn('GIS error:', err);
-              resolve({
-                success: false,
-                error: err?.message || err?.type || 'Google authentication was cancelled or encountered an error.',
-              });
-            },
-            callback: async (response: any) => {
-              if (response.error) {
-                resolve({ success: false, error: response.error_description || response.error });
-                return;
-              }
-              if (response.access_token) {
-                this.setAccessToken(response.access_token, Number(response.expires_in) || 3600);
-                const email = await this.fetchUserEmail(response.access_token);
-                this.setConnectionState({
-                  isConnected: true,
-                  status: 'connected',
-                  accountEmail: email,
-                });
-                resolve({ success: true, accountEmail: email });
-              }
-            },
-          });
-          client.requestAccessToken({ prompt: 'consent' });
-          return;
-        } catch (e: any) {
-          console.warn('GIS Token client error, falling back to popup flow:', e);
-        }
-      }
-
-      // 2. Fallback: Standard OAuth 2.0 Web Popup (without COOP blocking)
-      const redirectUri = window.location.origin;
-      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
-        GOOGLE_CLIENT_ID
-      )}&redirect_uri=${encodeURIComponent(
-        redirectUri
-      )}&response_type=token&scope=${encodeURIComponent(SCOPES)}&include_granted_scopes=true&prompt=consent`;
-
-      const width = 500;
-      const height = 650;
-      const left = window.screenX + (window.outerWidth - width) / 2;
-      const top = window.screenY + (window.outerHeight - height) / 2;
-
-      const popup = window.open(
-        authUrl,
-        'Google Health Connection',
-        `width=${width},height=${height},left=${left},top=${top}`
-      );
-
-      if (!popup) {
-        resolve({
-          success: false,
-          error: 'Popup was blocked by your browser. Please allow popups for Runwar and try again.',
-        });
-        return;
-      }
-
-      let handled = false;
-
-      // Handle OAuth response redirect via postMessage
-      const handleMessage = async (event: MessageEvent) => {
-        if (event.origin !== window.location.origin) return;
-        if (event.data?.type === 'GOOGLE_HEALTH_OAUTH_TOKEN' && event.data?.token) {
-          handled = true;
-          try { popup.close(); } catch { }
-          window.removeEventListener('message', handleMessage);
-
-          this.setAccessToken(event.data.token, event.data.expiresIn || 3600);
-          const email = await this.fetchUserEmail(event.data.token);
-          this.setConnectionState({
-            isConnected: true,
-            status: 'connected',
-            accountEmail: email,
-          });
-          resolve({ success: true, accountEmail: email });
-        }
+    // Load Google Identity Services script
+    const gsiLoaded = await this.ensureGsiLoaded();
+    if (!gsiLoaded || typeof (window as any).google?.accounts?.oauth2?.initTokenClient !== 'function') {
+      return {
+        success: false,
+        error: 'Could not load Google Sign-In. Check your internet connection and try again.',
       };
+    }
 
-      window.addEventListener('message', handleMessage);
-
-      // Check session & local storage periodically without touching popup.closed (prevents COOP warnings)
-      const tokenPollTimer = setInterval(async () => {
-        try {
-          const transferData = localStorage.getItem('runwar_google_fit_token_transfer');
-          if (transferData) {
-            localStorage.removeItem('runwar_google_fit_token_transfer');
-            const parsed = JSON.parse(transferData);
-            if (parsed.token && !handled) {
-              handled = true;
-              clearInterval(tokenPollTimer);
-              window.removeEventListener('message', handleMessage);
-              try { popup.close(); } catch { }
-
-              this.setAccessToken(parsed.token, parsed.expiresIn || 3600);
-              const email = await this.fetchUserEmail(parsed.token);
+    // Use Google Identity Services token client — handles popup internally, no COOP issues
+    return new Promise((resolve) => {
+      try {
+        const client = (window as any).google.accounts.oauth2.initTokenClient({
+          client_id: GOOGLE_CLIENT_ID,
+          scope: SCOPES,
+          error_callback: (err: any) => {
+            console.warn('GIS error:', err);
+            resolve({
+              success: false,
+              error: err?.message || err?.type || 'Google authentication was cancelled or encountered an error.',
+            });
+          },
+          callback: async (response: any) => {
+            if (response.error) {
+              resolve({ success: false, error: response.error_description || response.error });
+              return;
+            }
+            if (response.access_token) {
+              this.setAccessToken(response.access_token, Number(response.expires_in) || 3600);
+              const email = await this.fetchUserEmail(response.access_token);
               this.setConnectionState({
                 isConnected: true,
                 status: 'connected',
                 accountEmail: email,
               });
               resolve({ success: true, accountEmail: email });
-              return;
+            } else {
+              resolve({ success: false, error: 'No access token received from Google.' });
             }
-          }
-        } catch { }
-
-        const token = this.getAccessToken();
-        if (token && !handled) {
-          handled = true;
-          clearInterval(tokenPollTimer);
-          window.removeEventListener('message', handleMessage);
-          try { popup.close(); } catch { }
-          this.setConnectionState({ isConnected: true, status: 'connected' });
-          resolve({ success: true });
-        }
-      }, 800);
-
-      // Timeout after 3 minutes
-      setTimeout(() => {
-        if (!handled) {
-          handled = true;
-          clearInterval(tokenPollTimer);
-          window.removeEventListener('message', handleMessage);
-          try { popup.close(); } catch { }
-          resolve({ success: false, error: 'Connection timed out or was closed. Please try again.' });
-        }
-      }, 180000);
+          },
+        });
+        // prompt: 'consent' shows the full account picker
+        client.requestAccessToken({ prompt: 'consent' });
+      } catch (e: any) {
+        console.error('GIS Token client error:', e);
+        resolve({
+          success: false,
+          error: 'Failed to initialize Google Sign-In. Please reload the page and try again.',
+        });
+      }
     });
   }
 
@@ -371,28 +467,51 @@ export class GoogleHealthProvider implements HealthProvider {
   }
 
   /**
-   * Disconnect and clear all tokens
+   * Disconnect and clear all tokens. Cancels the background refresh timer so
+   * the connection stays disconnected until the user explicitly reconnects.
    */
   async disconnect(): Promise<void> {
+    // 1. Cancel background refresh timer — prevents auto-reconnect after disconnect
+    if (this.refreshTimer) {
+      clearTimeout(this.refreshTimer);
+      this.refreshTimer = null;
+    }
+
     const token = this.getAccessToken();
+
+    // 2. Revoke the token on Google's side (both via REST and GIS)
     if (token) {
+      // Revoke via GIS library (preferred — handles Google session cleanup)
+      try {
+        if (typeof (window as any).google?.accounts?.oauth2?.revoke === 'function') {
+          (window as any).google.accounts.oauth2.revoke(token, () => {});
+        }
+      } catch { }
+      // Also revoke via REST as fallback
       try {
         await fetch(`https://oauth2.googleapis.com/revoke?token=${token}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         });
-      } catch {
-        // ignore revoke error
-      }
+      } catch { }
     }
 
-    sessionStorage.removeItem(GOOGLE_FIT_AUTH_STORAGE_KEY);
+    // 3. Remove token from ALL storage locations
+    try { localStorage.removeItem(GOOGLE_FIT_AUTH_STORAGE_KEY); } catch { }
+    try { sessionStorage.removeItem(GOOGLE_FIT_AUTH_STORAGE_KEY); } catch { }
+    // Clear any leftover transfer key
+    try { localStorage.removeItem('runwar_google_fit_token_transfer'); } catch { }
+
+    // 4. Update and persist disconnected state
+    this.memoryState = null; // Force re-read from storage
     this.setConnectionState({
       isConnected: false,
       status: 'disconnected',
       accountEmail: null,
+      syncProgress: null,
     });
   }
+
 
   /**
    * Synchronize workouts from Google Health & Fitness REST API with real-time progress updates

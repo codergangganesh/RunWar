@@ -27,6 +27,13 @@ export class HealthService {
   }
 
   /**
+   * Get active Google Fit OAuth token if valid
+   */
+  getGoogleAccessToken(): string | null {
+    return googleHealthProvider.getValidAccessToken();
+  }
+
+  /**
    * Subscribe to real-time state and progress updates for a provider
    */
   subscribe(
@@ -58,6 +65,22 @@ export class HealthService {
       return { success: false, error: 'Unsupported health provider.' };
     }
     return provider.connect();
+  }
+
+  /**
+   * Silently re-acquire a Google token without showing a popup (uses existing consent)
+   */
+  async tryAutoReconnect(): Promise<boolean> {
+    return googleHealthProvider.tryAutoReconnect();
+  }
+
+  /**
+   * Restore persistent Google connection on app startup.
+   * Uses cached token if still valid, otherwise attempts silent re-auth.
+   * Also starts the automatic background refresh timer.
+   */
+  async startPersistentConnection(): Promise<boolean> {
+    return googleHealthProvider.startPersistentConnection();
   }
 
   /**

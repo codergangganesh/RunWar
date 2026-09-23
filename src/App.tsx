@@ -18,6 +18,7 @@ import { PersonalRecordsScreen } from './screens/PersonalRecordsScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
 import { PrivacyScreen } from './screens/PrivacyScreen';
 import { ConnectedHealthScreen } from './screens/ConnectedHealthScreen';
+import { DailyActivityScreen } from './screens/DailyActivityScreen';
 import { RecoveryModal } from './components/ui/RecoveryModal';
 import { PWAInstallBanner } from './components/ui/PWAInstallBanner';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
@@ -781,8 +782,9 @@ export const App: React.FC = () => {
                 loadAppData(currentUser.id, false);
               }
             }}
+            hideTopHeader={activeTab === 'activity'}
             headerTitle={
-              activeTab === 'home'
+              activeTab === 'home' || activeTab === 'activity'
                 ? undefined
                 : activeTab === 'history'
                   ? 'Workout History'
@@ -811,6 +813,17 @@ export const App: React.FC = () => {
                 onViewHistory={() => setActiveTab('history')}
                 onViewGoals={() => setActiveTab('goals')}
                 onSelectWorkout={handleSelectWorkout}
+              />
+            )}
+
+            {activeTab === 'activity' && (
+              <DailyActivityScreen
+                profile={profile}
+                workouts={workouts}
+                onStartRun={handleStartRun}
+                onViewHistory={() => setActiveTab('history')}
+                onViewInsights={() => setActiveTab('insights')}
+                onOpenProfile={() => setActiveTab('profile')}
               />
             )}
 
