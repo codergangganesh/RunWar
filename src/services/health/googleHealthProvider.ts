@@ -341,12 +341,9 @@ export class GoogleHealthProvider implements HealthProvider {
     }
 
     try {
-      // Default to 60 days of history on initial sync if no sinceDate provided
-      const startTime = sinceDate || new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+      // Query 365 days of history on initial sync so past sessions are imported
+      const startTime = sinceDate || new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
       const endTime = new Date();
-
-      const startTimeNanos = BigInt(startTime.getTime()) * BigInt(1000000);
-      const endTimeNanos = BigInt(endTime.getTime()) * BigInt(1000000);
 
       // 1. Fetch fitness sessions from Google Fitness REST API
       const sessionsUrl = `https://www.googleapis.com/fitness/v1/users/me/sessions?startTime=${startTime.toISOString()}&endTime=${endTime.toISOString()}`;
@@ -372,10 +369,11 @@ export class GoogleHealthProvider implements HealthProvider {
       const sessionsData = await sessionsRes.json();
       const sessions: any[] = sessionsData.session || [];
 
-      // Filter running / walking / jogging activity types
-      // 8 = Running, 7 = Walking, 57 = Jogging, 58 = Running (Sand), 86 = Treadmill running, 87 = Treadmill walking
-      const supportedActivityTypes = new Set([8, 7, 57, 58, 86, 87]);
-      const validSessions = sessions.filter((s) => supportedActivityTypes.has(Number(s.activityType)));
+      // Filter all active physical sessions (Running, Walking, Jogging, Treadmill, On foot, etc.)
+      const supportedActivityTypes = new Set([8, 7, 57, 58, 86, 87, 2, 1, 9, 97, 108]);
+      const validSessions = sessions.filter((s) =>
+        s.activityType !== undefined ? supportedActivityTypes.has(Number(s.activityType)) : true
+      );
 
       const normalizedWorkouts: NormalizedExternalWorkout[] = [];
 
@@ -385,24 +383,71 @@ export class GoogleHealthProvider implements HealthProvider {
         const sessionEndMs = Number(session.endTimeMillis);
         const durationSec = Math.max(1, Math.round((sessionEndMs - sessionStartMs) / 1000));
 
+        const actType = Number(session.activityType);
         let workoutType: WorkoutType = 'run';
-        if (session.activityType === 7 || session.activityType === 87) {
+        if (actType === 7 || actType === 87 || actType === 2) {
           workoutType = 'walk';
-        } else if (session.activityType === 57) {
+        } else if (actType === 57) {
           workoutType = 'jog';
+        } else if (actType === 8 || actType === 58 || actType === 86) {
+          workoutType = 'run';
         }
 
-        // Fetch dataset metrics for this session's time window
-        const { distanceMeters, calories, speedMps, coordinates } = await this.fetchSessionDataset(
-          token,
-          sessionStartMs,
-          sessionEndMs
-        );
+        // Check if aggregate metrics are already embedded in the session object
+        let embeddedDistance = 0;
+        let embeddedCalories = 0;
+        let embeddedSpeed = 0;
+        let embeddedSteps = 0;
 
-        const finalDistance = Math.round(distanceMeters);
-        const finalCalories = Math.round(calories);
-        const avgSpeedKmh = Number(((finalDistance / 1000) / (durationSec / 3600) || speedMps * 3.6).toFixed(2));
+        if (Array.isArray(session.aggregate)) {
+          for (const agg of session.aggregate) {
+            const name = (agg.metricName || '').toLowerCase();
+            const fVal = typeof agg.floatValue === 'number' ? agg.floatValue : 0;
+            const iVal = typeof agg.intValue === 'number' ? agg.intValue : 0;
+            if (name.includes('distance')) embeddedDistance += fVal || iVal;
+            else if (name.includes('calories')) embeddedCalories += fVal || iVal;
+            else if (name.includes('speed')) embeddedSpeed = Math.max(embeddedSpeed, fVal);
+            else if (name.includes('step_count')) embeddedSteps += iVal || fVal;
+          }
+        }
+
+        // Fetch dataset metrics & GPS trackpoints for this session's time window
+        const { distanceMeters, calories, speedMps, coordinates, heartRateAvg, stepCount } =
+          await this.fetchSessionDataset(token, sessionStartMs, sessionEndMs);
+
+        // Determine final distance
+        let finalDistance = Math.round(distanceMeters || embeddedDistance);
+        if (finalDistance <= 0 && coordinates.length >= 2) {
+          finalDistance = Math.round(this.calculateRouteDistance(coordinates));
+        }
+        const totalSteps = stepCount || embeddedSteps;
+        if (finalDistance <= 0 && totalSteps > 0) {
+          const strideLength = workoutType === 'run' ? 0.95 : workoutType === 'jog' ? 0.85 : 0.75;
+          finalDistance = Math.round(totalSteps * strideLength);
+        }
+        if (finalDistance <= 0) {
+          const speedEstimateMps = workoutType === 'run' ? 2.78 : workoutType === 'jog' ? 2.08 : 1.39;
+          finalDistance = Math.round(durationSec * speedEstimateMps);
+        }
+
+        // Determine final calories
+        let finalCalories = Math.round(calories || embeddedCalories);
+        if (finalCalories <= 0) {
+          const calPerSec = workoutType === 'run' ? 0.18 : workoutType === 'jog' ? 0.13 : 0.08;
+          finalCalories = Math.max(15, Math.round(durationSec * calPerSec));
+        }
+
+        // Determine speeds and pace
+        const avgSpeedKmh = Number(
+          (
+            (finalDistance / 1000) / (durationSec / 3600) ||
+            (speedMps > 0 ? speedMps * 3.6 : embeddedSpeed > 0 ? embeddedSpeed * 3.6 : 8.0)
+          ).toFixed(2)
+        );
         const avgPaceSec = finalDistance > 0 ? Math.round(durationSec / (finalDistance / 1000)) : 0;
+        const maxSpeedKmh = Number(
+          Math.max(avgSpeedKmh * 1.25, speedMps * 3.6, embeddedSpeed * 3.6).toFixed(2)
+        );
 
         // Generate kilometer splits if route or distance available
         const splits = this.generateSplits(finalDistance, durationSec, coordinates);
@@ -411,15 +456,17 @@ export class GoogleHealthProvider implements HealthProvider {
           externalRecordId: session.id || `gfit_${sessionStartMs}`,
           sourceProvider: 'google_health',
           type: workoutType,
-          title: session.name || `Google Health ${workoutType.charAt(0).toUpperCase() + workoutType.slice(1)}`,
+          title:
+            session.name ||
+            `Google Health ${workoutType.charAt(0).toUpperCase() + workoutType.slice(1)}`,
           startedAt: new Date(sessionStartMs).toISOString(),
           endedAt: new Date(sessionEndMs).toISOString(),
           durationSeconds: durationSec,
           distanceMeters: finalDistance,
           averagePace: avgPaceSec,
           averageSpeed: avgSpeedKmh,
-          maxSpeed: avgSpeedKmh > 0 ? Number((avgSpeedKmh * 1.25).toFixed(2)) : 0,
-          calories: finalCalories > 0 ? finalCalories : Math.round(durationSec * 0.14),
+          maxSpeed: maxSpeedKmh,
+          calories: finalCalories,
           elevationGain: 0,
           elevationLoss: 0,
           routeCoordinates: coordinates,
@@ -427,6 +474,8 @@ export class GoogleHealthProvider implements HealthProvider {
           sourceMetadata: {
             appPackageName: session.application?.packageName,
             activityType: session.activityType,
+            heartRateAvg: heartRateAvg || undefined,
+            stepCount: stepCount > 0 ? stepCount : undefined,
           },
         });
       }
@@ -457,23 +506,33 @@ export class GoogleHealthProvider implements HealthProvider {
   }
 
   /**
-   * Fetch distance, calories, speed, and GPS location points for a session time range
+   * Fetch distance, calories, speed, steps, heart rate, and GPS location points for a session
    */
   private async fetchSessionDataset(
     token: string,
     startMs: number,
     endMs: number
-  ): Promise<{ distanceMeters: number; calories: number; speedMps: number; coordinates: GPSCoordinate[] }> {
+  ): Promise<{
+    distanceMeters: number;
+    calories: number;
+    speedMps: number;
+    coordinates: GPSCoordinate[];
+    heartRateAvg?: number | null;
+    stepCount: number;
+  }> {
     const startNanos = BigInt(startMs) * BigInt(1000000);
     const endNanos = BigInt(endMs) * BigInt(1000000);
 
     let distanceMeters = 0;
     let calories = 0;
     let speedMps = 0;
+    let stepCount = 0;
+    let heartRateSum = 0;
+    let heartRateCount = 0;
     const coordinates: GPSCoordinate[] = [];
 
+    // 1. Query aggregate endpoint with required bucketByTime
     try {
-      // Query dataset aggregate endpoint
       const res = await fetch('https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate', {
         method: 'POST',
         headers: {
@@ -485,8 +544,11 @@ export class GoogleHealthProvider implements HealthProvider {
             { dataTypeName: 'com.google.distance.delta' },
             { dataTypeName: 'com.google.calories.expended' },
             { dataTypeName: 'com.google.speed' },
+            { dataTypeName: 'com.google.step_count.delta' },
+            { dataTypeName: 'com.google.heart_rate.bpm' },
             { dataTypeName: 'com.google.location.sample' },
           ],
+          bucketByTime: { durationMillis: Math.max(60000, endMs - startMs) },
           startTimeMillis: startMs,
           endTimeMillis: endMs,
         }),
@@ -501,7 +563,7 @@ export class GoogleHealthProvider implements HealthProvider {
           for (const ds of datasets) {
             const points = ds.point || [];
             for (const pt of points) {
-              const type = ds.dataSourceId || '';
+              const type = (ds.dataSourceId || '').toLowerCase();
               const vals = pt.value || [];
 
               if (type.includes('distance') && vals[0]?.fpVal) {
@@ -510,6 +572,11 @@ export class GoogleHealthProvider implements HealthProvider {
                 calories += vals[0].fpVal;
               } else if (type.includes('speed') && vals[0]?.fpVal) {
                 speedMps = Math.max(speedMps, vals[0].fpVal);
+              } else if (type.includes('step_count') && vals[0]?.intVal) {
+                stepCount += vals[0].intVal;
+              } else if (type.includes('heart_rate') && vals[0]?.fpVal) {
+                heartRateSum += vals[0].fpVal;
+                heartRateCount++;
               } else if (type.includes('location') && vals.length >= 2) {
                 const lat = vals[0]?.fpVal;
                 const lng = vals[1]?.fpVal;
@@ -517,8 +584,8 @@ export class GoogleHealthProvider implements HealthProvider {
                   coordinates.push({
                     latitude: lat,
                     longitude: lng,
-                    altitude: vals[2]?.fpVal || 0,
-                    accuracy: vals[3]?.fpVal || 5,
+                    altitude: vals[3]?.fpVal ?? vals[2]?.fpVal ?? 0,
+                    accuracy: vals[2]?.fpVal ?? 5,
                     timestamp: Number(pt.startTimeNanos) / 1000000,
                   });
                 }
@@ -528,10 +595,68 @@ export class GoogleHealthProvider implements HealthProvider {
         }
       }
     } catch (e) {
-      console.warn('Non-blocking dataset aggregate fetch error:', e);
+      console.warn('Non-blocking dataset aggregate fetch warning:', e);
     }
 
-    return { distanceMeters, calories, speedMps, coordinates };
+    // 2. If coordinates are empty, query raw GPS location samples data source
+    if (coordinates.length === 0) {
+      try {
+        const rawGpsUrl = `https://www.googleapis.com/fitness/v1/users/me/dataSources/derived:com.google.location.sample:com.google.android.gms:merge_location_samples/datasets/${startNanos}-${endNanos}`;
+        const rawGpsRes = await fetch(rawGpsUrl, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (rawGpsRes.ok) {
+          const rawGpsData = await rawGpsRes.json();
+          const points = rawGpsData.point || [];
+          for (const pt of points) {
+            const vals = pt.value || [];
+            if (vals.length >= 2) {
+              const lat = vals[0]?.fpVal;
+              const lng = vals[1]?.fpVal;
+              if (typeof lat === 'number' && typeof lng === 'number' && (lat !== 0 || lng !== 0)) {
+                coordinates.push({
+                  latitude: lat,
+                  longitude: lng,
+                  accuracy: vals[2]?.fpVal ?? 5,
+                  altitude: vals[3]?.fpVal ?? 0,
+                  timestamp: Number(pt.startTimeNanos) / 1000000,
+                });
+              }
+            }
+          }
+        }
+      } catch (gpsErr) {
+        console.warn('Non-blocking raw GPS stream query warning:', gpsErr);
+      }
+    }
+
+    const heartRateAvg = heartRateCount > 0 ? Math.round(heartRateSum / heartRateCount) : null;
+    return { distanceMeters, calories, speedMps, coordinates, heartRateAvg, stepCount };
+  }
+
+  /**
+   * Calculate distance between consecutive coordinates using Haversine formula
+   */
+  private calculateRouteDistance(coords: GPSCoordinate[]): number {
+    if (!coords || coords.length < 2) return 0;
+    let total = 0;
+    for (let i = 1; i < coords.length; i++) {
+      const p1 = coords[i - 1];
+      const p2 = coords[i];
+      const R = 6371e3; // meters
+      const phi1 = (p1.latitude * Math.PI) / 180;
+      const phi2 = (p2.latitude * Math.PI) / 180;
+      const deltaPhi = ((p2.latitude - p1.latitude) * Math.PI) / 180;
+      const deltaLambda = ((p2.longitude - p1.longitude) * Math.PI) / 180;
+
+      const a =
+        Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+        Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      total += R * c;
+    }
+    return total;
   }
 
   /**
@@ -595,6 +720,7 @@ export class GoogleHealthProvider implements HealthProvider {
       splits: n.splits,
       source_provider: 'google_health',
       external_record_id: n.externalRecordId,
+      heart_rate_avg: n.sourceMetadata?.heartRateAvg || null,
       created_at: new Date().toISOString(),
     };
   }

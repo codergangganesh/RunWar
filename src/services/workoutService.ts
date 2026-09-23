@@ -297,11 +297,48 @@ export const workoutService = {
           status: 'completed',
           route_coordinates: w.route_coordinates,
           splits: w.splits,
+          source_provider: w.source_provider || 'google_health',
+          external_record_id: w.external_record_id || null,
+          heart_rate_avg: w.heart_rate_avg ?? null,
         }));
 
         await insforge.database
           .from('workouts')
           .upsert(payloads, { onConflict: 'id' });
+
+        // Batch save splits & points for imported workouts that contain them
+        for (const w of normalizedList) {
+          if (w.splits && w.splits.length > 0) {
+            const splitsPayload = w.splits.map((s) => ({
+              workout_id: w.id,
+              user_id: w.user_id,
+              split_number: s.split_number,
+              distance_meters: s.distance_meters,
+              duration_seconds: s.duration_seconds,
+              pace: s.pace,
+            }));
+            insforge.database.from('workout_splits').insert(splitsPayload).catch(() => {});
+          }
+
+          if (w.route_coordinates && w.route_coordinates.length > 0) {
+            const chunkSize = 50;
+            for (let i = 0; i < w.route_coordinates.length; i += chunkSize) {
+              const chunk = w.route_coordinates.slice(i, i + chunkSize);
+              const pointsPayload = chunk.map((pt, idx) => ({
+                workout_id: w.id,
+                user_id: w.user_id,
+                latitude: pt.latitude,
+                longitude: pt.longitude,
+                altitude: pt.altitude ?? null,
+                accuracy: pt.accuracy ?? null,
+                speed: pt.speed ?? null,
+                timestamp: new Date(pt.timestamp).toISOString(),
+                sequence_number: pt.sequence_number || (i + idx + 1),
+              }));
+              insforge.database.from('workout_points').insert(pointsPayload).catch(() => {});
+            }
+          }
+        }
       } catch (err) {
         console.warn('Non-blocking error during cloud upsert of imported workouts:', err);
       }

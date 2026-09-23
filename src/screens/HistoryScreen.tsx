@@ -12,6 +12,7 @@ import {
   RotateCcw,
   RefreshCw,
   AlertCircle,
+  Heart,
 } from 'lucide-react';
 
 interface HistoryScreenProps {
@@ -273,6 +274,12 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
                           : workout.source_provider === 'health_connect'
                           ? 'Health Connect'
                           : workout.source_provider}
+                      </span>
+                    )}
+                    {workout.heart_rate_avg && workout.heart_rate_avg > 0 && (
+                      <span className="inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.2 rounded-md bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                        <Heart size={9} className="fill-current text-rose-500" />
+                        {workout.heart_rate_avg} bpm
                       </span>
                     )}
                   </div>

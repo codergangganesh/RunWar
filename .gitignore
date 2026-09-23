@@ -27,3 +27,9 @@ dist-ssr
 .roo
 .trae
 .windsurf
+
+# Personal data exports
+Fit/
+Google Health/
+*.tcx
+*.gpx

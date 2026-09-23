@@ -51,9 +51,8 @@ export const ConnectedHealthScreen: React.FC<ConnectedHealthScreenProps> = ({
           type: 'success',
           message: 'Connected to Google Health / Fit successfully!',
         });
-        if (profile?.user_id) {
-          handleSyncWorkouts(profile.user_id);
-        }
+        const targetUserId = profile?.user_id || 'guest_user';
+        handleSyncWorkouts(targetUserId);
       } else {
         setSyncFeedback({
           type: 'error',
@@ -260,7 +259,10 @@ export const ConnectedHealthScreen: React.FC<ConnectedHealthScreenProps> = ({
 
           <div className="flex items-center gap-2 pt-1">
             <button
-              onClick={() => profile?.user_id && handleSyncWorkouts(profile.user_id)}
+              onClick={() => {
+                const targetUserId = profile?.user_id || 'guest_user';
+                handleSyncWorkouts(targetUserId);
+              }}
               disabled={isSyncing}
               className="flex-1 py-3 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white dark:text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
             >

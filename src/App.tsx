@@ -680,9 +680,10 @@ export const App: React.FC = () => {
           >
             <ConnectedHealthScreen
               profile={profile}
-              onRefreshWorkouts={() =>
-                currentUser?.id ? loadAppData(currentUser.id, true) : Promise.resolve()
-              }
+              onRefreshWorkouts={() => {
+                const uid = currentUser?.id || profile?.user_id || 'guest_user';
+                return loadAppData(uid, false);
+              }}
               onBack={() => setScreen('main')}
             />
           </AppShell>
