@@ -12,6 +12,8 @@ const GOOGLE_CLIENT_ID: string =
 const SCOPES = [
   'https://www.googleapis.com/auth/fitness.activity.read',
   'https://www.googleapis.com/auth/fitness.location.read',
+  'https://www.googleapis.com/auth/fitness.body.read',
+  'https://www.googleapis.com/auth/fitness.heart_rate.read',
   'https://www.googleapis.com/auth/userinfo.email',
   'https://www.googleapis.com/auth/userinfo.profile',
   'openid',
@@ -580,7 +582,7 @@ export class GoogleHealthProvider implements HealthProvider {
     let heartRateCount = 0;
     const coordinates: GPSCoordinate[] = [];
 
-    // 1. Query aggregate endpoint with required bucketByTime
+    // 1. Query aggregate endpoint for metrics (distance, calories, speed, steps, heart rate)
     try {
       const res = await fetch('https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate', {
         method: 'POST',
@@ -595,7 +597,6 @@ export class GoogleHealthProvider implements HealthProvider {
             { dataTypeName: 'com.google.speed' },
             { dataTypeName: 'com.google.step_count.delta' },
             { dataTypeName: 'com.google.heart_rate.bpm' },
-            { dataTypeName: 'com.google.location.sample' },
           ],
           bucketByTime: { durationMillis: Math.max(60000, endMs - startMs) },
           startTimeMillis: startMs,
@@ -626,18 +627,6 @@ export class GoogleHealthProvider implements HealthProvider {
               } else if (type.includes('heart_rate') && vals[0]?.fpVal) {
                 heartRateSum += vals[0].fpVal;
                 heartRateCount++;
-              } else if (type.includes('location') && vals.length >= 2) {
-                const lat = vals[0]?.fpVal;
-                const lng = vals[1]?.fpVal;
-                if (typeof lat === 'number' && typeof lng === 'number' && (lat !== 0 || lng !== 0)) {
-                  coordinates.push({
-                    latitude: lat,
-                    longitude: lng,
-                    altitude: vals[3]?.fpVal ?? vals[2]?.fpVal ?? 0,
-                    accuracy: vals[2]?.fpVal ?? 5,
-                    timestamp: Number(pt.startTimeNanos) / 1000000,
-                  });
-                }
               }
             }
           }
@@ -647,37 +636,73 @@ export class GoogleHealthProvider implements HealthProvider {
       console.warn('Non-blocking dataset aggregate fetch warning:', e);
     }
 
-    // 2. If coordinates are empty, query raw GPS location samples data source
-    if (coordinates.length === 0) {
-      try {
-        const rawGpsUrl = `https://www.googleapis.com/fitness/v1/users/me/dataSources/derived:com.google.location.sample:com.google.android.gms:merge_location_samples/datasets/${startNanos}-${endNanos}`;
-        const rawGpsRes = await fetch(rawGpsUrl, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+    // 2. Fetch raw GPS location trackpoints across available location data sources
+    try {
+      const candidateLocationSources = [
+        'derived:com.google.location.sample:com.google.android.gms:merge_location_samples',
+        'raw:com.google.location.sample:com.google.android.gms:',
+        'derived:com.google.location.sample:com.google.android.apps.fitness:user_input',
+      ];
 
-        if (rawGpsRes.ok) {
-          const rawGpsData = await rawGpsRes.json();
-          const points = rawGpsData.point || [];
-          for (const pt of points) {
-            const vals = pt.value || [];
-            if (vals.length >= 2) {
-              const lat = vals[0]?.fpVal;
-              const lng = vals[1]?.fpVal;
-              if (typeof lat === 'number' && typeof lng === 'number' && (lat !== 0 || lng !== 0)) {
-                coordinates.push({
-                  latitude: lat,
-                  longitude: lng,
-                  accuracy: vals[2]?.fpVal ?? 5,
-                  altitude: vals[3]?.fpVal ?? 0,
-                  timestamp: Number(pt.startTimeNanos) / 1000000,
-                });
+      // Dynamically discover all active location data sources (e.g. from Google Fit, Samsung Health, Strava, Garmin, Coros)
+      try {
+        const dsRes = await fetch(
+          'https://www.googleapis.com/fitness/v1/users/me/dataSources?dataTypeName=com.google.location.sample',
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        if (dsRes.ok) {
+          const dsData = await dsRes.json();
+          const found = (dsData.dataSource || [])
+            .map((d: any) => d.dataStreamId)
+            .filter((id: string) => Boolean(id));
+          if (found.length > 0) {
+            candidateLocationSources.unshift(...found);
+          }
+        }
+      } catch {}
+
+      const uniqueSources = Array.from(new Set(candidateLocationSources));
+      for (const streamId of uniqueSources) {
+        if (coordinates.length >= 2) break; // Found valid GPS track
+
+        try {
+          const rawGpsUrl = `https://www.googleapis.com/fitness/v1/users/me/dataSources/${encodeURIComponent(
+            streamId
+          )}/datasets/${startNanos}-${endNanos}`;
+          const rawGpsRes = await fetch(rawGpsUrl, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+
+          if (rawGpsRes.ok) {
+            const rawGpsData = await rawGpsRes.json();
+            const points = rawGpsData.point || [];
+            for (const pt of points) {
+              const vals = pt.value || [];
+              if (vals.length >= 2) {
+                const lat = vals[0]?.fpVal;
+                const lng = vals[1]?.fpVal;
+                if (
+                  typeof lat === 'number' &&
+                  typeof lng === 'number' &&
+                  !isNaN(lat) &&
+                  !isNaN(lng) &&
+                  (lat !== 0 || lng !== 0)
+                ) {
+                  coordinates.push({
+                    latitude: lat,
+                    longitude: lng,
+                    accuracy: vals[2]?.fpVal ?? 5,
+                    altitude: vals[3]?.fpVal ?? 0,
+                    timestamp: Number(pt.startTimeNanos) / 1000000,
+                  });
+                }
               }
             }
           }
-        }
-      } catch (gpsErr) {
-        console.warn('Non-blocking raw GPS stream query warning:', gpsErr);
+        } catch {}
       }
+    } catch (gpsErr) {
+      console.warn('Non-blocking GPS stream query warning:', gpsErr);
     }
 
     const heartRateAvg = heartRateCount > 0 ? Math.round(heartRateSum / heartRateCount) : null;
