@@ -120,7 +120,7 @@ export const PWAInstallBanner: React.FC = () => {
               className="w-12 h-12 rounded-2xl object-cover shadow-lg border border-emerald-400/40 p-0.5 bg-slate-900"
             />
             <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-[#00d09c] flex items-center justify-center text-slate-950">
-              <Zap size={9} strokeWidth={3} />
+
             </span>
           </div>
 

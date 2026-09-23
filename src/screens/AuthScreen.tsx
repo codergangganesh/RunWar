@@ -98,7 +98,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       setEmailOtpStep('verify');
       setEmailOtpCode('');
       setEmailOtpCountdown(30);
-      setSuccessMsg(`6-digit code sent to ${cleanEmail}. Check your inbox!`);
+      setSuccessMsg(`6-digit code sent to ${cleanEmail}`);
     } catch (err: any) {
       console.error('Email OTP send error:', err);
       setErrorMsg(err?.message || 'Failed to send verification code. Please check your email and try again.');
@@ -525,7 +525,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     {/* Subtitle / Tip */}
                     <div className="flex items-center gap-1.5 px-1 text-[11px] text-slate-500">
 
-                      <span>Instant 6-digit code delivered via InsForge SMTP</span>
+                      <span>Instant 6-digit code deliver</span>
                     </div>
 
                     {/* Send Code Action Button */}
@@ -539,7 +539,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       ) : (
                         <>
                           <span>Send Verification Code</span>
-                          <ArrowRight size={18} strokeWidth={2.5} />
+
                         </>
                       )}
                     </button>
@@ -577,7 +577,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
                     {/* Resend OTP Timer & Button */}
                     <div className="flex items-center justify-between px-1 text-xs">
-                      <span className="text-slate-500">Didn't receive email? Check spam or</span>
+                      <span className="text-slate-500">Didn't receive email? Check spam </span>
                       <button
                         type="button"
                         onClick={handleResendEmailOtp}
@@ -741,12 +741,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     <>
                       <span>
                         {emailMode === 'signup'
-                          ? 'Sign Up & Send Code'
+                          ? 'Sign Up To RunWar'
                           : emailMode === 'signin'
-                            ? 'Log In'
+                            ? 'Log In To RunWar'
                             : 'Send Reset Link'}
                       </span>
-                      <ArrowRight size={18} strokeWidth={2.5} />
+
                     </>
                   )}
                 </button>
@@ -799,7 +799,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   onClick={onGuestAccess}
                   className="w-full mt-2 py-2 px-3 text-xs text-slate-500 hover:text-slate-900 font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                 >
-                  <Sparkles size={13} className="text-[#00d09c]" />
+
                   <span>Try Quick Demo / Guest Mode</span>
                 </button>
               </>
