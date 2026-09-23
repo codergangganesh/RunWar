@@ -270,13 +270,30 @@ export const workoutService = {
 
     const normalizedList = importedWorkouts.map((w) => normalizeWorkout(w));
 
+    // Deduplicate against existing workouts in cache to avoid re-inserting same sessions
+    const cached = this.getCachedWorkouts();
+    const existingExtKeys = new Set(
+      cached.filter((w) => w.source_provider && w.external_record_id).map((w) => `${w.source_provider}_${w.external_record_id}`)
+    );
+    const existingTimes = cached.map((w) => new Date(w.started_at).getTime()).filter((t) => !isNaN(t));
+
+    const uniqueToSave = normalizedList.filter((w) => {
+      if (w.external_record_id && existingExtKeys.has(`${w.source_provider}_${w.external_record_id}`)) {
+        return false;
+      }
+      const wTime = new Date(w.started_at).getTime();
+      return !existingTimes.some((t) => Math.abs(t - wTime) < 120 * 1000);
+    });
+
+    if (uniqueToSave.length === 0) return { savedCount: 0 };
+
     // 1. Update local cache immediately for instant UI feedback
-    normalizedList.forEach((w) => this.addWorkoutToCache(w));
+    uniqueToSave.forEach((w) => this.addWorkoutToCache(w));
 
     // 2. Persist to InsForge database if online
     if (navigator.onLine) {
       try {
-        const payloads = normalizedList.map((w) => ({
+        const payloads = uniqueToSave.map((w) => ({
           id: w.id,
           user_id: w.user_id,
           type: w.type,
@@ -307,7 +324,7 @@ export const workoutService = {
           .upsert(payloads, { onConflict: 'id' });
 
         // Batch save splits & points for imported workouts that contain them
-        for (const w of normalizedList) {
+        for (const w of uniqueToSave) {
           if (w.splits && w.splits.length > 0) {
             const splitsPayload = w.splits.map((s) => ({
               workout_id: w.id,
@@ -349,19 +366,19 @@ export const workoutService = {
     }
 
     // 3. Re-evaluate goals and achievements
-    const userId = normalizedList[0]?.user_id;
+    const userId = uniqueToSave[0]?.user_id;
     if (userId && userId !== 'guest_user') {
       try {
         await Promise.allSettled([
           goalsService.updateProgress(userId),
-          recordsService.checkPersonalRecords(userId, normalizedList[0]),
+          recordsService.checkPersonalRecords(userId, uniqueToSave[0]),
         ]);
       } catch {
         // ignore non-blocking evaluations
       }
     }
 
-    return { savedCount: normalizedList.length };
+    return { savedCount: uniqueToSave.length };
   },
 
   /**
@@ -395,27 +412,49 @@ export const workoutService = {
       console.warn('Cloud fetch workouts warning:', err);
     }
 
-    // Merge cloud and cached local workouts
+    // Merge cloud and cached local workouts with multi-key deduplication
     const cachedWorkouts = this.getCachedWorkouts().map(normalizeWorkout);
-    const map = new Map<string, Workout>();
+    const rawMerged = [...cloudWorkouts, ...cachedWorkouts];
 
-    // Put cached first
-    cachedWorkouts.forEach((w) => {
-      if (!userId || w.user_id === userId || w.user_id === 'guest_user' || w.user_id === 'usr_guest_demo') {
-        map.set(w.id, w);
+    const seenIds = new Set<string>();
+    const seenExternalKeys = new Set<string>();
+    const seenTimestamps: number[] = [];
+    const dedupedWorkouts: Workout[] = [];
+
+    for (const w of rawMerged) {
+      if (userId && w.user_id !== userId && w.user_id !== 'guest_user' && w.user_id !== 'usr_guest_demo') {
+        continue;
       }
-    });
+      if (w.status !== 'completed' && w.status) {
+        continue;
+      }
 
-    // Overlay cloud workouts (source of truth for synced records)
-    cloudWorkouts.forEach((w) => {
-      map.set(w.id, w);
-    });
+      // 1. Check direct UUID
+      if (seenIds.has(w.id)) continue;
 
-    const allWorkouts = Array.from(map.values()).filter((w) => w.status === 'completed' || !w.status);
-    this.saveWorkoutsCache(allWorkouts);
+      // 2. Check external record ID (Google Health, Health Connect)
+      if (w.source_provider && w.external_record_id) {
+        const extKey = `${w.source_provider}_${w.external_record_id}`;
+        if (seenExternalKeys.has(extKey)) continue;
+        seenExternalKeys.add(extKey);
+      }
+
+      // 3. Check start time overlap (within 120 seconds of any existing session)
+      const wTime = new Date(w.started_at).getTime();
+      if (!isNaN(wTime)) {
+        const hasTimeMatch = seenTimestamps.some((t) => Math.abs(t - wTime) < 120 * 1000);
+        if (hasTimeMatch) continue;
+        seenTimestamps.push(wTime);
+      }
+
+      seenIds.add(w.id);
+      dedupedWorkouts.push(w);
+    }
+
+    this.saveWorkoutsCache(dedupedWorkouts);
 
     // Filter by type if requested
-    let filtered = allWorkouts;
+    let filtered = dedupedWorkouts;
     if (filterType !== 'all') {
       filtered = filtered.filter((w) => w.type === filterType);
     }

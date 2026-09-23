@@ -42,14 +42,36 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
   const distanceUnit = profile?.distance_unit || 'km';
   const paceUnit = profile?.pace_unit || 'min_km';
 
+  // Deduplicate workouts by ID, external key, and start timestamp for safety
+  const seenIds = new Set<string>();
+  const seenExtKeys = new Set<string>();
+  const seenTimes: number[] = [];
+  const uniqueWorkouts: Workout[] = [];
+
+  for (const w of workouts) {
+    if (seenIds.has(w.id)) continue;
+    if (w.source_provider && w.external_record_id) {
+      const extKey = `${w.source_provider}_${w.external_record_id}`;
+      if (seenExtKeys.has(extKey)) continue;
+      seenExtKeys.add(extKey);
+    }
+    const t = new Date(w.started_at).getTime();
+    if (!isNaN(t)) {
+      if (seenTimes.some((st) => Math.abs(st - t) < 120 * 1000)) continue;
+      seenTimes.push(t);
+    }
+    seenIds.add(w.id);
+    uniqueWorkouts.push(w);
+  }
+
   // Category counts
-  const countAll = workouts.length;
-  const countRun = workouts.filter((w) => w.type === 'run').length;
-  const countJog = workouts.filter((w) => w.type === 'jog').length;
-  const countWalk = workouts.filter((w) => w.type === 'walk').length;
+  const countAll = uniqueWorkouts.length;
+  const countRun = uniqueWorkouts.filter((w) => w.type === 'run').length;
+  const countJog = uniqueWorkouts.filter((w) => w.type === 'jog').length;
+  const countWalk = uniqueWorkouts.filter((w) => w.type === 'walk').length;
 
   // Apply filters
-  let filtered = workouts.filter((w) => {
+  let filtered = uniqueWorkouts.filter((w) => {
     if (filterType !== 'all' && w.type !== filterType) return false;
     return true;
   });

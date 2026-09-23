@@ -261,7 +261,7 @@ export class TakeoutImporter {
   }
 
   /**
-   * Import workouts into RunWar database and local cache
+   * Import workouts into RunWar database and local cache with strict deduplication
    */
   async importWorkouts(userId: string, workoutsToImport?: Workout[]): Promise<TakeoutImportResult> {
     const workouts = workoutsToImport || this.getDiscoveredWorkouts(userId);
@@ -270,10 +270,10 @@ export class TakeoutImporter {
     }
 
     try {
-      await workoutService.saveImportedWorkouts(workouts);
+      const { savedCount } = await workoutService.saveImportedWorkouts(workouts);
       return {
         success: true,
-        importedCount: workouts.length,
+        importedCount: savedCount,
         newWorkouts: workouts,
       };
     } catch (err: any) {
