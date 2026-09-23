@@ -261,9 +261,21 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
                   <h4 className="text-xs font-bold text-emerald-950 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors capitalize">
                     {workout.title || `${workout.type} Session`}
                   </h4>
-                  <span className="text-[10px] text-emerald-700/80 dark:text-slate-400 font-medium">
-                    {formatWorkoutDate(workout.started_at)}
-                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[10px] text-emerald-700/80 dark:text-slate-400 font-medium">
+                      {formatWorkoutDate(workout.started_at)}
+                    </span>
+                    {workout.source_provider && workout.source_provider !== 'runwar_gps' && (
+                      <span className="inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.2 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                        {workout.source_provider === 'google_health'
+                          ? 'Google Health'
+                          : workout.source_provider === 'health_connect'
+                          ? 'Health Connect'
+                          : workout.source_provider}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
 

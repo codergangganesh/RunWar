@@ -1,9 +1,16 @@
 
+# Dependencies & Builds
 node_modules
 dist
 dist-ssr
-*.local
+
+# Environment and secrets (never commit)
+.env
 .env.local
+.env.*
+!.env.example
+*.local
+
 .DS_Store
 
 # InsForge & AI agent skills

@@ -41,6 +41,9 @@ function normalizeWorkout(raw: any): Workout {
     status,
     route_coordinates: Array.isArray(raw.route_coordinates) ? raw.route_coordinates : [],
     splits: Array.isArray(raw.splits) ? raw.splits : [],
+    source_provider: raw.source_provider || 'runwar_gps',
+    external_record_id: raw.external_record_id || null,
+    heart_rate_avg: raw.heart_rate_avg ?? null,
     created_at: raw.created_at || new Date().toISOString(),
   };
 }
@@ -256,6 +259,68 @@ export const workoutService = {
         message: "Workout saved locally. We'll sync it when you're connected.",
       };
     }
+  },
+
+  /**
+   * Batch save imported workouts from external health providers (Google Health / Health Connect)
+   * Safely upserts records to InsForge and local cache, evaluating goals and personal records
+   */
+  async saveImportedWorkouts(importedWorkouts: Workout[]): Promise<{ savedCount: number }> {
+    if (!importedWorkouts || importedWorkouts.length === 0) return { savedCount: 0 };
+
+    const normalizedList = importedWorkouts.map((w) => normalizeWorkout(w));
+
+    // 1. Update local cache immediately for instant UI feedback
+    normalizedList.forEach((w) => this.addWorkoutToCache(w));
+
+    // 2. Persist to InsForge database if online
+    if (navigator.onLine) {
+      try {
+        const payloads = normalizedList.map((w) => ({
+          id: w.id,
+          user_id: w.user_id,
+          type: w.type,
+          title: w.title,
+          notes: w.notes || null,
+          started_at: w.started_at,
+          ended_at: w.ended_at,
+          duration_seconds: w.duration_seconds,
+          moving_duration_seconds: w.moving_duration_seconds || w.duration_seconds,
+          paused_duration_seconds: 0,
+          distance_meters: w.distance_meters,
+          average_pace: w.average_pace,
+          average_speed: w.average_speed,
+          max_speed: w.max_speed,
+          calories: w.calories,
+          elevation_gain: w.elevation_gain,
+          elevation_loss: w.elevation_loss,
+          status: 'completed',
+          route_coordinates: w.route_coordinates,
+          splits: w.splits,
+        }));
+
+        await insforge.database
+          .from('workouts')
+          .upsert(payloads, { onConflict: 'id' });
+      } catch (err) {
+        console.warn('Non-blocking error during cloud upsert of imported workouts:', err);
+      }
+    }
+
+    // 3. Re-evaluate goals and achievements
+    const userId = normalizedList[0]?.user_id;
+    if (userId && userId !== 'guest_user') {
+      try {
+        await Promise.allSettled([
+          goalsService.updateProgress(userId),
+          recordsService.checkPersonalRecords(userId, normalizedList[0]),
+        ]);
+      } catch {
+        // ignore non-blocking evaluations
+      }
+    }
+
+    return { savedCount: normalizedList.length };
   },
 
   /**

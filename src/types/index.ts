@@ -92,6 +92,18 @@ export interface WorkoutPointRecord {
   sequence_number: number;
 }
 
+export type HealthProviderType = 'runwar_gps' | 'google_health' | 'health_connect';
+
+export interface HealthConnectionState {
+  provider: HealthProviderType;
+  isConnected: boolean;
+  lastSyncAt: string | null;
+  syncedCount: number;
+  accountEmail?: string | null;
+  status: 'disconnected' | 'connecting' | 'connected' | 'syncing' | 'error';
+  errorMessage?: string | null;
+}
+
 export interface Workout {
   id: string;
   user_id: string;
@@ -113,6 +125,9 @@ export interface Workout {
   status: 'completed' | 'paused' | 'discarded';
   route_coordinates: GPSCoordinate[];
   splits: WorkoutSplit[];
+  source_provider?: HealthProviderType;
+  external_record_id?: string | null;
+  heart_rate_avg?: number | null;
   created_at: string;
 }
 

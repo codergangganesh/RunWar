@@ -23,6 +23,7 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   Share2,
+  Heart,
 } from 'lucide-react';
 
 interface WorkoutDetailScreenProps {
@@ -137,15 +138,24 @@ export const WorkoutDetailScreen: React.FC<WorkoutDetailScreenProps> = ({
         </div>
 
         {/* Start & End Time Stamp Pill */}
-        <div className="flex items-center gap-3 text-xs text-slate-700 dark:text-slate-300 bg-emerald-50/60 dark:bg-slate-950/60 px-3.5 py-2 rounded-xl border border-emerald-100/80 dark:border-slate-800/80 w-full sm:w-fit">
-          <div className="flex items-center gap-1.5">
-            <Clock size={13} className="text-emerald-600 dark:text-emerald-400" />
-            <span>Started: <strong className="text-slate-950 dark:text-white">{formatLocalTime(workout.started_at)}</strong></span>
-          </div>
-          {workout.ended_at && (
-            <div className="flex items-center gap-1.5 pl-2 border-l border-emerald-200 dark:border-slate-800">
-              <span>Ended: <strong className="text-slate-950 dark:text-white">{formatLocalTime(workout.ended_at)}</strong></span>
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-700 dark:text-slate-300 bg-emerald-50/60 dark:bg-slate-950/60 px-3.5 py-2 rounded-xl border border-emerald-100/80 dark:border-slate-800/80 w-full">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5">
+              <Clock size={13} className="text-emerald-600 dark:text-emerald-400" />
+              <span>Started: <strong className="text-slate-950 dark:text-white">{formatLocalTime(workout.started_at)}</strong></span>
             </div>
+            {workout.ended_at && (
+              <div className="flex items-center gap-1.5 pl-2 border-l border-emerald-200 dark:border-slate-800">
+                <span>Ended: <strong className="text-slate-950 dark:text-white">{formatLocalTime(workout.ended_at)}</strong></span>
+              </div>
+            )}
+          </div>
+
+          {workout.source_provider && workout.source_provider !== 'runwar_gps' && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+              Synced via {workout.source_provider === 'google_health' ? 'Google Health' : workout.source_provider === 'health_connect' ? 'Health Connect' : workout.source_provider}
+            </span>
           )}
         </div>
 
@@ -233,6 +243,24 @@ export const WorkoutDetailScreen: React.FC<WorkoutDetailScreenProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Heart Rate Strip (if recorded) */}
+      {workout.heart_rate_avg != null && workout.heart_rate_avg > 0 && (
+        <div className="flex items-center justify-between p-3 rounded-2xl bg-rose-50/70 dark:bg-rose-950/20 border border-rose-200/60 dark:border-rose-900/30 text-rose-950 dark:text-rose-200">
+          <div className="flex items-center gap-2.5">
+            <div className="p-1.5 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400">
+              <Heart size={16} className="fill-rose-500 text-rose-500" />
+            </div>
+            <div>
+              <div className="text-[9px] font-bold uppercase tracking-wider text-rose-700 dark:text-rose-400">Average Heart Rate</div>
+              <div className="text-[11px] text-rose-900/80 dark:text-slate-300">Recorded from connected health monitor</div>
+            </div>
+          </div>
+          <div className="font-display text-lg font-black text-rose-600 dark:text-rose-400">
+            {Math.round(workout.heart_rate_avg)} <span className="text-xs font-bold text-rose-500">BPM</span>
+          </div>
+        </div>
+      )}
 
       {/* 3. Full GPS Route Map */}
       <div className="space-y-2">

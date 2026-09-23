@@ -17,6 +17,7 @@ import { AchievementsScreen } from './screens/AchievementsScreen';
 import { PersonalRecordsScreen } from './screens/PersonalRecordsScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
 import { PrivacyScreen } from './screens/PrivacyScreen';
+import { ConnectedHealthScreen } from './screens/ConnectedHealthScreen';
 import { RecoveryModal } from './components/ui/RecoveryModal';
 import { PWAInstallBanner } from './components/ui/PWAInstallBanner';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
@@ -53,7 +54,8 @@ type ScreenState =
   | 'active_run'
   | 'workout_summary'
   | 'workout_detail'
-  | 'privacy';
+  | 'privacy'
+  | 'connected_health';
 
 export const App: React.FC = () => {
   // Navigation & Screen States
@@ -657,6 +659,35 @@ export const App: React.FC = () => {
           </AppShell>
         );
 
+      case 'connected_health':
+        return (
+          <AppShell
+            activeTab={activeTab}
+            setActiveTab={handleTabChange}
+            profile={profile}
+            headerTitle="Connected Health"
+            showBack={true}
+            onBack={() => setScreen('main')}
+            streakCount={todayStats.streak.currentStreak}
+            theme={theme}
+            onToggleTheme={handleToggleTheme}
+            isSyncing={isDataLoading}
+            onSync={() => {
+              if (currentUser?.id) {
+                loadAppData(currentUser.id, false);
+              }
+            }}
+          >
+            <ConnectedHealthScreen
+              profile={profile}
+              onRefreshWorkouts={() =>
+                currentUser?.id ? loadAppData(currentUser.id, true) : Promise.resolve()
+              }
+              onBack={() => setScreen('main')}
+            />
+          </AppShell>
+        );
+
       case 'main':
       default:
         return (
@@ -767,11 +798,13 @@ export const App: React.FC = () => {
                 workouts={workouts}
                 onNavigate={(destination) => {
                   if (destination === 'privacy') setScreen('privacy');
+                  else if (destination === 'connected_health') setScreen('connected_health');
                   else setActiveTab(destination);
                 }}
                 onSignOut={handleSignOut}
                 onUpdateProfile={(updated) => setProfile(updated)}
                 onUpdateSettings={(updated) => setSettings(updated)}
+                onRefreshWorkouts={() => (currentUser ? loadAppData(currentUser.id, true) : Promise.resolve())}
               />
             )}
           </AppShell>
