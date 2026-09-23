@@ -317,7 +317,9 @@ export const workoutService = {
               duration_seconds: s.duration_seconds,
               pace: s.pace,
             }));
-            insforge.database.from('workout_splits').insert(splitsPayload).catch(() => {});
+            try {
+              await insforge.database.from('workout_splits').insert(splitsPayload);
+            } catch {}
           }
 
           if (w.route_coordinates && w.route_coordinates.length > 0) {
@@ -335,7 +337,9 @@ export const workoutService = {
                 timestamp: new Date(pt.timestamp).toISOString(),
                 sequence_number: pt.sequence_number || (i + idx + 1),
               }));
-              insforge.database.from('workout_points').insert(pointsPayload).catch(() => {});
+              try {
+                await insforge.database.from('workout_points').insert(pointsPayload);
+              } catch {}
             }
           }
         }
