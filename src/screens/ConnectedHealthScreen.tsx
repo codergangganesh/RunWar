@@ -214,9 +214,11 @@ export const ConnectedHealthScreen: React.FC<ConnectedHealthScreenProps> = ({
       });
     } finally {
       setIsImportingTakeout(false);
-      event.target.value = '';
+      if (event.target) event.target.value = '';
     }
   };
+
+  const faqs = [
     {
       q: 'How does Google Health sync your workout data with RUNWAR?',
       a: 'When you connect your Google account, RUNWAR connects to Google Fitness APIs to query your recorded runs, walks, distances, GPS track coordinates, pace splits, and calories. Everything is imported directly into your RUNWAR account and immediately updates your weekly activity charts, personal records, and workout history.',
