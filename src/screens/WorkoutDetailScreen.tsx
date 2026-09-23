@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { UserProfile, Workout } from '../types';
-import { workoutService } from '../services/workoutService';
+import { workoutService, normalizeWorkout } from '../services/workoutService';
 import { downloadFile, generateGPX, generateTCX, generateWorkoutsCSV } from '../utils/exportGenerators';
 import { formatDistance, formatDuration, formatPace, formatSpeed } from '../utils/formatters';
 import { formatLocalDateFull, formatLocalTime } from '../utils/dateUtils';
@@ -39,7 +39,7 @@ export const WorkoutDetailScreen: React.FC<WorkoutDetailScreenProps> = ({
   onBack,
   onDeleted,
 }) => {
-  const [workout, setWorkout] = useState<Workout>(initialWorkout);
+  const [workout, setWorkout] = useState<Workout>(() => normalizeWorkout(initialWorkout));
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [exportedType, setExportedType] = useState<string | null>(null);

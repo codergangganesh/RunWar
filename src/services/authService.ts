@@ -55,21 +55,19 @@ export const authService = {
   async getCurrentUser() {
     try {
       const { data, error } = await insforge.auth.getCurrentUser();
-      if (error || !data) {
-        // If InsForge explicitly says not logged in, clear stale local session
-        if (error) this.clearCachedUser();
-        return null;
+      if (!error && data) {
+        const user = (data as any).user || data;
+        if (user?.id) {
+          const normalizedUser = {
+            ...user,
+            id: toDeterministicUUID(user.id),
+          };
+          this.setCachedUser(normalizedUser);
+          return normalizedUser;
+        }
+        return user;
       }
-      const user = (data as any).user || data;
-      if (user?.id) {
-        const normalizedUser = {
-          ...user,
-          id: toDeterministicUUID(user.id),
-        };
-        this.setCachedUser(normalizedUser);
-        return normalizedUser;
-      }
-      return user;
+      return this.getCachedUser();
     } catch (err) {
       console.warn('Error fetching current user from cloud, checking local cache:', err);
       return this.getCachedUser();

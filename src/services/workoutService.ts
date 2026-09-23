@@ -1,11 +1,12 @@
 import { insforge } from '../lib/insforge';
-import { Workout, WorkoutType } from '../types';
+import { Workout, WorkoutType, GPSCoordinate, WorkoutSplit } from '../types';
 import { achievementsService } from './achievementsService';
 import { recordsService } from './recordsService';
 import { goalsService } from './goalsService';
 import { syncQueue } from './syncQueue';
 import { workoutLogger } from '../utils/workoutLogger';
 import { getLocalDateKey, getStartOfLocalWeek, isSameLocalDate } from '../utils/dateUtils';
+import { calculateSplits } from '../utils/calculations';
 
 const WORKOUTS_CACHE_KEY = 'runwar_cached_workouts';
 
@@ -15,11 +16,86 @@ export interface SaveWorkoutResult {
   message: string;
 }
 
-function normalizeWorkout(raw: any): Workout {
+export function normalizeWorkout(raw: any): Workout {
   const type: WorkoutType = ['run', 'jog', 'walk'].includes(raw.type) ? raw.type : 'run';
   const status: 'completed' | 'paused' | 'discarded' = ['completed', 'paused', 'discarded'].includes(raw.status)
     ? raw.status
     : 'completed';
+
+  // Robust parsing of route_coordinates (handles JSON string from PostgreSQL/localStorage)
+  let route_coordinates: GPSCoordinate[] = [];
+  if (Array.isArray(raw.route_coordinates)) {
+    route_coordinates = raw.route_coordinates;
+  } else if (typeof raw.route_coordinates === 'string' && raw.route_coordinates.trim().length > 2) {
+    try {
+      const parsed = JSON.parse(raw.route_coordinates);
+      if (Array.isArray(parsed)) route_coordinates = parsed;
+    } catch {}
+  }
+
+  // Robust parsing of splits (handles JSON string from PostgreSQL/localStorage)
+  let splits: WorkoutSplit[] = [];
+  if (Array.isArray(raw.splits)) {
+    splits = raw.splits;
+  } else if (typeof raw.splits === 'string' && raw.splits.trim().length > 2) {
+    try {
+      const parsed = JSON.parse(raw.splits);
+      if (Array.isArray(parsed)) splits = parsed;
+    } catch {}
+  }
+
+  const duration_seconds = Math.round(Number(raw.duration_seconds) || 0);
+  const distance_meters = Math.round(Number(raw.distance_meters) || 0);
+
+  // If splits is empty, auto-generate splits from coordinates or distance & duration
+  if (splits.length === 0) {
+    if (route_coordinates && route_coordinates.length > 1) {
+      try {
+        splits = calculateSplits(route_coordinates, 1000);
+      } catch {}
+    }
+
+    if (splits.length === 0 && distance_meters >= 300 && duration_seconds > 0) {
+      const totalKm = Math.floor(distance_meters / 1000);
+      const avgPaceSec = Math.round(duration_seconds / (distance_meters / 1000));
+      for (let k = 1; k <= totalKm; k++) {
+        splits.push({
+          split_number: k,
+          distance_meters: 1000,
+          duration_seconds: avgPaceSec,
+          pace: avgPaceSec,
+        });
+      }
+      const remainder = distance_meters % 1000;
+      if (remainder > 150) {
+        const remSec = Math.round((remainder / 1000) * avgPaceSec);
+        splits.push({
+          split_number: totalKm + 1,
+          distance_meters: Math.round(remainder),
+          duration_seconds: remSec,
+          pace: avgPaceSec,
+        });
+      }
+    }
+  }
+
+  // Calculate elevation if route coordinates contain altitude
+  let elevation_gain = Math.round(Number(raw.elevation_gain) || 0);
+  let elevation_loss = Math.round(Number(raw.elevation_loss) || 0);
+  if (elevation_gain === 0 && elevation_loss === 0 && route_coordinates.length > 2) {
+    for (let i = 1; i < route_coordinates.length; i++) {
+      const prevAlt = route_coordinates[i - 1].altitude;
+      const currAlt = route_coordinates[i].altitude;
+      if (prevAlt != null && currAlt != null) {
+        const diff = currAlt - prevAlt;
+        if (diff > 0.5) elevation_gain += diff;
+        else if (diff < -0.5) elevation_loss += Math.abs(diff);
+      }
+    }
+    elevation_gain = Math.round(elevation_gain);
+    elevation_loss = Math.round(elevation_loss);
+  }
+
   return {
     id: raw.id || crypto.randomUUID(),
     user_id: raw.user_id || 'guest_user',
@@ -28,19 +104,19 @@ function normalizeWorkout(raw: any): Workout {
     notes: raw.notes || null,
     started_at: raw.started_at || new Date().toISOString(),
     ended_at: raw.ended_at || new Date().toISOString(),
-    duration_seconds: Math.round(Number(raw.duration_seconds) || 0),
-    moving_duration_seconds: Math.round(Number(raw.moving_duration_seconds) || Number(raw.duration_seconds) || 0),
+    duration_seconds,
+    moving_duration_seconds: Math.round(Number(raw.moving_duration_seconds) || duration_seconds),
     paused_duration_seconds: Math.round(Number(raw.paused_duration_seconds) || 0),
-    distance_meters: Math.round(Number(raw.distance_meters) || 0),
-    average_pace: Math.round(Number(raw.average_pace) || 0),
-    average_speed: Number(Number(raw.average_speed || 0).toFixed(2)),
+    distance_meters,
+    average_pace: Math.round(Number(raw.average_pace) || (distance_meters > 0 ? duration_seconds / (distance_meters / 1000) : 0)),
+    average_speed: Number(Number(raw.average_speed || (distance_meters > 0 ? (distance_meters / 1000) / (duration_seconds / 3600) : 0)).toFixed(2)),
     max_speed: Number(Number(raw.max_speed || 0).toFixed(2)),
     calories: Math.round(Number(raw.calories) || 0),
-    elevation_gain: Math.round(Number(raw.elevation_gain) || 0),
-    elevation_loss: Math.round(Number(raw.elevation_loss) || 0),
+    elevation_gain,
+    elevation_loss,
     status,
-    route_coordinates: Array.isArray(raw.route_coordinates) ? raw.route_coordinates : [],
-    splits: Array.isArray(raw.splits) ? raw.splits : [],
+    route_coordinates,
+    splits,
     source_provider: raw.source_provider || 'runwar_gps',
     external_record_id: raw.external_record_id || null,
     heart_rate_avg: raw.heart_rate_avg ?? null,
@@ -422,9 +498,6 @@ export const workoutService = {
     const dedupedWorkouts: Workout[] = [];
 
     for (const w of rawMerged) {
-      if (userId && w.user_id !== userId && w.user_id !== 'guest_user' && w.user_id !== 'usr_guest_demo') {
-        continue;
-      }
       if (w.status !== 'completed' && w.status) {
         continue;
       }
@@ -451,7 +524,9 @@ export const workoutService = {
       dedupedWorkouts.push(w);
     }
 
-    this.saveWorkoutsCache(dedupedWorkouts);
+    if (dedupedWorkouts.length > 0) {
+      this.saveWorkoutsCache(dedupedWorkouts);
+    }
 
     // Filter by type if requested
     let filtered = dedupedWorkouts;

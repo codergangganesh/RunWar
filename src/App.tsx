@@ -25,7 +25,7 @@ import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { insforge } from './lib/insforge';
 import { authService } from './services/authService';
 import { firebaseAuthService } from './services/firebaseAuthService';
-import { workoutService } from './services/workoutService';
+import { workoutService, normalizeWorkout } from './services/workoutService';
 import { goalsService } from './services/goalsService';
 import { achievementsService } from './services/achievementsService';
 import { recordsService } from './services/recordsService';
@@ -80,7 +80,13 @@ export const App: React.FC = () => {
   const [dataError, setDataError] = useState<string | null>(null);
 
   // Core Data
-  const [workouts, setWorkouts] = useState<Workout[]>([]);
+  const [workouts, setWorkouts] = useState<Workout[]>(() => {
+    try {
+      return workoutService.getCachedWorkouts().map(normalizeWorkout);
+    } catch {
+      return [];
+    }
+  });
   const [todayStats, setTodayStats] = useState({
     totalDistanceMeters: 0,
     totalDurationSeconds: 0,
