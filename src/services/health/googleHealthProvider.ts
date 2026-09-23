@@ -108,28 +108,26 @@ export class GoogleHealthProvider implements HealthProvider {
     }
 
     return new Promise((resolve) => {
-      const existing = document.querySelector('script[src*="accounts.google.com/gsi/client"]');
-      if (!existing) {
-        const script = document.createElement('script');
+      let script = document.querySelector('script[src*="accounts.google.com/gsi/client"]') as HTMLScriptElement;
+      if (!script) {
+        script = document.createElement('script');
         script.src = 'https://accounts.google.com/gsi/client';
         script.async = true;
         script.defer = true;
-        script.onload = () => resolve(true);
-        script.onerror = () => resolve(false);
         document.head.appendChild(script);
-      } else {
-        let attempts = 0;
-        const interval = setInterval(() => {
-          attempts++;
-          if (typeof (window as any).google?.accounts?.oauth2?.initTokenClient === 'function') {
-            clearInterval(interval);
-            resolve(true);
-          } else if (attempts > 30) {
-            clearInterval(interval);
-            resolve(false);
-          }
-        }, 100);
       }
+
+      let attempts = 0;
+      const interval = setInterval(() => {
+        attempts++;
+        if (typeof (window as any).google?.accounts?.oauth2?.initTokenClient === 'function') {
+          clearInterval(interval);
+          resolve(true);
+        } else if (attempts > 60) {
+          clearInterval(interval);
+          resolve(false);
+        }
+      }, 50);
     });
   }
 
@@ -144,16 +142,23 @@ export class GoogleHealthProvider implements HealthProvider {
       };
     }
 
-    // Await Google Identity Services script if available
+    // Await Google Identity Services script
     await this.ensureGsiLoaded();
 
     return new Promise((resolve) => {
-      // 1. Check if Google Identity Services (GIS) token client is available
+      // 1. Primary: Official Google Identity Services (GIS) Token Client
       if (typeof (window as any).google?.accounts?.oauth2?.initTokenClient === 'function') {
         try {
           const client = (window as any).google.accounts.oauth2.initTokenClient({
             client_id: GOOGLE_CLIENT_ID,
             scope: SCOPES,
+            error_callback: (err: any) => {
+              console.warn('GIS error:', err);
+              resolve({
+                success: false,
+                error: err?.message || err?.type || 'Google authentication was cancelled or encountered an error.',
+              });
+            },
             callback: async (response: any) => {
               if (response.error) {
                 resolve({ success: false, error: response.error_description || response.error });
@@ -171,14 +176,14 @@ export class GoogleHealthProvider implements HealthProvider {
               }
             },
           });
-          client.requestAccessToken();
+          client.requestAccessToken({ prompt: 'consent' });
           return;
         } catch (e: any) {
           console.warn('GIS Token client error, falling back to popup flow:', e);
         }
       }
 
-      // 2. Fallback: Standard OAuth 2.0 Web Popup
+      // 2. Fallback: Standard OAuth 2.0 Web Popup (without COOP blocking)
       const redirectUri = window.location.origin;
       const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
         GOOGLE_CLIENT_ID
@@ -206,38 +211,13 @@ export class GoogleHealthProvider implements HealthProvider {
       }
 
       let handled = false;
-      const checkTimer = setInterval(() => {
-        let isClosed = false;
-        try {
-          isClosed = !popup || Boolean(popup.closed);
-        } catch {
-          // Cross-Origin-Opener-Policy safe: ignore until popup redirects back
-          isClosed = false;
-        }
 
-        if (isClosed) {
-          clearInterval(checkTimer);
-          if (!handled) {
-            const token = this.getAccessToken();
-            if (token) {
-              handled = true;
-              this.setConnectionState({ isConnected: true, status: 'connected' });
-              resolve({ success: true });
-            } else {
-              handled = true;
-              resolve({ success: false, error: 'Connection was cancelled.' });
-            }
-          }
-        }
-      }, 1000);
-
-      // Handle OAuth response redirect
+      // Handle OAuth response redirect via postMessage
       const handleMessage = async (event: MessageEvent) => {
         if (event.origin !== window.location.origin) return;
         if (event.data?.type === 'GOOGLE_HEALTH_OAUTH_TOKEN' && event.data?.token) {
           handled = true;
-          clearInterval(checkTimer);
-          popup.close();
+          try { popup.close(); } catch {}
           window.removeEventListener('message', handleMessage);
 
           this.setAccessToken(event.data.token, event.data.expiresIn || 3600);
@@ -253,14 +233,51 @@ export class GoogleHealthProvider implements HealthProvider {
 
       window.addEventListener('message', handleMessage);
 
+      // Check session & local storage periodically without touching popup.closed (prevents COOP warnings)
+      const tokenPollTimer = setInterval(async () => {
+        try {
+          const transferData = localStorage.getItem('runwar_google_fit_token_transfer');
+          if (transferData) {
+            localStorage.removeItem('runwar_google_fit_token_transfer');
+            const parsed = JSON.parse(transferData);
+            if (parsed.token && !handled) {
+              handled = true;
+              clearInterval(tokenPollTimer);
+              window.removeEventListener('message', handleMessage);
+              try { popup.close(); } catch {}
+
+              this.setAccessToken(parsed.token, parsed.expiresIn || 3600);
+              const email = await this.fetchUserEmail(parsed.token);
+              this.setConnectionState({
+                isConnected: true,
+                status: 'connected',
+                accountEmail: email,
+              });
+              resolve({ success: true, accountEmail: email });
+              return;
+            }
+          }
+        } catch {}
+
+        const token = this.getAccessToken();
+        if (token && !handled) {
+          handled = true;
+          clearInterval(tokenPollTimer);
+          window.removeEventListener('message', handleMessage);
+          try { popup.close(); } catch {}
+          this.setConnectionState({ isConnected: true, status: 'connected' });
+          resolve({ success: true });
+        }
+      }, 800);
+
       // Timeout after 3 minutes
       setTimeout(() => {
         if (!handled) {
           handled = true;
-          clearInterval(checkTimer);
+          clearInterval(tokenPollTimer);
           window.removeEventListener('message', handleMessage);
-          if (popup && !popup.closed) popup.close();
-          resolve({ success: false, error: 'Connection timed out. Please try again.' });
+          try { popup.close(); } catch {}
+          resolve({ success: false, error: 'Connection timed out or was closed. Please try again.' });
         }
       }, 180000);
     });
