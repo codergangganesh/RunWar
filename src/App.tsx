@@ -96,6 +96,7 @@ export const App: React.FC = () => {
     avgPace: 0,
     dayNames: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
     dailyDistance: [0, 0, 0, 0, 0, 0, 0],
+    dailyRunCounts: [0, 0, 0, 0, 0, 0, 0],
     longestRunMeters: 0,
   });
   const [goals, setGoals] = useState<Goal[]>([]);
@@ -699,6 +700,7 @@ export const App: React.FC = () => {
                 isLoading={isDataLoading}
                 todayStats={todayStats}
                 weeklyStats={weeklyStats}
+                workouts={workouts}
                 activeGoals={goals.filter((g) => g.status === 'active')}
                 onStartRun={handleStartRun}
                 onViewHistory={() => setActiveTab('history')}

@@ -25,7 +25,9 @@ interface HomeScreenProps {
     avgPace: number;
     dayNames: string[];
     dailyDistance: number[];
+    dailyRunCounts?: number[];
   };
+  workouts?: Workout[];
   activeGoals: Goal[];
   onStartRun: (type: WorkoutType) => void;
   onViewHistory: () => void;
@@ -38,6 +40,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   isLoading = false,
   todayStats,
   weeklyStats,
+  workouts,
   activeGoals,
   onStartRun,
   onViewHistory,
@@ -197,7 +200,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       <WeeklyBarChart
         dayNames={weeklyStats.dayNames}
         dailyDistanceMeters={weeklyStats.dailyDistance}
+        dailyRunCounts={weeklyStats.dailyRunCounts}
         distanceUnit={distanceUnit}
+        workouts={workouts}
         className="flex-1"
       />
 

@@ -492,11 +492,13 @@ export const workoutService = {
     // Daily breakdown for Mon-Sun
     const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     const dailyDistance = [0, 0, 0, 0, 0, 0, 0];
+    const dailyRunCounts = [0, 0, 0, 0, 0, 0, 0];
 
     weekWorkouts.forEach((w) => {
       const d = new Date(w.started_at);
       const dayIndex = (d.getDay() + 6) % 7; // Convert 0(Sun)->6, 1(Mon)->0
       dailyDistance[dayIndex] += Number(w.distance_meters) || 0;
+      dailyRunCounts[dayIndex] += 1;
     });
 
     return {
@@ -507,6 +509,7 @@ export const workoutService = {
       avgPace,
       dayNames,
       dailyDistance,
+      dailyRunCounts,
       longestRunMeters: weekWorkouts.reduce((max, w) => Math.max(max, Number(w.distance_meters) || 0), 0),
     };
   },
