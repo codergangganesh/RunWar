@@ -295,6 +295,8 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
                           ? 'Google Health'
                           : workout.source_provider === 'health_connect'
                           ? 'Health Connect'
+                          : workout.source_provider === 'manual_import'
+                          ? 'File Import'
                           : workout.source_provider}
                       </span>
                     )}

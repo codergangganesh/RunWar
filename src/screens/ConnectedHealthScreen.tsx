@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { UserProfile, HealthConnectionState } from '../types';
+import { UserProfile, HealthConnectionState, Workout } from '../types';
 import { healthService } from '../services/health/healthService';
 import { takeoutImporter } from '../services/health/takeoutImporter';
 import {
@@ -10,10 +10,8 @@ import {
   AlertCircle,
   ChevronDown,
   ChevronUp,
-  Upload,
-  FolderArchive,
-  Sparkles,
-  FileCode,
+  UploadCloud,
+  FileUp,
 } from 'lucide-react';
 
 interface ConnectedHealthScreenProps {
@@ -136,85 +134,95 @@ export const ConnectedHealthScreen: React.FC<ConnectedHealthScreenProps> = ({
     }
   };
 
-  const [isImportingTakeout, setIsImportingTakeout] = useState(false);
+  const [isUploadingFiles, setIsUploadingFiles] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
 
-  const handleImportDiscoveredTakeout = async () => {
-    if (isImportingTakeout) return;
-    setIsImportingTakeout(true);
+  const processUploadedFiles = async (files: FileList | File[]) => {
+    if (!files || files.length === 0) return;
+    setIsUploadingFiles(true);
     setSyncFeedback(null);
 
     try {
       const targetUserId = profile?.user_id || 'guest_user';
-      const result = await takeoutImporter.importWorkouts(targetUserId);
+      const allParsedWorkouts: Workout[] = [];
 
-      if (result.success && result.importedCount > 0) {
-        setSyncFeedback({
-          type: 'success',
-          message: `Successfully imported ${result.importedCount} historical Google Fit workouts with GPS maps & splits!`,
-          count: result.importedCount,
-        });
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        try {
+          const text = await file.text();
+          const parsed = takeoutImporter.parseFile(text, file.name, targetUserId);
+          if (parsed && parsed.length > 0) {
+            allParsedWorkouts.push(...parsed);
+          }
+        } catch (fileErr) {
+          console.warn(`Could not parse ${file.name}:`, fileErr);
+        }
+      }
 
-        if (onRefreshWorkouts) {
-          await onRefreshWorkouts();
+      if (allParsedWorkouts.length > 0) {
+        const result = await takeoutImporter.importWorkouts(targetUserId, allParsedWorkouts);
+        if (result.success) {
+          const totalDistKm = (
+            allParsedWorkouts.reduce((acc, w) => acc + (w.distance_meters || 0), 0) / 1000
+          ).toFixed(2);
+          setSyncFeedback({
+            type: 'success',
+            message: `Successfully imported ${result.importedCount} workout${
+              result.importedCount === 1 ? '' : 's'
+            } (${totalDistKm} km total)!`,
+            count: result.importedCount,
+          });
+          if (onRefreshWorkouts) {
+            await onRefreshWorkouts();
+          }
+        } else {
+          setSyncFeedback({
+            type: 'error',
+            message: result.error || 'Failed to save imported workouts.',
+          });
         }
       } else {
         setSyncFeedback({
           type: 'error',
-          message: result.error || 'No new workouts to import from Takeout files.',
+          message:
+            'No valid workouts could be extracted. Please ensure you uploaded valid .tcx, .gpx, or .json workout files.',
         });
       }
     } catch (err: any) {
       setSyncFeedback({
         type: 'error',
-        message: err?.message || 'Failed to import Takeout workouts.',
+        message: err?.message || 'Error processing uploaded files.',
       });
     } finally {
-      setIsImportingTakeout(false);
+      setIsUploadingFiles(false);
     }
   };
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  const handleFileInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (event.target.files && event.target.files.length > 0) {
+      processUploadedFiles(event.target.files);
+      event.target.value = '';
+    }
+  };
 
-    setIsImportingTakeout(true);
-    setSyncFeedback(null);
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
 
-    try {
-      const text = await file.text();
-      const targetUserId = profile?.user_id || 'guest_user';
-      let parsedWorkout = null;
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
 
-      if (file.name.endsWith('.tcx')) {
-        parsedWorkout = takeoutImporter.parseTcx(text, targetUserId);
-      } else if (file.name.endsWith('.gpx')) {
-        parsedWorkout = takeoutImporter.parseGpx(text, targetUserId);
-      }
-
-      if (parsedWorkout) {
-        await takeoutImporter.importWorkouts(targetUserId, [parsedWorkout]);
-        setSyncFeedback({
-          type: 'success',
-          message: `Successfully imported "${parsedWorkout.title}" (${(parsedWorkout.distance_meters / 1000).toFixed(2)} km)!`,
-          count: 1,
-        });
-        if (onRefreshWorkouts) {
-          await onRefreshWorkouts();
-        }
-      } else {
-        setSyncFeedback({
-          type: 'error',
-          message: 'Unable to parse workout from this file format. Please upload a valid .tcx or .gpx file.',
-        });
-      }
-    } catch (err: any) {
-      setSyncFeedback({
-        type: 'error',
-        message: err?.message || 'Failed to parse workout file.',
-      });
-    } finally {
-      setIsImportingTakeout(false);
-      if (event.target) event.target.value = '';
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      processUploadedFiles(e.dataTransfer.files);
     }
   };
 
@@ -409,73 +417,74 @@ export const ConnectedHealthScreen: React.FC<ConnectedHealthScreenProps> = ({
         </div>
       )}
 
-      {/* 2.5 Google Takeout & Export Data Importer */}
-      <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 space-y-3.5 shadow-sm">
+      {/* 2.5 Upload Supported Workout Files Card */}
+      <div
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        className={`rounded-2xl border transition-all duration-200 p-4 space-y-3.5 ${
+          isDragging
+            ? 'bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-500 border-dashed scale-[1.01]'
+            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm'
+        }`}
+      >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-blue-500/10 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 flex items-center justify-center">
-              <FolderArchive size={18} />
+            <div className="w-8 h-8 rounded-xl bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+              <UploadCloud size={18} />
             </div>
             <div>
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-950 dark:text-white">
-                Google Fit Takeout Data
+                Upload Workout Files
               </h3>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                8 Historical Workouts Discovered
+                Import activities from supported files
               </p>
             </div>
           </div>
-          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/20">
-            8 Sessions
-          </span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+              .TCX
+            </span>
+            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+              .GPX
+            </span>
+            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+              .JSON
+            </span>
+          </div>
         </div>
 
         <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-          Historical running and walking sessions with distance, pace, calories, splits, and GPS maps from your Google Fit export can be imported directly into RUNWAR.
+          Upload fitness tracks from Garmin, Polar, Strava, Coros, or export archives with full GPS routes, distance, pace splits, and vitals.
         </p>
 
-        {/* Quick summary strip of discovered sessions */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs py-1.5 border-y border-slate-100 dark:border-slate-800/80">
-          <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-950/40">
-            <div className="text-[10px] font-bold text-slate-500">11.4K Run</div>
-            <div className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400">11.43 km</div>
+        {/* Drag & Drop / File Select Button Area */}
+        <label className="border-2 border-dashed border-slate-200 dark:border-slate-800 hover:border-emerald-500 dark:hover:border-emerald-500/70 bg-slate-50/60 dark:bg-slate-950/40 hover:bg-emerald-50/30 dark:hover:bg-emerald-950/10 rounded-xl p-4 flex flex-col items-center justify-center gap-2 text-center cursor-pointer transition-all group">
+          <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 group-hover:bg-emerald-500 group-hover:text-white flex items-center justify-center transition-all shadow-xs">
+            {isUploadingFiles ? (
+              <RefreshCw size={18} className="animate-spin text-emerald-500 group-hover:text-white" />
+            ) : (
+              <FileUp size={18} />
+            )}
           </div>
-          <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-950/40">
-            <div className="text-[10px] font-bold text-slate-500">4K GPS Run</div>
-            <div className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400">4.01 km</div>
+          <div>
+            <span className="text-xs font-bold text-slate-900 dark:text-white block group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
+              {isUploadingFiles ? 'Parsing & Importing Workouts...' : 'Choose files or drag & drop here'}
+            </span>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400">
+              Select one or multiple .tcx, .gpx, or .json workout files
+            </span>
           </div>
-          <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-950/40">
-            <div className="text-[10px] font-bold text-slate-500">4.4K Run</div>
-            <div className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400">4.43 km</div>
-          </div>
-          <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-950/40">
-            <div className="text-[10px] font-bold text-slate-500">1K GPS Walk</div>
-            <div className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400">1.01 km</div>
-          </div>
-        </div>
-
-        {/* Action buttons */}
-        <div className="flex flex-col sm:flex-row gap-2 pt-1">
-          <button
-            onClick={handleImportDiscoveredTakeout}
-            disabled={isImportingTakeout}
-            className="flex-1 py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md shadow-blue-600/20 active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
-          >
-            <Sparkles size={14} className={isImportingTakeout ? 'animate-spin' : ''} />
-            <span>{isImportingTakeout ? 'Importing Workouts...' : 'Import 8 Discovered Workouts'}</span>
-          </button>
-
-          <label className="py-2.5 px-4 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs flex items-center justify-center gap-2 active:scale-95 transition-all cursor-pointer">
-            <Upload size={14} />
-            <span>Upload .TCX / .GPX</span>
-            <input
-              type="file"
-              accept=".tcx,.gpx,.json"
-              onChange={handleFileUpload}
-              className="hidden"
-            />
-          </label>
-        </div>
+          <input
+            type="file"
+            multiple
+            accept=".tcx,.gpx,.json"
+            onChange={handleFileInputChange}
+            disabled={isUploadingFiles}
+            className="hidden"
+          />
+        </label>
       </div>
 
       {/* 3. How Google Health Sync Works */}

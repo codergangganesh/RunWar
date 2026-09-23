@@ -92,7 +92,7 @@ export interface WorkoutPointRecord {
   sequence_number: number;
 }
 
-export type HealthProviderType = 'runwar_gps' | 'google_health' | 'health_connect';
+export type HealthProviderType = 'runwar_gps' | 'google_health' | 'health_connect' | 'manual_import';
 
 export interface HealthConnectionState {
   provider: HealthProviderType;

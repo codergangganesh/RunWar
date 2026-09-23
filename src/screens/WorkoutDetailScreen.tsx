@@ -154,7 +154,7 @@ export const WorkoutDetailScreen: React.FC<WorkoutDetailScreenProps> = ({
           {workout.source_provider && workout.source_provider !== 'runwar_gps' && (
             <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
               <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-              Synced via {workout.source_provider === 'google_health' ? 'Google Health' : workout.source_provider === 'health_connect' ? 'Health Connect' : workout.source_provider}
+              Synced via {workout.source_provider === 'google_health' ? 'Google Health' : workout.source_provider === 'health_connect' ? 'Health Connect' : workout.source_provider === 'manual_import' ? 'File Import' : workout.source_provider}
             </span>
           )}
         </div>

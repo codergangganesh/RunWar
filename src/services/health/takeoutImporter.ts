@@ -458,6 +458,74 @@ export class TakeoutImporter {
       return null;
     }
   }
+
+  /**
+   * Parse JSON workout exports or arrays
+   */
+  parseJson(jsonText: string, userId: string): Workout[] {
+    try {
+      const data = JSON.parse(jsonText);
+      const items: any[] = Array.isArray(data) ? data : data.workouts || data.sessions || [data];
+      const validWorkouts: Workout[] = [];
+
+      for (const item of items) {
+        if (!item || typeof item !== 'object') continue;
+        const durationSec = Math.max(1, Number(item.duration_seconds || item.duration || 60));
+        const distanceMeters = Math.max(0, Number(item.distance_meters || item.distance || 0));
+        const avgPace = distanceMeters > 0 ? Math.round(durationSec / (distanceMeters / 1000)) : 0;
+        const avgSpeed = Number(((distanceMeters / 1000) / (durationSec / 3600)).toFixed(2));
+        const type: WorkoutType = item.type === 'walk' ? 'walk' : item.type === 'jog' ? 'jog' : 'run';
+
+        validWorkouts.push({
+          id: item.id || crypto.randomUUID(),
+          user_id: userId,
+          type,
+          title: item.title || `Imported ${type.toUpperCase()}`,
+          notes: item.notes || 'Imported from JSON activity file',
+          started_at: item.started_at || item.startTime || new Date().toISOString(),
+          ended_at: item.ended_at || item.endTime || new Date(Date.now() + durationSec * 1000).toISOString(),
+          duration_seconds: durationSec,
+          moving_duration_seconds: item.moving_duration_seconds || durationSec,
+          paused_duration_seconds: item.paused_duration_seconds || 0,
+          distance_meters: distanceMeters,
+          average_pace: item.average_pace || avgPace,
+          average_speed: item.average_speed || avgSpeed,
+          max_speed: item.max_speed || Number((avgSpeed * 1.25).toFixed(2)),
+          calories: Number(item.calories) || Math.max(20, Math.round(durationSec * 0.14)),
+          elevation_gain: Number(item.elevation_gain) || 0,
+          elevation_loss: Number(item.elevation_loss) || 0,
+          status: 'completed',
+          route_coordinates: Array.isArray(item.route_coordinates) ? item.route_coordinates : [],
+          splits: Array.isArray(item.splits) && item.splits.length > 0 ? item.splits : this.generateSplits(distanceMeters, durationSec),
+          source_provider: 'manual_import',
+          external_record_id: item.external_record_id || `json_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+          created_at: new Date().toISOString(),
+        });
+      }
+
+      return validWorkouts;
+    } catch (e) {
+      console.warn('Error parsing JSON workout:', e);
+      return [];
+    }
+  }
+
+  /**
+   * Unified file parser supporting TCX, GPX, and JSON
+   */
+  parseFile(fileText: string, fileName: string, userId: string): Workout[] {
+    const lower = fileName.toLowerCase();
+    if (lower.endsWith('.tcx')) {
+      const workout = this.parseTcx(fileText, userId);
+      return workout ? [workout] : [];
+    } else if (lower.endsWith('.gpx')) {
+      const workout = this.parseGpx(fileText, userId);
+      return workout ? [workout] : [];
+    } else if (lower.endsWith('.json')) {
+      return this.parseJson(fileText, userId);
+    }
+    return [];
+  }
 }
 
 export const takeoutImporter = new TakeoutImporter();
