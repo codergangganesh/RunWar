@@ -253,54 +253,47 @@ export const DailyActivityScreen: React.FC<DailyActivityScreenProps> = ({
 
         {/* Main Dashboard Grid */}
         <div className="space-y-2.5">
-          {/* Section 1: Big Step Progress Ring + Stacked Distance/Cal/Days */}
-          <div className="grid grid-cols-12 gap-2.5 items-center">
+          {/* Section 1: Hero Block - Step Ring + Symmetrical Metric Cards */}
+          <div className="grid grid-cols-12 gap-2.5 items-stretch">
             {/* Left: Step Ring */}
-            <div className="col-span-6 sm:col-span-5 flex items-center justify-center bg-white dark:bg-[#181C22] p-2 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm dark:shadow-inner">
+            <div className="col-span-6 sm:col-span-5 flex flex-col items-center justify-center bg-white dark:bg-[#181C22] p-2.5 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm dark:shadow-inner h-full min-h-[160px]">
               <StepProgressRing
                 steps={metrics.steps}
                 goal={metrics.stepGoal}
-                size={155}
-                strokeWidth={16}
+                size={138}
+                strokeWidth={14}
               />
             </div>
 
-            {/* Right: Stacked 3 Teal Cards */}
-            <div className="col-span-6 sm:col-span-7 flex flex-col gap-2">
+            {/* Right: Stacked 3 Symmetrical Metric Cards (Zero duplication, exact height match) */}
+            <div className="col-span-6 sm:col-span-7 flex flex-col justify-between gap-2 h-full">
               <MetricPillCard
-                icon={<MapPin size={18} />}
+                icon={<MapPin size={16} />}
                 label="Distance"
                 value={`${metrics.distanceKm} km`}
+                subtitle={metrics.runDistanceKm > 0 ? `(${metrics.runDistanceKm} km run)` : undefined}
                 variant="teal"
+                compact
+                className="flex-1 flex items-center"
               />
               <MetricPillCard
-                icon={<Flame size={18} />}
+                icon={<Flame size={16} />}
                 label="Cal burned"
-                value={metrics.caloriesBurned > 0 ? metrics.caloriesBurned.toLocaleString() : '0 kcal'}
+                value={metrics.caloriesBurned > 0 ? `${metrics.caloriesBurned.toLocaleString()} kcal` : '0 kcal'}
                 variant="teal"
+                compact
+                className="flex-1 flex items-center"
               />
-
+              <MetricPillCard
+                icon={<Zap size={16} />}
+                label="Active time"
+                value={`${metrics.activeMinutes || 0} min`}
+                subtitle={metrics.activeMinutesGoal > 0 ? `of ${metrics.activeMinutesGoal}m` : undefined}
+                variant="teal"
+                compact
+                className="flex-1 flex items-center"
+              />
             </div>
-          </div>
-
-
-
-
-
-          {/* Section 4: Steps (Teal) + Run Distance (Teal) */}
-          <div className="grid grid-cols-2 gap-2.5">
-            <MetricPillCard
-              icon={<Footprints size={18} />}
-              label="Steps"
-              value={metrics.steps.toLocaleString()}
-              variant="teal"
-            />
-            <MetricPillCard
-              icon={<Activity size={18} />}
-              label="Run distance"
-              value={`${metrics.runDistanceKm} km`}
-              variant="teal"
-            />
           </div>
         </div>
 
