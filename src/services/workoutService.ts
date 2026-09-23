@@ -348,12 +348,16 @@ export const workoutService = {
 
     // Deduplicate against existing workouts in cache to avoid re-inserting same sessions
     const cached = this.getCachedWorkouts();
+    const existingIds = new Set(cached.map((w) => w.id));
     const existingExtKeys = new Set(
       cached.filter((w) => w.source_provider && w.external_record_id).map((w) => `${w.source_provider}_${w.external_record_id}`)
     );
     const existingTimes = cached.map((w) => new Date(w.started_at).getTime()).filter((t) => !isNaN(t));
 
     const uniqueToSave = normalizedList.filter((w) => {
+      if (existingIds.has(w.id)) {
+        return false;
+      }
       if (w.external_record_id && existingExtKeys.has(`${w.source_provider}_${w.external_record_id}`)) {
         return false;
       }
@@ -459,7 +463,7 @@ export const workoutService = {
 
   /**
    * Fetch workouts for a user with category filtering and sorting.
-   * Merges cloud and cached local workouts so no saved session is ever missed.
+   * Uses InsForge Cloud DB as the authoritative single source of truth for authenticated users.
    */
   async getWorkouts(
     userId: string,
@@ -467,30 +471,46 @@ export const workoutService = {
     sortBy: 'newest' | 'oldest' | 'longest' | 'fastest' | 'calories' = 'newest',
     limit: number = 100
   ): Promise<Workout[]> {
-    let cloudWorkouts: Workout[] = [];
+    let cloudWorkouts: Workout[] | null = null;
+    const isCloudUser = Boolean(userId && userId !== 'guest_user' && userId !== 'usr_guest_demo');
 
-    try {
-      // Guest users skip cloud fetch entirely
-      if (userId && userId !== 'guest_user' && userId !== 'usr_guest_demo') {
-        let query = insforge.database
+    // 1. Authoritative Cloud Fetch for Authenticated Users
+    if (isCloudUser && navigator.onLine) {
+      try {
+        const { data, error } = await insforge.database
           .from('workouts')
           .select('*')
           .eq('user_id', userId)
           .order('started_at', { ascending: false })
           .limit(limit);
 
-        const { data, error } = await query;
-        if (!error && data && Array.isArray(data)) {
+        if (!error && Array.isArray(data)) {
           cloudWorkouts = data.map(normalizeWorkout);
         }
+      } catch (err) {
+        console.warn('Cloud fetch workouts warning, falling back to cache:', err);
       }
-    } catch (err) {
-      console.warn('Cloud fetch workouts warning:', err);
     }
 
-    // Merge cloud and cached local workouts with multi-key deduplication
-    const cachedWorkouts = this.getCachedWorkouts().map(normalizeWorkout);
-    const rawMerged = [...cloudWorkouts, ...cachedWorkouts];
+    // 2. Read User-Scoped Cache
+    const userCachedWorkouts = this.getCachedWorkouts(userId).filter(
+      (w) => !isCloudUser || w.user_id === userId
+    );
+
+    let rawMerged: Workout[];
+
+    if (cloudWorkouts !== null) {
+      // Cloud is authoritative source of truth!
+      // Only merge any un-synced offline workouts for this user that are not in cloud yet
+      const cloudIds = new Set(cloudWorkouts.map((w) => w.id));
+      const pendingOfflineWorkouts = userCachedWorkouts.filter((w) => !cloudIds.has(w.id));
+      rawMerged = [...cloudWorkouts, ...pendingOfflineWorkouts];
+      // Update user-scoped cache to perfectly match authoritative DB
+      this.saveWorkoutsCache(rawMerged, userId);
+    } else {
+      // Offline or network fallback: Use user-scoped cache
+      rawMerged = userCachedWorkouts;
+    }
 
     const seenIds = new Set<string>();
     const seenExternalKeys = new Set<string>();
@@ -522,10 +542,6 @@ export const workoutService = {
 
       seenIds.add(w.id);
       dedupedWorkouts.push(w);
-    }
-
-    if (dedupedWorkouts.length > 0) {
-      this.saveWorkoutsCache(dedupedWorkouts);
     }
 
     // Filter by type if requested
@@ -797,41 +813,149 @@ export const workoutService = {
     return { currentStreak, longestStreak: Math.max(longestStreak, currentStreak) };
   },
 
-  // Cache helpers
-  getCachedWorkouts(): Workout[] {
+  // User-scoped cache helpers
+  getCacheKey(userId?: string): string {
+    if (!userId || userId === 'guest_user' || userId === 'usr_guest_demo') {
+      return WORKOUTS_CACHE_KEY;
+    }
+    return `${WORKOUTS_CACHE_KEY}_${userId}`;
+  },
+
+  getCachedWorkouts(userId?: string): Workout[] {
     try {
-      const data = localStorage.getItem(WORKOUTS_CACHE_KEY);
-      return data ? JSON.parse(data) : [];
+      const key = this.getCacheKey(userId);
+      const data = localStorage.getItem(key);
+      if (data) {
+        const parsed = JSON.parse(data);
+        if (Array.isArray(parsed)) {
+          return parsed.map(normalizeWorkout);
+        }
+      }
+      // Fallback check on base cache key for this user
+      if (userId && userId !== 'guest_user') {
+        const legacyData = localStorage.getItem(WORKOUTS_CACHE_KEY);
+        if (legacyData) {
+          const parsed = JSON.parse(legacyData);
+          if (Array.isArray(parsed)) {
+            const userOnly = parsed.filter((w: any) => w.user_id === userId).map(normalizeWorkout);
+            if (userOnly.length > 0) {
+              this.saveWorkoutsCache(userOnly, userId);
+              return userOnly;
+            }
+          }
+        }
+      }
+      return [];
     } catch {
       return [];
     }
   },
 
-  saveWorkoutsCache(workouts: Workout[]) {
+  saveWorkoutsCache(workouts: Workout[], userId?: string) {
     try {
-      localStorage.setItem(WORKOUTS_CACHE_KEY, JSON.stringify(workouts));
+      const key = this.getCacheKey(userId || workouts[0]?.user_id);
+      localStorage.setItem(key, JSON.stringify(workouts));
     } catch (e) {
       console.warn('Failed to cache workouts:', e);
     }
   },
 
-  addWorkoutToCache(workout: Workout) {
-    const cached = this.getCachedWorkouts();
+  addWorkoutToCache(workout: Workout, userId?: string) {
+    const targetUserId = userId || workout.user_id;
+    const cached = this.getCachedWorkouts(targetUserId);
     const normalized = normalizeWorkout(workout);
-    const updated = [normalized, ...cached.filter((w) => w.id !== normalized.id)];
-    this.saveWorkoutsCache(updated);
+    const targetExtKey = normalized.source_provider && normalized.external_record_id
+      ? `${normalized.source_provider}_${normalized.external_record_id}`
+      : null;
+    const targetTime = new Date(normalized.started_at).getTime();
+
+    const filtered = cached.filter((w) => {
+      if (w.id === normalized.id) return false;
+      if (targetExtKey && w.source_provider && w.external_record_id && `${w.source_provider}_${w.external_record_id}` === targetExtKey) {
+        return false;
+      }
+      const wTime = new Date(w.started_at).getTime();
+      if (!isNaN(targetTime) && !isNaN(wTime) && Math.abs(wTime - targetTime) < 120 * 1000 && w.source_provider === normalized.source_provider) {
+        return false;
+      }
+      return true;
+    });
+
+    const updated = [normalized, ...filtered];
+    this.saveWorkoutsCache(updated, targetUserId);
   },
 
-  updateCachedWorkout(workout: Workout) {
-    const cached = this.getCachedWorkouts();
+  updateCachedWorkout(workout: Workout, userId?: string) {
+    const targetUserId = userId || workout.user_id;
+    const cached = this.getCachedWorkouts(targetUserId);
     const normalized = normalizeWorkout(workout);
     const updated = cached.map((w) => (w.id === normalized.id ? normalized : w));
-    this.saveWorkoutsCache(updated);
+    this.saveWorkoutsCache(updated, targetUserId);
   },
 
-  removeCachedWorkout(workoutId: string) {
-    const cached = this.getCachedWorkouts();
+  removeCachedWorkout(workoutId: string, userId?: string) {
+    const cached = this.getCachedWorkouts(userId);
     const updated = cached.filter((w) => w.id !== workoutId);
-    this.saveWorkoutsCache(updated);
+    this.saveWorkoutsCache(updated, userId);
+  },
+
+  clearUserCache(userId?: string) {
+    try {
+      if (userId) {
+        localStorage.removeItem(this.getCacheKey(userId));
+      } else {
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith(WORKOUTS_CACHE_KEY)) {
+            keysToRemove.push(k);
+          }
+        }
+        keysToRemove.forEach((k) => localStorage.removeItem(k));
+      }
+    } catch {}
+  },
+
+  /**
+   * Subscribe to realtime PostgreSQL changes on the workouts table for a user.
+   * Ensures mobile and desktop/laptop instantly sync without manual page reloads.
+   */
+  subscribeToUserWorkouts(
+    userId: string,
+    onChange: (event: { eventType: 'INSERT' | 'UPDATE' | 'DELETE'; workout?: Workout; id?: string }) => void
+  ): () => void {
+    if (!userId || userId === 'guest_user' || userId === 'usr_guest_demo') {
+      return () => {};
+    }
+
+    try {
+      const channelName = `workouts:${userId}`;
+      if (insforge.realtime && typeof insforge.realtime.subscribe === 'function') {
+        insforge.realtime.subscribe(channelName).catch(() => {});
+        const handler = (msg: any) => {
+          if (msg?.channel === channelName || msg?.table === 'workouts' || msg?.user_id === userId) {
+            const eventType = (msg?.eventType || msg?.event || 'INSERT') as 'INSERT' | 'UPDATE' | 'DELETE';
+            const record = msg?.payload?.new || msg?.payload || msg?.data;
+            const workout = record ? normalizeWorkout(record) : undefined;
+            onChange({
+              eventType,
+              workout,
+              id: record?.id || msg?.id,
+            });
+          }
+        };
+        insforge.realtime.on('message', handler);
+        return () => {
+          try {
+            insforge.realtime.off('message', handler);
+            insforge.realtime.unsubscribe(channelName);
+          } catch {}
+        };
+      }
+      return () => {};
+    } catch (e) {
+      console.warn('Failed to subscribe to realtime workouts channel:', e);
+      return () => {};
+    }
   },
 };

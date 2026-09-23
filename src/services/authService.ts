@@ -37,13 +37,24 @@ export const authService = {
   },
 
   /**
-   * Clear cached user session
+   * Clear cached user session and purge device-local user data
    */
   clearCachedUser() {
     try {
       localStorage.removeItem(SESSION_USER_KEY);
       localStorage.removeItem(PROFILE_CACHE_KEY);
       localStorage.removeItem(SETTINGS_CACHE_KEY);
+      localStorage.removeItem('runwar_google_fit_state');
+      localStorage.removeItem('runwar_google_fit_token_transfer');
+      // Clear all cached workouts to prevent account pollution
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && (k.startsWith('runwar_cached_workouts') || k.startsWith('runwar_profile_setup_done_'))) {
+          keysToRemove.push(k);
+        }
+      }
+      keysToRemove.forEach((k) => localStorage.removeItem(k));
     } catch (e) {
       console.warn('Failed to clear cached user:', e);
     }

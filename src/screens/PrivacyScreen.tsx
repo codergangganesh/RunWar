@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { UserProfile } from '../types';
 import { insforge } from '../lib/insforge';
+import { workoutService } from '../services/workoutService';
 import { Trash2, AlertTriangle, CheckCircle2, LogOut } from 'lucide-react';
 
 interface PrivacyScreenProps {
@@ -30,6 +31,7 @@ export const PrivacyScreen: React.FC<PrivacyScreenProps> = ({
         .eq('user_id', profile.user_id);
 
       // Clear local caches
+      workoutService.clearUserCache(profile.user_id);
       localStorage.removeItem('runwar_cached_workouts');
       localStorage.removeItem('runwar_active_workout_backup');
       localStorage.removeItem('runwar_point_batches_queue');

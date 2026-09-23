@@ -1,6 +1,7 @@
 import { HealthProvider, NormalizedExternalWorkout, SyncProgressCallback, SyncResult } from './types';
 import { HealthConnectionState, Workout, WorkoutType, GPSCoordinate, WorkoutSplit } from '../../types';
 import { workoutService } from '../workoutService';
+import { toDeterministicUUID } from '../../utils/uuid';
 
 const GOOGLE_FIT_AUTH_STORAGE_KEY = 'runwar_google_fit_token';
 const GOOGLE_FIT_STATE_STORAGE_KEY = 'runwar_google_fit_state';
@@ -61,7 +62,7 @@ export class GoogleHealthProvider implements HealthProvider {
   }
 
   /**
-   * Get cached connection state with live in-memory progress
+   * Get cached connection state with live in-memory progress and accurate workout count
    */
   getConnectionState(): HealthConnectionState {
     if (this.memoryState) {
@@ -70,15 +71,32 @@ export class GoogleHealthProvider implements HealthProvider {
 
     try {
       const stored = localStorage.getItem(GOOGLE_FIT_STATE_STORAGE_KEY);
+      const cachedWorkouts = workoutService.getCachedWorkouts();
+      const actualGoogleCount = cachedWorkouts.filter(
+        (w) => w.source_provider === 'google_health'
+      ).length;
+
       if (stored) {
         const parsed = JSON.parse(stored);
+        const syncedCount = actualGoogleCount > 0 ? actualGoogleCount : (Number(parsed.syncedCount) || 0);
         return {
           provider: 'google_health',
           isConnected: Boolean(parsed.isConnected),
           lastSyncAt: parsed.lastSyncAt || null,
-          syncedCount: Number(parsed.syncedCount) || 0,
+          syncedCount,
           accountEmail: parsed.accountEmail || null,
           status: parsed.isConnected ? 'connected' : 'disconnected',
+          errorMessage: null,
+          syncProgress: null,
+        };
+      } else if (actualGoogleCount > 0) {
+        return {
+          provider: 'google_health',
+          isConnected: true,
+          lastSyncAt: null,
+          syncedCount: actualGoogleCount,
+          accountEmail: null,
+          status: 'connected',
           errorMessage: null,
           syncProgress: null,
         };
@@ -377,11 +395,32 @@ export class GoogleHealthProvider implements HealthProvider {
   }
 
   /**
-   * Synchronize workouts from Google Health & Fitness REST API
+   * Synchronize workouts from Google Health & Fitness REST API with real-time progress updates
    */
-  async syncWorkouts(userId: string, sinceDate?: Date): Promise<SyncResult> {
+  async syncWorkouts(
+    userId: string,
+    sinceDate?: Date,
+    onProgress?: SyncProgressCallback
+  ): Promise<SyncResult> {
+    // 1. Concurrency lock guard: Prevent duplicate simultaneous sync requests
+    if (this.isSyncingActive) {
+      return {
+        success: false,
+        importedCount: 0,
+        skippedCount: 0,
+        newWorkouts: [],
+        error: 'Synchronization is already in progress.',
+      };
+    }
+
     const token = this.getAccessToken();
     if (!token) {
+      this.setConnectionState({
+        isConnected: false,
+        status: 'disconnected',
+        errorMessage: 'Google Health is not connected or authorization expired.',
+        syncProgress: null,
+      });
       return {
         success: false,
         importedCount: 0,
@@ -391,12 +430,41 @@ export class GoogleHealthProvider implements HealthProvider {
       };
     }
 
+    this.isSyncingActive = true;
+    const currentState = this.getConnectionState();
+    const initialSyncedCount = currentState.syncedCount || 0;
+    let newlySyncedCount = 0;
+    let skippedCount = 0;
+    const validNewWorkouts: Workout[] = [];
+
+    // Broadcast sync started state
+    this.setConnectionState({
+      status: 'syncing',
+      errorMessage: null,
+      syncProgress: {
+        current: 0,
+        total: 0,
+        newlySynced: 0,
+        currentTitle: 'Discovering Google Fitness activities...',
+      },
+    });
+
+    if (onProgress) {
+      onProgress({
+        current: 0,
+        total: 0,
+        newlySynced: 0,
+        currentTitle: 'Discovering Google Fitness activities...',
+        status: 'discovering',
+      });
+    }
+
     try {
       // Query 365 days of history on initial sync so past sessions are imported
       const startTime = sinceDate || new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
       const endTime = new Date();
 
-      // 1. Fetch fitness sessions from Google Fitness REST API
+      // 1. Fetch fitness sessions list from Google Fitness REST API
       const sessionsUrl = `https://www.googleapis.com/fitness/v1/users/me/sessions?startTime=${startTime.toISOString()}&endTime=${endTime.toISOString()}`;
       const sessionsRes = await fetch(sessionsUrl, {
         headers: { Authorization: `Bearer ${token}` },
@@ -405,7 +473,13 @@ export class GoogleHealthProvider implements HealthProvider {
       if (!sessionsRes.ok) {
         if (sessionsRes.status === 401) {
           sessionStorage.removeItem(GOOGLE_FIT_AUTH_STORAGE_KEY);
-          this.setConnectionState({ isConnected: false, status: 'disconnected' });
+          this.setConnectionState({
+            isConnected: false,
+            status: 'disconnected',
+            errorMessage: 'Google authorization expired. Please click Connect to re-authorize.',
+            syncProgress: null,
+          });
+          this.isSyncingActive = false;
           return {
             success: false,
             importedCount: 0,
@@ -426,10 +500,43 @@ export class GoogleHealthProvider implements HealthProvider {
         s.activityType !== undefined ? supportedActivityTypes.has(Number(s.activityType)) : true
       );
 
-      const normalizedWorkouts: NormalizedExternalWorkout[] = [];
+      const totalSessions = validSessions.length;
 
-      // 2. Process and aggregate each session
-      for (const session of validSessions) {
+      if (totalSessions === 0) {
+        this.setConnectionState({
+          status: 'connected',
+          lastSyncAt: new Date().toISOString(),
+          syncProgress: null,
+        });
+        this.isSyncingActive = false;
+        return {
+          success: true,
+          importedCount: 0,
+          skippedCount: 0,
+          newWorkouts: [],
+        };
+      }
+
+      // 2. Fetch existing workouts upfront for real-time duplicate checking
+      const existingWorkouts = await workoutService.getWorkouts(userId, 'all', 'newest', 500);
+      const initialGoogleWorkouts = existingWorkouts.filter(
+        (w) => w.source_provider === 'google_health'
+      );
+      const initialSyncedCount = initialGoogleWorkouts.length;
+
+      const existingIds = new Set(existingWorkouts.map((w) => w.id));
+      const existingExternalKeys = new Set(
+        existingWorkouts
+          .filter((w) => w.source_provider && w.external_record_id)
+          .map((w) => `${w.source_provider}_${w.external_record_id}`)
+      );
+      const existingStartTimes = existingWorkouts
+        .map((w) => new Date(w.started_at).getTime())
+        .filter((t) => !isNaN(t));
+
+      // 3. Process sessions incrementally
+      for (let i = 0; i < totalSessions; i++) {
+        const session = validSessions[i];
         const sessionStartMs = Number(session.startTimeMillis);
         const sessionEndMs = Number(session.endTimeMillis);
         const durationSec = Math.max(1, Math.round((sessionEndMs - sessionStartMs) / 1000));
@@ -443,6 +550,10 @@ export class GoogleHealthProvider implements HealthProvider {
         } else if (actType === 8 || actType === 58 || actType === 86) {
           workoutType = 'run';
         }
+
+        const workoutTitle =
+          session.name ||
+          `Google Health ${workoutType.charAt(0).toUpperCase() + workoutType.slice(1)}`;
 
         // Check if aggregate metrics are already embedded in the session object
         let embeddedDistance = 0;
@@ -462,95 +573,248 @@ export class GoogleHealthProvider implements HealthProvider {
           }
         }
 
-        // Fetch dataset metrics & GPS trackpoints for this session's time window
-        const { distanceMeters, calories, speedMps, coordinates, heartRateAvg, stepCount } =
-          await this.fetchSessionDataset(token, sessionStartMs, sessionEndMs);
+        const externalRecordId = session.id || `gfit_${sessionStartMs}`;
+        const deterministicId = toDeterministicUUID(`${userId}_google_health_${externalRecordId}`);
+        const candidateKey = `google_health_${externalRecordId}`;
 
-        // Determine final distance
-        let finalDistance = Math.round(distanceMeters || embeddedDistance);
-        if (finalDistance <= 0 && coordinates.length >= 2) {
-          finalDistance = Math.round(this.calculateRouteDistance(coordinates));
-        }
-        const totalSteps = stepCount || embeddedSteps;
-        if (finalDistance <= 0 && totalSteps > 0) {
-          const strideLength = workoutType === 'run' ? 0.95 : workoutType === 'jog' ? 0.85 : 0.75;
-          finalDistance = Math.round(totalSteps * strideLength);
-        }
-        if (finalDistance <= 0) {
-          const speedEstimateMps = workoutType === 'run' ? 2.78 : workoutType === 'jog' ? 2.08 : 1.39;
-          finalDistance = Math.round(durationSec * speedEstimateMps);
-        }
-
-        // Determine final calories
-        let finalCalories = Math.round(calories || embeddedCalories);
-        if (finalCalories <= 0) {
-          const calPerSec = workoutType === 'run' ? 0.18 : workoutType === 'jog' ? 0.13 : 0.08;
-          finalCalories = Math.max(15, Math.round(durationSec * calPerSec));
+        // Strict duplicate prevention check
+        let isDuplicate = false;
+        if (existingIds.has(deterministicId)) {
+          isDuplicate = true;
+        } else if (existingExternalKeys.has(candidateKey)) {
+          isDuplicate = true;
+        } else {
+          const hasTimeMatch = existingStartTimes.some(
+            (t) => Math.abs(t - sessionStartMs) < 120 * 1000
+          );
+          if (hasTimeMatch) {
+            isDuplicate = true;
+          }
         }
 
-        // Determine speeds and pace
-        const avgSpeedKmh = Number(
-          (
-            (finalDistance / 1000) / (durationSec / 3600) ||
-            (speedMps > 0 ? speedMps * 3.6 : embeddedSpeed > 0 ? embeddedSpeed * 3.6 : 8.0)
-          ).toFixed(2)
-        );
-        const avgPaceSec = finalDistance > 0 ? Math.round(durationSec / (finalDistance / 1000)) : 0;
-        const maxSpeedKmh = Number(
-          Math.max(avgSpeedKmh * 1.25, speedMps * 3.6, embeddedSpeed * 3.6).toFixed(2)
-        );
+        if (isDuplicate) {
+          skippedCount++;
+          // Update progress status without incrementing newlySynced count
+          this.setConnectionState({
+            syncedCount: initialSyncedCount + newlySyncedCount,
+            syncProgress: {
+              current: i + 1,
+              total: totalSessions,
+              newlySynced: newlySyncedCount,
+              currentTitle: `${workoutTitle} (Already Synced)`,
+            },
+          });
 
-        // Generate kilometer splits if route or distance available
-        const splits = this.generateSplits(finalDistance, durationSec, coordinates);
+          if (onProgress) {
+            onProgress({
+              current: i + 1,
+              total: totalSessions,
+              newlySynced: newlySyncedCount,
+              currentTitle: `${workoutTitle} (Already Synced)`,
+              status: 'saved',
+            });
+          }
+        } else {
+          // Update progress state: Processing new session
+          this.setConnectionState({
+            syncProgress: {
+              current: i + 1,
+              total: totalSessions,
+              newlySynced: newlySyncedCount,
+              currentTitle: workoutTitle,
+            },
+          });
 
-        normalizedWorkouts.push({
-          externalRecordId: session.id || `gfit_${sessionStartMs}`,
-          sourceProvider: 'google_health',
-          type: workoutType,
-          title:
-            session.name ||
-            `Google Health ${workoutType.charAt(0).toUpperCase() + workoutType.slice(1)}`,
-          startedAt: new Date(sessionStartMs).toISOString(),
-          endedAt: new Date(sessionEndMs).toISOString(),
-          durationSeconds: durationSec,
-          distanceMeters: finalDistance,
-          averagePace: avgPaceSec,
-          averageSpeed: avgSpeedKmh,
-          maxSpeed: maxSpeedKmh,
-          calories: finalCalories,
-          elevationGain: 0,
-          elevationLoss: 0,
-          routeCoordinates: coordinates,
-          splits,
-          sourceMetadata: {
-            appPackageName: session.application?.packageName,
-            activityType: session.activityType,
-            heartRateAvg: heartRateAvg || undefined,
-            stepCount: stepCount > 0 ? stepCount : undefined,
-          },
-        });
+          if (onProgress) {
+            onProgress({
+              current: i + 1,
+              total: totalSessions,
+              newlySynced: newlySyncedCount,
+              currentTitle: workoutTitle,
+              status: 'processing',
+            });
+          }
+
+          // Fetch dataset metrics & GPS trackpoints for this session's time window
+          let distanceMeters = 0;
+          let calories = 0;
+          let speedMps = 0;
+          let coordinates: GPSCoordinate[] = [];
+          let heartRateAvg: number | null = null;
+          let stepCount = 0;
+
+          try {
+            const dataset = await this.fetchSessionDataset(token, sessionStartMs, sessionEndMs);
+            distanceMeters = dataset.distanceMeters;
+            calories = dataset.calories;
+            speedMps = dataset.speedMps;
+            coordinates = dataset.coordinates;
+            heartRateAvg = dataset.heartRateAvg ?? null;
+            stepCount = dataset.stepCount;
+          } catch (datasetErr) {
+            console.warn(`Error fetching dataset for session ${session.id}:`, datasetErr);
+          }
+
+          // Optimize coordinate count if excessive (sample max 1500 points for smooth performance)
+          if (coordinates.length > 1500) {
+            const step = Math.ceil(coordinates.length / 1500);
+            coordinates = coordinates.filter((_, idx) => idx % step === 0 || idx === coordinates.length - 1);
+          }
+
+          // Determine final distance
+          let finalDistance = Math.round(distanceMeters || embeddedDistance);
+          if (finalDistance <= 0 && coordinates.length >= 2) {
+            finalDistance = Math.round(this.calculateRouteDistance(coordinates));
+          }
+          const totalSteps = stepCount || embeddedSteps;
+          if (finalDistance <= 0 && totalSteps > 0) {
+            const strideLength = workoutType === 'run' ? 0.95 : workoutType === 'jog' ? 0.85 : 0.75;
+            finalDistance = Math.round(totalSteps * strideLength);
+          }
+          if (finalDistance <= 0) {
+            const speedEstimateMps = workoutType === 'run' ? 2.78 : workoutType === 'jog' ? 2.08 : 1.39;
+            finalDistance = Math.round(durationSec * speedEstimateMps);
+          }
+
+          // Determine final calories
+          let finalCalories = Math.round(calories || embeddedCalories);
+          if (finalCalories <= 0) {
+            const calPerSec = workoutType === 'run' ? 0.18 : workoutType === 'jog' ? 0.13 : 0.08;
+            finalCalories = Math.max(15, Math.round(durationSec * calPerSec));
+          }
+
+          // Determine speeds and pace
+          const avgSpeedKmh = Number(
+            (
+              (finalDistance / 1000) / (durationSec / 3600) ||
+              (speedMps > 0 ? speedMps * 3.6 : embeddedSpeed > 0 ? embeddedSpeed * 3.6 : 8.0)
+            ).toFixed(2)
+          );
+          const avgPaceSec = finalDistance > 0 ? Math.round(durationSec / (finalDistance / 1000)) : 0;
+          const maxSpeedKmh = Number(
+            Math.max(avgSpeedKmh * 1.25, speedMps * 3.6, embeddedSpeed * 3.6).toFixed(2)
+          );
+
+          // Generate kilometer splits if route or distance available
+          const splits = this.generateSplits(finalDistance, durationSec, coordinates);
+
+          // Construct normalized workout
+          const normalized: NormalizedExternalWorkout = {
+            externalRecordId,
+            sourceProvider: 'google_health',
+            type: workoutType,
+            title: workoutTitle,
+            startedAt: new Date(sessionStartMs).toISOString(),
+            endedAt: new Date(sessionEndMs).toISOString(),
+            durationSeconds: durationSec,
+            distanceMeters: finalDistance,
+            averagePace: avgPaceSec,
+            averageSpeed: avgSpeedKmh,
+            maxSpeed: maxSpeedKmh,
+            calories: finalCalories,
+            elevationGain: 0,
+            elevationLoss: 0,
+            routeCoordinates: coordinates,
+            splits,
+            sourceMetadata: {
+              appPackageName: session.application?.packageName,
+              activityType: session.activityType,
+              heartRateAvg: heartRateAvg || undefined,
+              stepCount: stepCount > 0 ? stepCount : undefined,
+            },
+          };
+
+          const newWorkout = this.convertToWorkout(normalized, userId);
+
+          // Save workout to InsForge & local storage only if genuinely unique
+          try {
+            const saveResult = await workoutService.saveImportedWorkouts([newWorkout]);
+            if (saveResult.savedCount > 0) {
+              existingIds.add(deterministicId);
+              existingExternalKeys.add(candidateKey);
+              existingStartTimes.push(sessionStartMs);
+              validNewWorkouts.push(newWorkout);
+              newlySyncedCount++;
+
+              // Increment synced count and immediately update UI
+              const updatedTotalCount = initialSyncedCount + newlySyncedCount;
+              this.setConnectionState({
+                syncedCount: updatedTotalCount,
+                syncProgress: {
+                  current: i + 1,
+                  total: totalSessions,
+                  newlySynced: newlySyncedCount,
+                  currentTitle: workoutTitle,
+                },
+              });
+
+              if (onProgress) {
+                onProgress({
+                  current: i + 1,
+                  total: totalSessions,
+                  newlySynced: newlySyncedCount,
+                  currentTitle: workoutTitle,
+                  status: 'saved',
+                });
+              }
+
+              // Emit window event so app views update without reload
+              window.dispatchEvent(
+                new CustomEvent('runwar:workout_synced', { detail: newWorkout })
+              );
+            } else {
+              skippedCount++;
+            }
+          } catch (saveErr) {
+            console.warn(`Failed to save workout ${workoutTitle}:`, saveErr);
+          }
+        }
       }
 
-      // Update sync state
-      const current = this.getConnectionState();
+      // Reconcile final count directly against actual persisted workouts
+      const allFinalWorkouts = await workoutService.getWorkouts(userId, 'all', 'newest', 500);
+      const finalActualCount = allFinalWorkouts.filter(
+        (w) => w.source_provider === 'google_health'
+      ).length;
+
       this.setConnectionState({
+        status: 'connected',
+        syncedCount: finalActualCount,
         lastSyncAt: new Date().toISOString(),
-        syncedCount: current.syncedCount + normalizedWorkouts.length,
+        errorMessage: null,
+        syncProgress: null,
       });
+
+      this.isSyncingActive = false;
+
+      // Dispatch global sync completed event
+      window.dispatchEvent(
+        new CustomEvent('runwar:sync_completed', {
+          detail: { provider: 'google_health', importedCount: newlySyncedCount, skippedCount },
+        })
+      );
 
       return {
         success: true,
-        importedCount: normalizedWorkouts.length,
-        skippedCount: 0,
-        newWorkouts: normalizedWorkouts.map((n) => this.convertToWorkout(n, userId)),
+        importedCount: newlySyncedCount,
+        skippedCount,
+        newWorkouts: validNewWorkouts,
       };
     } catch (err: any) {
       console.error('Google Health sync error:', err);
+      const currentSynced = initialSyncedCount + newlySyncedCount;
+      this.setConnectionState({
+        status: 'error',
+        syncedCount: currentSynced,
+        errorMessage: err?.message || 'Failed to sync with Google Health.',
+        syncProgress: null,
+      });
+      this.isSyncingActive = false;
       return {
         success: false,
-        importedCount: 0,
-        skippedCount: 0,
-        newWorkouts: [],
+        importedCount: newlySyncedCount,
+        skippedCount: validNewWorkouts.length,
+        newWorkouts: validNewWorkouts,
         error: err?.message || 'Failed to sync with Google Health.',
       };
     }
@@ -768,11 +1032,12 @@ export class GoogleHealthProvider implements HealthProvider {
   }
 
   /**
-   * Convert normalized workout to internal Workout model
+   * Convert normalized workout to internal Workout model with deterministic UUID
    */
   private convertToWorkout(n: NormalizedExternalWorkout, userId: string): Workout {
+    const deterministicId = toDeterministicUUID(`${userId}_google_health_${n.externalRecordId}`);
     return {
-      id: crypto.randomUUID(),
+      id: deterministicId,
       user_id: userId,
       type: n.type,
       title: n.title,

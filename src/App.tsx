@@ -82,7 +82,8 @@ export const App: React.FC = () => {
   // Core Data
   const [workouts, setWorkouts] = useState<Workout[]>(() => {
     try {
-      return workoutService.getCachedWorkouts().map(normalizeWorkout);
+      const cached = authService.getCachedUser();
+      return workoutService.getCachedWorkouts(cached?.id).map(normalizeWorkout);
     } catch {
       return [];
     }
@@ -366,6 +367,50 @@ export const App: React.FC = () => {
       window.removeEventListener('runwar:workout_synced', handleWorkoutSynced);
     };
   }, [loadAppData]);
+
+  // Realtime subscription: sync workout changes across devices in real time
+  useEffect(() => {
+    const activeUserId = currentUser?.id || profile?.user_id;
+    if (!activeUserId) return;
+
+    const unsubscribeRealtime = workoutService.subscribeToUserWorkouts(
+      activeUserId,
+      ({ eventType, workout, id }) => {
+        if (eventType === 'INSERT' && workout) {
+          const normalized = normalizeWorkout(workout);
+          setWorkouts((prev) => {
+            if (
+              prev.some(
+                (w) =>
+                  w.id === normalized.id ||
+                  (w.source_provider &&
+                    w.external_record_id &&
+                    w.source_provider === normalized.source_provider &&
+                    w.external_record_id === normalized.external_record_id)
+              )
+            ) {
+              return prev;
+            }
+            return [normalized, ...prev];
+          });
+          loadAppData(activeUserId, true);
+        } else if (eventType === 'UPDATE' && workout) {
+          const normalized = normalizeWorkout(workout);
+          setWorkouts((prev) => prev.map((w) => (w.id === normalized.id ? normalized : w)));
+          loadAppData(activeUserId, true);
+        } else if (eventType === 'DELETE' && id) {
+          setWorkouts((prev) => prev.filter((w) => w.id !== id));
+          loadAppData(activeUserId, true);
+        }
+      }
+    );
+
+    return () => {
+      if (typeof unsubscribeRealtime === 'function') {
+        unsubscribeRealtime();
+      }
+    };
+  }, [currentUser?.id, profile?.user_id, loadAppData]);
 
   // Handle splash completion
   const handleSplashFinish = () => {
