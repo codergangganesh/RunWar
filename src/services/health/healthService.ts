@@ -27,6 +27,29 @@ export class HealthService {
   }
 
   /**
+   * Subscribe to real-time state and progress updates for a provider
+   */
+  subscribe(
+    callback: (state: HealthConnectionState) => void,
+    type: HealthProviderType = 'google_health'
+  ): () => void {
+    const provider = this.getProvider(type);
+    if (provider && typeof provider.subscribe === 'function') {
+      return provider.subscribe(callback);
+    }
+    callback(this.getPrimaryConnectionState());
+    return () => {};
+  }
+
+  /**
+   * Check if sync is currently in progress
+   */
+  isSyncing(type: HealthProviderType = 'google_health'): boolean {
+    const provider = this.getProvider(type) as any;
+    return Boolean(provider && typeof provider.isSyncing === 'function' && provider.isSyncing());
+  }
+
+  /**
    * Connect to specified health provider
    */
   async connect(type: HealthProviderType = 'google_health'): Promise<{ success: boolean; error?: string; accountEmail?: string }> {
@@ -48,9 +71,13 @@ export class HealthService {
   }
 
   /**
-   * Synchronize workouts from provider with strict duplicate prevention
+   * Synchronize workouts from provider with real-time incremental saving and progress
    */
-  async sync(userId: string, type: HealthProviderType = 'google_health'): Promise<SyncResult> {
+  async sync(
+    userId: string,
+    type: HealthProviderType = 'google_health',
+    onProgress?: (progress: any) => void
+  ): Promise<SyncResult> {
     const provider = this.getProvider(type);
     if (!provider) {
       return {
@@ -62,73 +89,7 @@ export class HealthService {
       };
     }
 
-    try {
-      // 1. Fetch raw workouts from health provider
-      const result = await provider.syncWorkouts(userId);
-      if (!result.success || result.newWorkouts.length === 0) {
-        return result;
-      }
-
-      // 2. Fetch user's existing workouts to prevent duplicates
-      const existingWorkouts = await workoutService.getWorkouts(userId, 'all', 'newest', 300);
-
-      // Track existing external keys: (source_provider + external_record_id)
-      const existingExternalKeys = new Set(
-        existingWorkouts
-          .filter((w) => w.source_provider && w.external_record_id)
-          .map((w) => `${w.source_provider}_${w.external_record_id}`)
-      );
-
-      // Track existing timestamps (epoch ms) to prevent duplicate counting with RUNWAR native GPS runs
-      const existingStartTimes = existingWorkouts.map((w) => new Date(w.started_at).getTime());
-
-      const validNewWorkouts: Workout[] = [];
-      let skippedCount = 0;
-
-      for (const candidate of result.newWorkouts) {
-        const candidateKey = `${candidate.source_provider}_${candidate.external_record_id}`;
-
-        // A. Check for exact external record match
-        if (candidate.external_record_id && existingExternalKeys.has(candidateKey)) {
-          skippedCount++;
-          continue;
-        }
-
-        // B. Check for overlapping workout time (within ±2 minutes of any existing run)
-        const candStartTime = new Date(candidate.started_at).getTime();
-        const hasTimeOverlap = existingStartTimes.some(
-          (existingMs) => Math.abs(existingMs - candStartTime) < 120 * 1000
-        );
-
-        if (hasTimeOverlap) {
-          skippedCount++;
-          continue;
-        }
-
-        validNewWorkouts.push(candidate);
-      }
-
-      // 3. Persist valid new workouts into InsForge & local cache
-      if (validNewWorkouts.length > 0) {
-        await workoutService.saveImportedWorkouts(validNewWorkouts);
-      }
-
-      return {
-        success: true,
-        importedCount: validNewWorkouts.length,
-        skippedCount,
-        newWorkouts: validNewWorkouts,
-      };
-    } catch (err: any) {
-      console.error('HealthService sync error:', err);
-      return {
-        success: false,
-        importedCount: 0,
-        skippedCount: 0,
-        newWorkouts: [],
-        error: err?.message || 'Failed to sync health data.',
-      };
-    }
+    return provider.syncWorkouts(userId, undefined, onProgress);
   }
 }
 

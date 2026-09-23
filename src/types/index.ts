@@ -102,6 +102,12 @@ export interface HealthConnectionState {
   accountEmail?: string | null;
   status: 'disconnected' | 'connecting' | 'connected' | 'syncing' | 'error';
   errorMessage?: string | null;
+  syncProgress?: {
+    current: number;
+    total: number;
+    newlySynced: number;
+    currentTitle?: string;
+  } | null;
 }
 
 export interface Workout {

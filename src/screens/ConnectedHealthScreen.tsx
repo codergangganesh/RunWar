@@ -38,7 +38,15 @@ export const ConnectedHealthScreen: React.FC<ConnectedHealthScreenProps> = ({
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
 
   useEffect(() => {
-    setHealthState(healthService.getPrimaryConnectionState());
+    // Subscribe to live health state and progress updates
+    const unsubscribe = healthService.subscribe((state) => {
+      setHealthState(state);
+      setIsSyncing(state.status === 'syncing');
+    });
+
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
   const handleConnectGoogle = async () => {
@@ -90,7 +98,7 @@ export const ConnectedHealthScreen: React.FC<ConnectedHealthScreenProps> = ({
   };
 
   const handleSyncWorkouts = async (userId: string) => {
-    if (isSyncing) return;
+    if (isSyncing || healthService.isSyncing()) return;
     setIsSyncing(true);
     setSyncFeedback(null);
 
@@ -312,21 +320,31 @@ export const ConnectedHealthScreen: React.FC<ConnectedHealthScreenProps> = ({
 
         <span
           className={`text-[10px] font-bold px-2.5 py-1 rounded-full shrink-0 ${
-            healthState.isConnected
+            healthState.status === 'syncing' || isSyncing
+              ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/40 animate-pulse'
+              : healthState.status === 'error'
+              ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/20'
+              : healthState.isConnected
               ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
               : 'bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
           }`}
         >
-          {healthState.isConnected ? 'Connected' : 'Not Connected'}
+          {healthState.status === 'syncing' || isSyncing
+            ? 'Syncing...'
+            : healthState.status === 'error'
+            ? 'Sync Paused'
+            : healthState.isConnected
+            ? 'Connected'
+            : 'Not Connected'}
         </span>
       </div>
 
       {/* 2. Primary Connection & Sync Actions */}
       {healthState.isConnected ? (
         <div className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2 text-xs py-2 border-y border-slate-200 dark:border-slate-800">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs py-2.5 border-y border-slate-200 dark:border-slate-800">
             <div>
-              <span className="text-slate-500 dark:text-slate-400 block text-[10px] uppercase font-bold">
+              <span className="text-slate-500 dark:text-slate-400 block text-[10px] uppercase font-bold tracking-wider">
                 Connected Account
               </span>
               <span className="font-bold text-slate-950 dark:text-white">
@@ -334,16 +352,86 @@ export const ConnectedHealthScreen: React.FC<ConnectedHealthScreenProps> = ({
               </span>
             </div>
             <div className="text-right">
-              <span className="text-slate-500 dark:text-slate-400 block text-[10px] uppercase font-bold">
-                Workouts Synced
+              <span className="text-slate-500 dark:text-slate-400 block text-[10px] uppercase font-bold tracking-wider">
+                {isSyncing || healthState.status === 'syncing' ? 'Syncing Progress' : 'Workouts Synced'}
               </span>
               <span className="font-display font-black text-emerald-600 dark:text-emerald-400 text-sm">
-                {healthState.syncedCount} workouts
+                {(isSyncing || healthState.status === 'syncing') &&
+                healthState.syncProgress &&
+                healthState.syncProgress.total > 0
+                  ? `${healthState.syncProgress.current} / ${healthState.syncProgress.total}`
+                  : `${healthState.syncedCount} workouts`}
               </span>
             </div>
           </div>
 
-          {healthState.lastSyncAt && (
+          {/* Real-Time Syncing Progress Indicator */}
+          {(isSyncing || healthState.status === 'syncing') && (
+            <div className="p-3 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-500/20 space-y-2 animate-fade-in">
+              <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2 min-w-0">
+                  <RefreshCw size={13} className="animate-spin text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <span className="font-bold text-slate-900 dark:text-white truncate">
+                    {healthState.syncProgress?.currentTitle || 'Processing workout sessions...'}
+                  </span>
+                </div>
+                {healthState.syncProgress && healthState.syncProgress.total > 0 && (
+                  <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 text-[11px] shrink-0 ml-2">
+                    {Math.round((healthState.syncProgress.current / healthState.syncProgress.total) * 100)}%
+                  </span>
+                )}
+              </div>
+
+              {healthState.syncProgress && healthState.syncProgress.total > 0 && (
+                <div className="w-full h-1.5 bg-emerald-200/50 dark:bg-slate-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-emerald-500 rounded-full transition-all duration-300"
+                    style={{
+                      width: `${Math.min(
+                        100,
+                        Math.max(5, (healthState.syncProgress.current / healthState.syncProgress.total) * 100)
+                      )}%`,
+                    }}
+                  />
+                </div>
+              )}
+
+              <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400">
+                <span>
+                  {healthState.syncProgress?.newlySynced !== undefined
+                    ? `${healthState.syncProgress.newlySynced} newly imported`
+                    : 'Fetching activities...'}
+                </span>
+                <span>{healthState.syncedCount} total in RUNWAR</span>
+              </div>
+            </div>
+          )}
+
+          {/* Sync Error / Paused Alert */}
+          {healthState.status === 'error' && !isSyncing && (
+            <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-amber-900 dark:text-amber-300 text-xs flex items-center justify-between gap-2 animate-scale-in">
+              <div className="flex items-center gap-2 min-w-0">
+                <AlertCircle size={15} className="text-amber-600 dark:text-amber-400 shrink-0" />
+                <div className="min-w-0">
+                  <span className="font-bold block">Sync Paused</span>
+                  <span className="text-[11px] text-amber-800 dark:text-amber-200/80 truncate block">
+                    {healthState.syncedCount} workouts synced so far. {healthState.errorMessage || ''}
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  const targetUserId = profile?.user_id || 'guest_user';
+                  handleSyncWorkouts(targetUserId);
+                }}
+                className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[11px] shrink-0 transition-all cursor-pointer"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {healthState.lastSyncAt && healthState.status !== 'syncing' && (
             <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
               <span>Last Synchronized:</span>
               <span className="font-mono font-medium text-slate-900 dark:text-slate-200">
@@ -358,17 +446,23 @@ export const ConnectedHealthScreen: React.FC<ConnectedHealthScreenProps> = ({
                 const targetUserId = profile?.user_id || 'guest_user';
                 handleSyncWorkouts(targetUserId);
               }}
-              disabled={isSyncing}
+              disabled={isSyncing || healthState.status === 'syncing'}
               className="flex-1 py-3 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white dark:text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
             >
-              <RefreshCw size={15} className={isSyncing ? 'animate-spin' : ''} />
-              <span>{isSyncing ? 'Syncing...' : 'Sync Workouts Now'}</span>
+              <RefreshCw size={15} className={isSyncing || healthState.status === 'syncing' ? 'animate-spin' : ''} />
+              <span>
+                {isSyncing || healthState.status === 'syncing'
+                  ? healthState.syncProgress && healthState.syncProgress.total > 0
+                    ? `Syncing (${healthState.syncProgress.current}/${healthState.syncProgress.total})...`
+                    : 'Syncing Workouts...'
+                  : 'Sync Workouts Now'}
+              </span>
             </button>
 
             <button
               onClick={() => setShowDisconnectConfirm(true)}
-              disabled={isSyncing}
-              className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-500/20 active:scale-95 transition-all cursor-pointer"
+              disabled={isSyncing || healthState.status === 'syncing'}
+              className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-500/20 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
               title="Disconnect Google Health"
             >
               <Unlink size={16} />

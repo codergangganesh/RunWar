@@ -209,7 +209,28 @@ export const App: React.FC = () => {
       }
     };
 
+    const handleWorkoutSynced = (event: any) => {
+      const newWorkout = event?.detail;
+      if (!newWorkout) return;
+      setWorkouts((prev) => {
+        if (
+          prev.some(
+            (w) =>
+              w.id === newWorkout.id ||
+              (w.source_provider &&
+                w.external_record_id &&
+                w.source_provider === newWorkout.source_provider &&
+                w.external_record_id === newWorkout.external_record_id)
+          )
+        ) {
+          return prev;
+        }
+        return [newWorkout, ...prev];
+      });
+    };
+
     window.addEventListener('runwar:sync_completed', handleSyncCompleted);
+    window.addEventListener('runwar:workout_synced', handleWorkoutSynced);
 
     const initAuth = async () => {
       try {
@@ -342,6 +363,7 @@ export const App: React.FC = () => {
       if (typeof unsubFirebase === 'function') unsubFirebase();
       if (typeof unsubscribe === 'function') unsubscribe();
       window.removeEventListener('runwar:sync_completed', handleSyncCompleted);
+      window.removeEventListener('runwar:workout_synced', handleWorkoutSynced);
     };
   }, [loadAppData]);
 

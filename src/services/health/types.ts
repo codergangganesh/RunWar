@@ -31,6 +31,14 @@ export interface SyncResult {
   error?: string;
 }
 
+export type SyncProgressCallback = (progress: {
+  current: number;
+  total: number;
+  newlySynced: number;
+  currentTitle?: string;
+  status: 'discovering' | 'processing' | 'saved' | 'completed' | 'error';
+}) => void;
+
 export interface HealthProvider {
   readonly providerType: HealthProviderType;
   readonly providerName: string;
@@ -38,5 +46,10 @@ export interface HealthProvider {
   connect(): Promise<{ success: boolean; error?: string; accountEmail?: string }>;
   disconnect(): Promise<void>;
   getConnectionState(): HealthConnectionState;
-  syncWorkouts(userId: string, sinceDate?: Date): Promise<SyncResult>;
+  subscribe?(callback: (state: HealthConnectionState) => void): () => void;
+  syncWorkouts(
+    userId: string,
+    sinceDate?: Date,
+    onProgress?: SyncProgressCallback
+  ): Promise<SyncResult>;
 }

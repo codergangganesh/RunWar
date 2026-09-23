@@ -1,5 +1,6 @@
-import { HealthProvider, NormalizedExternalWorkout, SyncResult } from './types';
+import { HealthProvider, NormalizedExternalWorkout, SyncProgressCallback, SyncResult } from './types';
 import { HealthConnectionState, Workout, WorkoutType, GPSCoordinate, WorkoutSplit } from '../../types';
+import { workoutService } from '../workoutService';
 
 const GOOGLE_FIT_AUTH_STORAGE_KEY = 'runwar_google_fit_token';
 const GOOGLE_FIT_STATE_STORAGE_KEY = 'runwar_google_fit_state';
@@ -20,6 +21,36 @@ export class GoogleHealthProvider implements HealthProvider {
   readonly providerType = 'google_health' as const;
   readonly providerName = 'Google Health & Fit';
 
+  private memoryState: HealthConnectionState | null = null;
+  private listeners = new Set<(state: HealthConnectionState) => void>();
+  private isSyncingActive = false;
+
+  /**
+   * Subscribe to real-time health connection and sync progress updates
+   */
+  public subscribe(callback: (state: HealthConnectionState) => void): () => void {
+    this.listeners.add(callback);
+    callback(this.getConnectionState());
+    return () => {
+      this.listeners.delete(callback);
+    };
+  }
+
+  private notifyListeners() {
+    const state = this.getConnectionState();
+    this.listeners.forEach((cb) => {
+      try {
+        cb(state);
+      } catch (e) {
+        console.warn('Error in health connection subscriber:', e);
+      }
+    });
+  }
+
+  public isSyncing(): boolean {
+    return this.isSyncingActive;
+  }
+
   /**
    * Check if running in browser/PWA with internet connectivity
    */
@@ -28,9 +59,13 @@ export class GoogleHealthProvider implements HealthProvider {
   }
 
   /**
-   * Get cached connection state
+   * Get cached connection state with live in-memory progress
    */
   getConnectionState(): HealthConnectionState {
+    if (this.memoryState) {
+      return this.memoryState;
+    }
+
     try {
       const stored = localStorage.getItem(GOOGLE_FIT_STATE_STORAGE_KEY);
       if (stored) {
@@ -42,6 +77,8 @@ export class GoogleHealthProvider implements HealthProvider {
           syncedCount: Number(parsed.syncedCount) || 0,
           accountEmail: parsed.accountEmail || null,
           status: parsed.isConnected ? 'connected' : 'disconnected',
+          errorMessage: null,
+          syncProgress: null,
         };
       }
     } catch (e) {
@@ -54,17 +91,29 @@ export class GoogleHealthProvider implements HealthProvider {
       lastSyncAt: null,
       syncedCount: 0,
       status: 'disconnected',
+      errorMessage: null,
+      syncProgress: null,
     };
   }
 
   /**
-   * Save connection state
+   * Save connection state and broadcast to active UI subscribers
    */
   private setConnectionState(state: Partial<HealthConnectionState>) {
     try {
       const current = this.getConnectionState();
       const updated = { ...current, ...state };
-      localStorage.setItem(GOOGLE_FIT_STATE_STORAGE_KEY, JSON.stringify(updated));
+      this.memoryState = updated;
+
+      // Persist durable state to localStorage (omit transient progress)
+      const durable = {
+        isConnected: updated.isConnected,
+        lastSyncAt: updated.lastSyncAt,
+        syncedCount: updated.syncedCount,
+        accountEmail: updated.accountEmail,
+      };
+      localStorage.setItem(GOOGLE_FIT_STATE_STORAGE_KEY, JSON.stringify(durable));
+      this.notifyListeners();
     } catch (e) {
       console.warn('Failed to save Google Health state:', e);
     }
@@ -217,7 +266,7 @@ export class GoogleHealthProvider implements HealthProvider {
         if (event.origin !== window.location.origin) return;
         if (event.data?.type === 'GOOGLE_HEALTH_OAUTH_TOKEN' && event.data?.token) {
           handled = true;
-          try { popup.close(); } catch {}
+          try { popup.close(); } catch { }
           window.removeEventListener('message', handleMessage);
 
           this.setAccessToken(event.data.token, event.data.expiresIn || 3600);
@@ -244,7 +293,7 @@ export class GoogleHealthProvider implements HealthProvider {
               handled = true;
               clearInterval(tokenPollTimer);
               window.removeEventListener('message', handleMessage);
-              try { popup.close(); } catch {}
+              try { popup.close(); } catch { }
 
               this.setAccessToken(parsed.token, parsed.expiresIn || 3600);
               const email = await this.fetchUserEmail(parsed.token);
@@ -257,14 +306,14 @@ export class GoogleHealthProvider implements HealthProvider {
               return;
             }
           }
-        } catch {}
+        } catch { }
 
         const token = this.getAccessToken();
         if (token && !handled) {
           handled = true;
           clearInterval(tokenPollTimer);
           window.removeEventListener('message', handleMessage);
-          try { popup.close(); } catch {}
+          try { popup.close(); } catch { }
           this.setConnectionState({ isConnected: true, status: 'connected' });
           resolve({ success: true });
         }
@@ -276,7 +325,7 @@ export class GoogleHealthProvider implements HealthProvider {
           handled = true;
           clearInterval(tokenPollTimer);
           window.removeEventListener('message', handleMessage);
-          try { popup.close(); } catch {}
+          try { popup.close(); } catch { }
           resolve({ success: false, error: 'Connection timed out or was closed. Please try again.' });
         }
       }, 180000);
