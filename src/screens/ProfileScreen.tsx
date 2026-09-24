@@ -1,8 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { UserProfile, UserSettings, Workout } from '../types';
+import { UserProfile, UserSettings, Workout, GearItem } from '../types';
 import { authService } from '../services/authService';
+import { gearService } from '../services/gearService';
+import { DEFAULT_ACHIEVEMENTS } from '../services/achievementsService';
 import { downloadFile, generateWorkoutsCSV } from '../utils/exportGenerators';
 import { formatDistance, formatDuration } from '../utils/formatters';
+import { BottomSheet } from '../components/ui/BottomSheet';
 import {
   User,
   Settings,
@@ -10,9 +13,7 @@ import {
   Footprints,
   Timer,
   Trophy,
-  Target,
   Award,
-  Calendar,
   Download,
   Shield,
   LogOut,
@@ -27,6 +28,10 @@ import {
   Loader2,
   Image as ImageIcon,
   Activity,
+  Star,
+  Plus,
+  ShieldCheck,
+  CheckCircle2,
 } from 'lucide-react';
 import { healthService } from '../services/health/healthService';
 
@@ -68,6 +73,52 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
 
+  // Gear & Shoe tracker state
+  const [gearList, setGearList] = useState<GearItem[]>(() => {
+    return profile?.user_id ? gearService.getCachedGear(profile.user_id) : [];
+  });
+  const [showAddShoeModal, setShowAddShoeModal] = useState(false);
+  const [newShoeBrand, setNewShoeBrand] = useState('Nike');
+  const [newShoeModel, setNewShoeModel] = useState('');
+  const [newShoeMaxDistanceKm, setNewShoeMaxDistanceKm] = useState(500);
+
+  useEffect(() => {
+    if (profile?.user_id) {
+      gearService.getGear(profile.user_id).then(setGearList);
+    }
+  }, [profile?.user_id]);
+
+  const handleAddShoe = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!profile || !newShoeModel.trim()) return;
+
+    const added = await gearService.addGear(profile.user_id, {
+      name: `${newShoeBrand} ${newShoeModel}`,
+      brand: newShoeBrand,
+      model: newShoeModel.trim(),
+      max_distance_meters: Math.round(newShoeMaxDistanceKm * 1000),
+      current_distance_meters: 0,
+      is_active: gearList.length === 0,
+    });
+
+    setGearList([added, ...gearList.filter((g) => g.id !== added.id)]);
+    setShowAddShoeModal(false);
+    setNewShoeModel('');
+    setNewShoeMaxDistanceKm(500);
+  };
+
+  const handleSetActiveShoe = async (gearId: string) => {
+    if (!profile) return;
+    const updated = await gearService.setActiveGear(profile.user_id, gearId);
+    setGearList(updated);
+  };
+
+  const handleDeleteShoe = async (gearId: string) => {
+    if (!profile) return;
+    const updated = await gearService.deleteGear(profile.user_id, gearId);
+    setGearList(updated);
+  };
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Career Statistics
@@ -75,6 +126,10 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   const lifetimeDurationSec = workouts.reduce((sum, w) => sum + (w.duration_seconds || 0), 0);
   const lifetimeWorkouts = workouts.length;
   const longestRunMeters = workouts.reduce((max, w) => Math.max(max, w.distance_meters || 0), 0);
+
+  // Pinned Trophy Case Badges
+  const pinnedIds = profile?.pinned_achievements || ['first_run', '5k_club', 'speed_demon'];
+  const pinnedBadges = DEFAULT_ACHIEVEMENTS.filter((a) => pinnedIds.includes(a.id)).slice(0, 3);
 
   const handleAvatarFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -310,22 +365,20 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
               <button
                 type="button"
                 onClick={() => setUnitSystem('metric')}
-                className={`py-2 rounded-xl text-xs font-bold transition-all ${
-                  unitSystem === 'metric'
-                    ? 'bg-emerald-500 text-white dark:text-slate-950 shadow-sm'
-                    : 'bg-emerald-50/50 dark:bg-slate-950 border border-emerald-200 dark:border-slate-800 text-emerald-800 dark:text-slate-400'
-                }`}
+                className={`py-2 rounded-xl text-xs font-bold transition-all ${unitSystem === 'metric'
+                  ? 'bg-emerald-500 text-white dark:text-slate-950 shadow-sm'
+                  : 'bg-emerald-50/50 dark:bg-slate-950 border border-emerald-200 dark:border-slate-800 text-emerald-800 dark:text-slate-400'
+                  }`}
               >
                 Metric (km, min/km)
               </button>
               <button
                 type="button"
                 onClick={() => setUnitSystem('imperial')}
-                className={`py-2 rounded-xl text-xs font-bold transition-all ${
-                  unitSystem === 'imperial'
-                    ? 'bg-emerald-500 text-white dark:text-slate-950 shadow-sm'
-                    : 'bg-emerald-50/50 dark:bg-slate-950 border border-emerald-200 dark:border-slate-800 text-emerald-800 dark:text-slate-400'
-                }`}
+                className={`py-2 rounded-xl text-xs font-bold transition-all ${unitSystem === 'imperial'
+                  ? 'bg-emerald-500 text-white dark:text-slate-950 shadow-sm'
+                  : 'bg-emerald-50/50 dark:bg-slate-950 border border-emerald-200 dark:border-slate-800 text-emerald-800 dark:text-slate-400'
+                  }`}
               >
                 Imperial (mi, min/mi)
               </button>
@@ -415,17 +468,6 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
 
           <div className="grid grid-cols-2 gap-2.5">
             <button
-              onClick={() => onNavigate('goals')}
-              className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-500/50 flex flex-col justify-between text-left active:scale-98 transition-all shadow-sm"
-            >
-              <div className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mb-2">
-                <Target size={18} />
-              </div>
-              <span className="text-xs font-bold text-emerald-950 dark:text-white">Goals & Streaks</span>
-              <span className="text-[10px] text-emerald-700/80 dark:text-slate-400">Targets & consistency</span>
-            </button>
-
-            <button
               onClick={() => onNavigate('achievements')}
               className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-500/50 flex flex-col justify-between text-left active:scale-98 transition-all shadow-sm"
             >
@@ -446,20 +488,121 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
               <span className="text-xs font-bold text-emerald-950 dark:text-white">Personal Records</span>
               <span className="text-[10px] text-emerald-700/80 dark:text-slate-400">1k, 5k, 10k bests</span>
             </button>
-
-            <button
-              onClick={() => onNavigate('calendar')}
-              className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-500/50 flex flex-col justify-between text-left active:scale-98 transition-all shadow-sm"
-            >
-              <div className="w-9 h-9 rounded-xl bg-lime-50 dark:bg-lime-500/10 text-lime-600 dark:text-lime-400 flex items-center justify-center mb-2">
-                <Calendar size={18} />
-              </div>
-              <span className="text-xs font-bold text-emerald-950 dark:text-white">Calendar</span>
-              <span className="text-[10px] text-emerald-700/80 dark:text-slate-400">Monthly activity grid</span>
-            </button>
           </div>
         </div>
       )}
+
+
+
+      {/* 2. Shoe & Gear Mileage Tracker */}
+      <div className="rounded-3xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-slate-800 p-4 space-y-3 shadow-sm">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <Footprints size={15} className="text-emerald-600 dark:text-emerald-400" />
+            <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-950 dark:text-slate-300">
+              RUNNING SHOES & GEAR
+            </h3>
+          </div>
+          <button
+            onClick={() => setShowAddShoeModal(true)}
+            className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2.5 py-1 rounded-xl border border-emerald-200 dark:border-emerald-500/20 hover:bg-emerald-100 active:scale-95 transition-all flex items-center gap-1"
+          >
+            <Plus size={11} />
+            <span>Add Shoe</span>
+          </button>
+        </div>
+
+        {gearList.length === 0 ? (
+          <div className="p-4 rounded-2xl bg-emerald-50/50 dark:bg-slate-950 border border-emerald-100 dark:border-slate-800/80 text-center">
+            <p className="text-xs text-emerald-800/80 dark:text-slate-400">No running shoes added yet.</p>
+            <button
+              onClick={() => setShowAddShoeModal(true)}
+              className="mt-2 text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline"
+            >
+              + Track your first pair of shoes
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-2.5">
+            {gearList.map((gear) => {
+              const currentKm = (gear.current_distance_meters / 1000).toFixed(1);
+              const maxKm = Math.round(gear.max_distance_meters / 1000);
+              const pct = Math.min(100, Math.round((gear.current_distance_meters / gear.max_distance_meters) * 100));
+              const isNearRetirement = pct >= 90;
+
+              return (
+                <div
+                  key={gear.id}
+                  className={`p-3.5 rounded-2xl border transition-all ${gear.is_active
+                    ? 'bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-300 dark:border-emerald-500/40 shadow-xs'
+                    : 'bg-emerald-50/30 dark:bg-slate-950 border-emerald-100 dark:border-slate-800'
+                    }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-black text-emerald-950 dark:text-white">{gear.name}</span>
+                        {gear.is_active && (
+                          <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.2 rounded-full border border-emerald-500/20">
+                            Active
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-emerald-700/80 dark:text-slate-400">
+                        {gear.brand} • {gear.model}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {!gear.is_active && (
+                        <button
+                          onClick={() => handleSetActiveShoe(gear.id)}
+                          className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline"
+                        >
+                          Set Active
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleDeleteShoe(gear.id)}
+                        className="text-slate-400 hover:text-rose-500 p-1"
+                        title="Delete shoe"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Mileage progress */}
+                  <div className="space-y-1 mt-2">
+                    <div className="flex items-center justify-between text-[10px] text-emerald-800/80 dark:text-slate-400">
+                      <span>
+                        {currentKm} / {maxKm} {distanceUnit}
+                      </span>
+                      <span className="font-mono font-bold">{pct}%</span>
+                    </div>
+                    <div className="h-1.5 w-full rounded-full bg-emerald-100 dark:bg-slate-900 overflow-hidden">
+                      <div
+                        style={{ width: `${pct}%` }}
+                        className={`h-full rounded-full transition-all ${isNearRetirement
+                          ? 'bg-amber-500'
+                          : 'bg-emerald-500'
+                          }`}
+                      />
+                    </div>
+                    {isNearRetirement && (
+                      <p className="text-[10px] font-bold text-amber-600 dark:text-amber-400">
+                        ⚠️ Shoe is near retirement target ({maxKm} km)!
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+
 
       {/* Connected Health Providers */}
       <div className="rounded-3xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-slate-800 p-4 space-y-2.5 shadow-sm">
@@ -517,11 +660,10 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
 
           <div className="flex items-center gap-1.5">
             <span
-              className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                healthState.isConnected
-                  ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
-                  : 'bg-slate-200/80 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
-              }`}
+              className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${healthState.isConnected
+                ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                : 'bg-slate-200/80 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+                }`}
             >
               {healthState.isConnected ? 'Manage' : 'Connect'}
             </span>
@@ -560,7 +702,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
 
         <button
           onClick={onSignOut}
-          className="w-full p-3 rounded-2xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 hover:bg-rose-100 dark:hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 flex items-center justify-between text-xs font-bold active:scale-98 transition-all mt-2"
+          className="w-full p-3 rounded-2xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 hover:bg-rose-100 dark:hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 flex items-center justify-between text-xs font-bold active:scale-98 transition-all mt-2 cursor-pointer"
         >
           <div className="flex items-center gap-2.5">
             <LogOut size={16} />
@@ -569,6 +711,77 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           <ChevronRight size={16} />
         </button>
       </div>
+
+      {/* Add Shoe Bottom Sheet Modal */}
+      {showAddShoeModal && (
+        <BottomSheet
+          isOpen={showAddShoeModal}
+          onClose={() => setShowAddShoeModal(false)}
+          title="Add Running Shoes"
+          icon={<Footprints size={18} className="text-emerald-500" />}
+        >
+          <form onSubmit={handleAddShoe} className="space-y-4 text-left pb-4">
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-emerald-950 dark:text-slate-300 mb-1">
+                Brand
+              </label>
+              <select
+                value={newShoeBrand}
+                onChange={(e) => setNewShoeBrand(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl bg-emerald-50/50 dark:bg-slate-900 border border-emerald-200 dark:border-slate-800 text-emerald-950 dark:text-white text-xs font-bold outline-none focus:border-emerald-500 cursor-pointer"
+              >
+                {['Nike', 'Asics', 'Hoka', 'Adidas', 'Saucony', 'Brooks', 'On Running', 'New Balance', 'Puma'].map((b) => (
+                  <option key={b} value={b} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+                    {b}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-emerald-950 dark:text-slate-300 mb-1">
+                Model Name
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Pegasus 40, Clifton 9, Gel-Nimbus 26"
+                value={newShoeModel}
+                onChange={(e) => setNewShoeModel(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl bg-emerald-50/50 dark:bg-slate-900 border border-emerald-200 dark:border-slate-800 text-emerald-950 dark:text-white text-xs outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-emerald-950 dark:text-slate-300 mb-1">
+                Retirement Target ({distanceUnit})
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                {[400, 500, 600].map((km) => (
+                  <button
+                    key={km}
+                    type="button"
+                    onClick={() => setNewShoeMaxDistanceKm(km)}
+                    className={`py-2 rounded-xl text-xs font-bold border transition-all ${newShoeMaxDistanceKm === km
+                      ? 'bg-emerald-500 text-white border-emerald-500 shadow-sm'
+                      : 'bg-emerald-50/50 dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-emerald-900 dark:text-slate-300'
+                      }`}
+                  >
+                    {km} {distanceUnit}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-lime-400 text-slate-950 font-black text-xs shadow-md shadow-emerald-500/30 active:scale-98 transition-all cursor-pointer mt-2"
+            >
+              Add Shoe to Gear Closet
+            </button>
+          </form>
+        </BottomSheet>
+      )}
     </div>
   );
 };

@@ -38,8 +38,22 @@ export interface UserProfile {
   fitness_goal: string;
   typical_workout_type: WorkoutType;
   avatar_url: string | null;
+  pinned_achievements?: string[];
   created_at: string;
   updated_at: string;
+}
+
+export interface GearItem {
+  id: string;
+  user_id: string;
+  name: string;
+  brand: string;
+  model: string;
+  max_distance_meters: number; // e.g. 500,000 for 500km
+  current_distance_meters: number;
+  is_active: boolean;
+  notes?: string;
+  created_at: string;
 }
 
 export interface UserSettings {
@@ -158,6 +172,8 @@ export interface Achievement {
   category: 'distance' | 'milestones' | 'consistency' | 'speed';
   requirement_type: string;
   requirement_value: number;
+  rarity?: 'common' | 'rare' | 'epic' | 'legendary';
+  xp?: number;
 }
 
 export interface UserAchievement {

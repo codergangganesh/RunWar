@@ -1,17 +1,27 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { GPSCoordinate } from '../../types';
-import { Maximize2, Minimize2 } from 'lucide-react';
+import { Maximize2, Minimize2, Play, Pause, RotateCcw, FastForward } from 'lucide-react';
 import { calculateSplits, getRouteDistanceMilestones } from '../../utils/calculations';
-import { formatDuration, formatPace } from '../../utils/formatters';
+import { formatDistance, formatDuration, formatPace } from '../../utils/formatters';
 
 interface StaticRouteMapProps {
   coordinates: GPSCoordinate[];
   className?: string;
   interactive?: boolean;
   onToggleFullscreen?: () => void;
+  showPlaybackControl?: boolean;
 }
+
+const createRunnerMarkerIcon = () => {
+  return L.divIcon({
+    className: 'runner-playback-marker',
+    html: `<div class="relative flex items-center justify-center"><div class="absolute w-8 h-8 rounded-full bg-emerald-400/40 animate-ping"></div><div class="relative w-6 h-6 rounded-full bg-emerald-500 border-2 border-white shadow-xl flex items-center justify-center text-white text-[10px]">🏃</div></div>`,
+    iconSize: [32, 32],
+    iconAnchor: [16, 16],
+  });
+};
 
 const createStartBadgeIcon = () => {
   return L.divIcon({
@@ -63,8 +73,13 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
   className = 'h-52 w-full',
   interactive = false,
   onToggleFullscreen,
+  showPlaybackControl = true,
 }) => {
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackIndex, setPlaybackIndex] = useState(0);
+  const [playbackSpeed, setPlaybackSpeed] = useState<1 | 2 | 4>(1);
+  const playbackIntervalRef = useRef<any>(null);
 
   if (!coordinates || coordinates.length === 0) {
     return (
@@ -77,9 +92,37 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
     );
   }
 
+  // Playback timer animation
+  useEffect(() => {
+    if (isPlaying) {
+      const step = coordinates.length > 500 ? Math.ceil(coordinates.length / 300) : 1;
+      const intervalMs = Math.max(25, Math.round(100 / playbackSpeed));
+      playbackIntervalRef.current = setInterval(() => {
+        setPlaybackIndex((prev) => {
+          const next = prev + step;
+          if (next >= coordinates.length - 1) {
+            setIsPlaying(false);
+            return coordinates.length - 1;
+          }
+          return next;
+        });
+      }, intervalMs);
+    } else {
+      if (playbackIntervalRef.current) clearInterval(playbackIntervalRef.current);
+    }
+    return () => {
+      if (playbackIntervalRef.current) clearInterval(playbackIntervalRef.current);
+    };
+  }, [isPlaying, playbackSpeed, coordinates.length]);
+
   const startCoord = coordinates[0];
   const endCoord = coordinates[coordinates.length - 1];
+  const currentCoord = coordinates[Math.min(playbackIndex, coordinates.length - 1)] || startCoord;
   const polylinePositions: [number, number][] = coordinates.map((c) => [c.latitude, c.longitude]);
+  const playedPolylinePositions: [number, number][] = coordinates
+    .slice(0, playbackIndex + 1)
+    .map((c) => [c.latitude, c.longitude]);
+
   const kilometerMilestones = useMemo(
     () => getRouteDistanceMilestones(coordinates),
     [coordinates]
@@ -93,6 +136,22 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
     } else {
       setIsFullscreen(!isFullscreen);
     }
+  };
+
+  const handleTogglePlay = () => {
+    if (playbackIndex >= coordinates.length - 1) {
+      setPlaybackIndex(0);
+    }
+    setIsPlaying(!isPlaying);
+  };
+
+  const handleResetPlayback = () => {
+    setIsPlaying(false);
+    setPlaybackIndex(0);
+  };
+
+  const handleCycleSpeed = () => {
+    setPlaybackSpeed((prev) => (prev === 1 ? 2 : prev === 2 ? 4 : 1));
   };
 
   return (
@@ -127,25 +186,39 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
           pathOptions={{
             color: '#10b981',
             weight: 7,
-            opacity: 0.35,
+            opacity: 0.3,
             lineCap: 'round',
             lineJoin: 'round',
           }}
         />
 
-        {/* Solid route line */}
+        {/* Base Solid route line */}
         <Polyline
           positions={polylinePositions}
           pathOptions={{
             color: '#059669',
             weight: 4,
-            opacity: 1.0,
+            opacity: 0.75,
             lineCap: 'round',
             lineJoin: 'round',
           }}
         />
 
-        {/* Completed-kilometre markers remain available in workout history and details. */}
+        {/* Animated Active Played Trail */}
+        {playedPolylinePositions.length > 1 && (
+          <Polyline
+            positions={playedPolylinePositions}
+            pathOptions={{
+              color: '#34d399',
+              weight: 5,
+              opacity: 1.0,
+              lineCap: 'round',
+              lineJoin: 'round',
+            }}
+          />
+        )}
+
+        {/* Completed-kilometre markers */}
         {kilometerMilestones.map((milestone, index) => {
           const split = kilometerSplits[index];
           const kilometer = milestone.distanceMeters / 1000;
@@ -176,7 +249,55 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
         {coordinates.length > 1 && (
           <Marker position={[endCoord.latitude, endCoord.longitude]} icon={createFinishBadgeIcon()} />
         )}
+
+        {/* Live Runner Playback Dot */}
+        {(isPlaying || playbackIndex > 0) && (
+          <Marker
+            position={[currentCoord.latitude, currentCoord.longitude]}
+            icon={createRunnerMarkerIcon()}
+            zIndexOffset={1000}
+          />
+        )}
       </MapContainer>
+
+      {/* Floating GPS Route Playback Control Bar */}
+      {showPlaybackControl && coordinates.length > 5 && (
+        <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 p-1.5 rounded-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-emerald-200/80 dark:border-slate-800 shadow-md">
+          {/* Play / Pause */}
+          <button
+            onClick={handleTogglePlay}
+            className="w-8 h-8 rounded-xl bg-emerald-500 text-white flex items-center justify-center hover:bg-emerald-600 active:scale-90 transition-all shadow-xs"
+            title={isPlaying ? 'Pause Route Playback' : 'Play GPS Route'}
+            aria-label="Toggle Play Route"
+          >
+            {isPlaying ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" className="translate-x-0.5" />}
+          </button>
+
+          {/* Reset */}
+          <button
+            onClick={handleResetPlayback}
+            className="w-7 h-7 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center hover:bg-slate-200 active:scale-90 transition-all"
+            title="Reset Playback"
+            aria-label="Reset Route Playback"
+          >
+            <RotateCcw size={12} />
+          </button>
+
+          {/* Speed Toggle */}
+          <button
+            onClick={handleCycleSpeed}
+            className="px-2 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-[10px] hover:bg-slate-200 active:scale-90 transition-all"
+            title="Cycle Playback Speed"
+          >
+            {playbackSpeed}x
+          </button>
+
+          {/* Progress % */}
+          <span className="text-[10px] font-mono font-bold text-emerald-700 dark:text-emerald-400 px-1">
+            {Math.round((playbackIndex / (coordinates.length - 1)) * 100)}%
+          </span>
+        </div>
+      )}
 
       {/* Fullscreen Toggle Button */}
       <button

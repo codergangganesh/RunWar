@@ -16,6 +16,8 @@ export const DEFAULT_ACHIEVEMENTS: Achievement[] = [
     category: 'milestones',
     requirement_type: 'workout_count',
     requirement_value: 1,
+    rarity: 'common',
+    xp: 50,
   },
   {
     id: '5k_club',
@@ -25,6 +27,8 @@ export const DEFAULT_ACHIEVEMENTS: Achievement[] = [
     category: 'distance',
     requirement_type: 'single_distance',
     requirement_value: 5000,
+    rarity: 'rare',
+    xp: 100,
   },
   {
     id: '10k_club',
@@ -34,6 +38,8 @@ export const DEFAULT_ACHIEVEMENTS: Achievement[] = [
     category: 'distance',
     requirement_type: 'single_distance',
     requirement_value: 10000,
+    rarity: 'epic',
+    xp: 250,
   },
   {
     id: 'half_marathon',
@@ -43,6 +49,8 @@ export const DEFAULT_ACHIEVEMENTS: Achievement[] = [
     category: 'distance',
     requirement_type: 'single_distance',
     requirement_value: 21097,
+    rarity: 'legendary',
+    xp: 500,
   },
   {
     id: 'distance_50k',
@@ -52,6 +60,8 @@ export const DEFAULT_ACHIEVEMENTS: Achievement[] = [
     category: 'milestones',
     requirement_type: 'total_distance',
     requirement_value: 50000,
+    rarity: 'epic',
+    xp: 250,
   },
   {
     id: 'distance_100k',
@@ -61,6 +71,8 @@ export const DEFAULT_ACHIEVEMENTS: Achievement[] = [
     category: 'milestones',
     requirement_type: 'total_distance',
     requirement_value: 100000,
+    rarity: 'legendary',
+    xp: 500,
   },
   {
     id: 'workouts_10',
@@ -70,6 +82,8 @@ export const DEFAULT_ACHIEVEMENTS: Achievement[] = [
     category: 'consistency',
     requirement_type: 'workout_count',
     requirement_value: 10,
+    rarity: 'rare',
+    xp: 100,
   },
   {
     id: 'workouts_25',
@@ -79,6 +93,8 @@ export const DEFAULT_ACHIEVEMENTS: Achievement[] = [
     category: 'consistency',
     requirement_type: 'workout_count',
     requirement_value: 25,
+    rarity: 'epic',
+    xp: 250,
   },
   {
     id: 'streak_3',
@@ -88,6 +104,8 @@ export const DEFAULT_ACHIEVEMENTS: Achievement[] = [
     category: 'consistency',
     requirement_type: 'streak_days',
     requirement_value: 3,
+    rarity: 'common',
+    xp: 50,
   },
   {
     id: 'streak_7',
@@ -97,6 +115,8 @@ export const DEFAULT_ACHIEVEMENTS: Achievement[] = [
     category: 'consistency',
     requirement_type: 'streak_days',
     requirement_value: 7,
+    rarity: 'epic',
+    xp: 250,
   },
   {
     id: 'early_bird',
@@ -106,6 +126,8 @@ export const DEFAULT_ACHIEVEMENTS: Achievement[] = [
     category: 'milestones',
     requirement_type: 'early_workout',
     requirement_value: 1,
+    rarity: 'common',
+    xp: 50,
   },
   {
     id: 'night_owl',
@@ -115,6 +137,8 @@ export const DEFAULT_ACHIEVEMENTS: Achievement[] = [
     category: 'milestones',
     requirement_type: 'night_workout',
     requirement_value: 1,
+    rarity: 'common',
+    xp: 50,
   },
   {
     id: 'speed_demon',
@@ -124,6 +148,8 @@ export const DEFAULT_ACHIEVEMENTS: Achievement[] = [
     category: 'speed',
     requirement_type: 'pace_threshold',
     requirement_value: 300,
+    rarity: 'rare',
+    xp: 100,
   },
   {
     id: 'calorie_burner',
@@ -133,6 +159,8 @@ export const DEFAULT_ACHIEVEMENTS: Achievement[] = [
     category: 'milestones',
     requirement_type: 'single_calories',
     requirement_value: 500,
+    rarity: 'rare',
+    xp: 100,
   },
 ];
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Home, History, TrendingUp, User, Play, Activity, Target } from 'lucide-react';
+import { Home, History, TrendingUp, User, Play, Calendar, Target } from 'lucide-react';
 import { TopHeader } from './TopHeader';
 import { UserProfile } from '../../types';
 
@@ -104,7 +104,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         {/* Bottom Mobile Tab Navigation (Symmetrical Wings + Dead-Center Elevated RUN Play Button) */}
         {!isTrackingActive && (
           <nav className="shrink-0 z-40 bg-white/95 dark:bg-slate-950/95 backdrop-blur-2xl border-t border-emerald-100 dark:border-slate-900 px-2 sm:px-3 py-1.5 pb-[max(0.6rem,env(safe-area-inset-bottom))] flex items-center justify-between relative select-none shadow-[0_-10px_25px_rgba(16,185,129,0.08)] dark:shadow-[0_-10px_25px_rgba(0,0,0,0.6)]">
-            {/* Left Wing (3 items: Home, Today, Insights) */}
+            {/* Left Wing (3 items: Home, Calendar, Insights) */}
             <div className="flex-1 flex items-center justify-around pr-7 sm:pr-8">
               {/* Home Tab */}
               <button
@@ -119,17 +119,17 @@ export const AppShell: React.FC<AppShellProps> = ({
                 <span className="text-[9px] sm:text-[10px] tracking-tight">Home</span>
               </button>
 
-              {/* Today / Daily Activity Tab */}
+              {/* Calendar Tab */}
               <button
-                onClick={() => setActiveTab('activity')}
+                onClick={() => setActiveTab('calendar')}
                 className={`flex flex-col items-center gap-0.5 py-1 px-1.5 rounded-xl transition-all ${
-                  activeTab === 'activity'
-                    ? 'text-cyan-500 dark:text-cyan-400 font-bold'
-                    : 'text-slate-500 dark:text-slate-400 hover:text-cyan-600 dark:hover:text-slate-200 font-medium'
+                  activeTab === 'calendar'
+                    ? 'text-emerald-600 dark:text-emerald-400 font-bold'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-emerald-800 dark:hover:text-slate-200 font-medium'
                 }`}
               >
-                <Activity size={18} className={activeTab === 'activity' ? 'text-cyan-500 dark:text-cyan-400' : ''} />
-                <span className="text-[9px] sm:text-[10px] tracking-tight">Today</span>
+                <Calendar size={18} className={activeTab === 'calendar' ? 'text-emerald-600 dark:text-emerald-400' : ''} />
+                <span className="text-[9px] sm:text-[10px] tracking-tight">Calendar</span>
               </button>
 
               {/* Insights Tab */}

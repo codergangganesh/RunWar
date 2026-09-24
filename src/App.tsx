@@ -887,6 +887,8 @@ export const App: React.FC = () => {
                 achievements={achievements}
                 userAchievements={userAchievements}
                 workouts={workouts}
+                profile={profile}
+                onUpdateProfile={(updated) => setProfile(updated)}
               />
             )}
 

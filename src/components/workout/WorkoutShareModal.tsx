@@ -8,9 +8,7 @@ import {
   Download,
   Share2,
   Copy,
-  MoreHorizontal,
   Check,
-  Camera,
   Smartphone,
   Square,
 } from 'lucide-react';
@@ -147,69 +145,46 @@ export const WorkoutShareModal: React.FC<WorkoutShareModalProps> = ({
       }
 
       if (theme === 'default') {
-        // Forest Lake Satellite Aerial Landscape
+        // High-performance dark emerald athletic gradient
         const grad = ctx.createLinearGradient(0, 0, 0, H);
-        grad.addColorStop(0, '#0a271d');
-        grad.addColorStop(0.3, '#113a2c');
-        grad.addColorStop(0.65, '#0b261e');
-        grad.addColorStop(1, '#04120e');
+        grad.addColorStop(0, '#061a13');
+        grad.addColorStop(0.3, '#0b2e22');
+        grad.addColorStop(0.7, '#071e16');
+        grad.addColorStop(1, '#030d0a');
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, W, H);
 
+        // Subtle topographic aura in background
         ctx.save();
-        // Lake Water Basin in Center
-        ctx.beginPath();
-        ctx.ellipse(W * 0.5, H * 0.44, W * 0.38, H * 0.17, -0.06, 0, Math.PI * 2);
-        const lakeGrad = ctx.createRadialGradient(W * 0.48, H * 0.43, 30, W * 0.5, H * 0.44, W * 0.38);
-        lakeGrad.addColorStop(0, '#1c5a69');
-        lakeGrad.addColorStop(0.6, '#0f3844');
-        lakeGrad.addColorStop(1, '#08232b');
-        ctx.fillStyle = lakeGrad;
-        ctx.fill();
-
-        // Lush Forest Shoreline
-        ctx.lineWidth = 20;
-        ctx.strokeStyle = '#1a4738';
-        ctx.stroke();
-
-        // Misty Forest Hills Base
-        const hillGrad = ctx.createLinearGradient(0, H * 0.65, 0, H);
-        hillGrad.addColorStop(0, 'rgba(6, 24, 18, 0)');
-        hillGrad.addColorStop(0.5, 'rgba(4, 18, 14, 0.85)');
-        hillGrad.addColorStop(1, '#030e0b');
-        ctx.fillStyle = hillGrad;
-        ctx.fillRect(0, H * 0.65, W, H * 0.35);
-
-        // Mountain Silhouettes
-        ctx.fillStyle = 'rgba(2, 10, 8, 0.65)';
-        ctx.beginPath();
-        ctx.moveTo(0, H * 0.78);
-        ctx.lineTo(W * 0.28, H * 0.71);
-        ctx.lineTo(W * 0.62, H * 0.76);
-        ctx.lineTo(W * 0.88, H * 0.69);
-        ctx.lineTo(W, H * 0.74);
-        ctx.lineTo(W, H);
-        ctx.lineTo(0, H);
-        ctx.fill();
+        ctx.strokeStyle = 'rgba(0, 208, 156, 0.04)';
+        ctx.lineWidth = 1.5;
+        for (let r = 200; r <= 800; r += 120) {
+          ctx.beginPath();
+          ctx.ellipse(W * 0.5, H * 0.45, r * 1.2, r * 0.75, -0.15, 0, Math.PI * 2);
+          ctx.stroke();
+        }
         ctx.restore();
       } else if (theme === 'dark') {
-        // Midnight Mountain Sky
+        // Midnight Navy Sky
         const grad = ctx.createLinearGradient(0, 0, 0, H);
         grad.addColorStop(0, '#0a101d');
-        grad.addColorStop(0.5, '#0f172a');
+        grad.addColorStop(0.4, '#0f172a');
+        grad.addColorStop(0.8, '#080d1a');
         grad.addColorStop(1, '#020617');
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, W, H);
 
-        ctx.fillStyle = '#060d1b';
-        ctx.beginPath();
-        ctx.moveTo(0, H * 0.6);
-        ctx.lineTo(W * 0.38, H * 0.42);
-        ctx.lineTo(W * 0.7, H * 0.52);
-        ctx.lineTo(W, H * 0.43);
-        ctx.lineTo(W, H);
-        ctx.lineTo(0, H);
-        ctx.fill();
+        // Tech grid lines
+        ctx.save();
+        ctx.strokeStyle = 'rgba(99, 102, 241, 0.04)';
+        ctx.lineWidth = 1;
+        for (let y = 0; y < H; y += 80) {
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(W, y);
+          ctx.stroke();
+        }
+        ctx.restore();
       } else if (theme === 'sunrise') {
         // Sunset / Sunrise Orange Mountains
         const grad = ctx.createLinearGradient(0, 0, 0, H);
@@ -223,20 +198,10 @@ export const WorkoutShareModal: React.FC<WorkoutShareModalProps> = ({
         // Sun disc
         ctx.save();
         ctx.beginPath();
-        ctx.arc(W * 0.5, H * 0.42, 90, 0, Math.PI * 2);
-        ctx.fillStyle = '#ffedd5';
+        ctx.arc(W * 0.5, H * 0.22, 110, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255, 237, 213, 0.15)';
         ctx.shadowColor = '#fb923c';
-        ctx.shadowBlur = 40;
-        ctx.fill();
-
-        ctx.fillStyle = '#7c2d12';
-        ctx.beginPath();
-        ctx.moveTo(0, H * 0.52);
-        ctx.lineTo(W * 0.35, H * 0.44);
-        ctx.lineTo(W * 0.65, H * 0.5);
-        ctx.lineTo(W, H * 0.41);
-        ctx.lineTo(W, H);
-        ctx.lineTo(0, H);
+        ctx.shadowBlur = 50;
         ctx.fill();
         ctx.restore();
       } else if (theme === 'minimal') {
@@ -247,15 +212,6 @@ export const WorkoutShareModal: React.FC<WorkoutShareModalProps> = ({
         grad.addColorStop(1, '#aedbc5');
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, W, H);
-
-        ctx.fillStyle = '#8dcab2';
-        ctx.beginPath();
-        ctx.moveTo(0, H * 0.54);
-        ctx.quadraticCurveTo(W * 0.4, H * 0.44, W * 0.7, H * 0.52);
-        ctx.quadraticCurveTo(W * 0.85, H * 0.47, W, H * 0.5);
-        ctx.lineTo(W, H);
-        ctx.lineTo(0, H);
-        ctx.fill();
       } else if (theme === 'photo') {
         const grad = ctx.createLinearGradient(0, 0, 0, H);
         grad.addColorStop(0, '#1e3a8a');
@@ -264,11 +220,56 @@ export const WorkoutShareModal: React.FC<WorkoutShareModalProps> = ({
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, W, H);
       }
+
+      // -------------------------------------------------------------
+      // Premium RUNWAR Application Watermark in Background
+      // -------------------------------------------------------------
+      ctx.save();
+      const isMinimal = theme === 'minimal';
+      const watermarkAlpha = isMinimal ? 0.08 : 0.05;
+      const watermarkColor = isMinimal ? 'rgba(6, 78, 59, ' : 'rgba(255, 255, 255, ';
+
+      // 1. Giant Angled RUNWAR Outline Typography across background
+      ctx.translate(W * 0.5, H * 0.5);
+      ctx.rotate((-18 * Math.PI) / 180);
+
+      // Top Angled Watermark Line
+      ctx.font = '900 120px Outfit, Inter, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.strokeStyle = `${watermarkColor}${watermarkAlpha * 1.3})`;
+      ctx.lineWidth = 2.5;
+      ctx.strokeText('RUNWAR ATHLETICS', 0, -210);
+
+      // Huge Main Central Watermark
+      ctx.font = '900 180px Outfit, Inter, sans-serif';
+      ctx.fillStyle = `${watermarkColor}${watermarkAlpha * 0.6})`;
+      ctx.fillText('RUNWAR', 0, 0);
+      ctx.strokeStyle = `${watermarkColor}${watermarkAlpha * 1.7})`;
+      ctx.lineWidth = 3.5;
+      ctx.strokeText('RUNWAR', 0, 0);
+
+      // Bottom Angled Watermark Line
+      ctx.font = '800 52px Outfit, Inter, sans-serif';
+      ctx.fillStyle = `${watermarkColor}${watermarkAlpha * 1.1})`;
+      ctx.fillText('RUN • TRACK • CONQUER • RUNWAR.APP', 0, 180);
+
+      ctx.restore();
+
+      // 2. Tactical Watermark Stamp in Background Corners
+      ctx.save();
+      ctx.font = '800 18px Outfit, Inter, monospace';
+      ctx.fillStyle = isMinimal ? 'rgba(6, 78, 59, 0.28)' : 'rgba(255, 255, 255, 0.25)';
+      ctx.textAlign = 'left';
+      ctx.fillText('⚡ RUNWAR GPS ENGINE // VERIFIED RUN', 90, H - 36);
+      ctx.textAlign = 'right';
+      ctx.fillText('RUNWAR.APP', W - 90, H - 36);
+      ctx.restore();
     },
     [theme, userBgImage]
   );
 
-  // Normalize and draw GPS coordinates on canvas
+  // Draw realistic Cartographic Route & Map Elements matching reference design
   const drawRouteOnCanvas = useCallback(
     (
       ctx: CanvasRenderingContext2D,
@@ -278,171 +279,185 @@ export const WorkoutShareModal: React.FC<WorkoutShareModalProps> = ({
       width: number,
       height: number
     ) => {
-      if (!coords || coords.length < 2) {
-        // Aesthetic loop running trail
-        ctx.save();
-        ctx.beginPath();
-        ctx.strokeStyle = '#00f2fe';
-        ctx.lineWidth = 8;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.shadowColor = '#00d09c';
-        ctx.shadowBlur = 24;
-
-        ctx.moveTo(x + width * 0.2, y + height * 0.65);
-        ctx.bezierCurveTo(
-          x + width * 0.16,
-          y + height * 0.22,
-          x + width * 0.82,
-          y + height * 0.14,
-          x + width * 0.8,
-          y + height * 0.48
-        );
-        ctx.bezierCurveTo(
-          x + width * 0.78,
-          y + height * 0.82,
-          x + width * 0.38,
-          y + height * 0.84,
-          x + width * 0.2,
-          y + height * 0.65
-        );
-        ctx.stroke();
-
-        // Start Marker & Badge
-        const sX = x + width * 0.2;
-        const sY = y + height * 0.65;
-        ctx.beginPath();
-        ctx.arc(sX, sY, 15, 0, Math.PI * 2);
-        ctx.fillStyle = '#00d09c';
-        ctx.fill();
-        ctx.lineWidth = 3.5;
-        ctx.strokeStyle = '#ffffff';
-        ctx.stroke();
-
-        // Start Pill Badge
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.82)';
-        ctx.beginPath();
-        ctx.roundRect(sX + 22, sY - 17, 80, 34, 17);
-        ctx.fill();
-        ctx.font = '800 17px Outfit, Inter, sans-serif';
-        ctx.fillStyle = '#ffffff';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('Start', sX + 62, sY);
-
-        // Finish Marker & Badge
-        const fX = x + width * 0.78;
-        const fY = y + height * 0.26;
-        ctx.beginPath();
-        ctx.arc(fX, fY, 15, 0, Math.PI * 2);
-        ctx.fillStyle = '#ef4444';
-        ctx.fill();
-        ctx.lineWidth = 3.5;
-        ctx.strokeStyle = '#ffffff';
-        ctx.stroke();
-
-        // Finish Pill Badge
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.82)';
-        ctx.beginPath();
-        ctx.roundRect(fX + 22, fY - 17, 88, 34, 17);
-        ctx.fill();
-        ctx.font = '800 17px Outfit, Inter, sans-serif';
-        ctx.fillStyle = '#ffffff';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('Finish', fX + 66, fY);
-
-        ctx.restore();
-        return;
-      }
-
-      const lats = coords.map((c) => c.latitude);
-      const lngs = coords.map((c) => c.longitude);
-      const minLat = Math.min(...lats);
-      const maxLat = Math.max(...lats);
-      const minLng = Math.min(...lngs);
-      const maxLng = Math.max(...lngs);
-
-      const latRange = maxLat - minLat || 0.001;
-      const lngRange = maxLng - minLng || 0.001;
-
-      const pad = 44;
-      const drawW = width - pad * 2;
-      const drawH = height - pad * 2;
-
-      const points = coords.map((c) => {
-        const px = x + pad + ((c.longitude - minLng) / lngRange) * drawW;
-        const py = y + height - pad - ((c.latitude - minLat) / latRange) * drawH;
-        return { x: px, y: py };
-      });
-
       ctx.save();
 
-      // Outer Cyan-Green Athletic Glow
-      ctx.beginPath();
-      ctx.strokeStyle = '#00f2fe';
-      ctx.lineWidth = 14;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.shadowColor = '#00d09c';
-      ctx.shadowBlur = 26;
-      ctx.globalAlpha = 0.45;
-      points.forEach((p, idx) => {
-        if (idx === 0) ctx.moveTo(p.x, p.y);
-        else ctx.lineTo(p.x, p.y);
-      });
-      ctx.stroke();
+      // If coords provided, map real GPS points; otherwise use the exact iconic race course loop
+      let points: { x: number; y: number }[] = [];
 
-      // Solid Main Route Line
-      ctx.globalAlpha = 1.0;
-      ctx.beginPath();
-      ctx.strokeStyle = '#00d09c';
-      ctx.lineWidth = 7;
-      points.forEach((p, idx) => {
-        if (idx === 0) ctx.moveTo(p.x, p.y);
-        else ctx.lineTo(p.x, p.y);
-      });
-      ctx.stroke();
+      if (coords && coords.length >= 2) {
+        const lats = coords.map((c) => c.latitude);
+        const lngs = coords.map((c) => c.longitude);
+        const minLat = Math.min(...lats);
+        const maxLat = Math.max(...lats);
+        const minLng = Math.min(...lngs);
+        const maxLng = Math.max(...lngs);
+        const latRange = maxLat - minLat || 0.001;
+        const lngRange = maxLng - minLng || 0.001;
 
-      // Start Marker
-      const start = points[0];
-      ctx.beginPath();
-      ctx.arc(start.x, start.y, 15, 0, Math.PI * 2);
-      ctx.fillStyle = '#00d09c';
-      ctx.fill();
-      ctx.lineWidth = 3.5;
-      ctx.strokeStyle = '#ffffff';
-      ctx.stroke();
+        const padX = width * 0.12;
+        const padY = height * 0.12;
+        const drawW = width - padX * 2;
+        const drawH = height - padY * 2;
 
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.82)';
-      ctx.beginPath();
-      ctx.roundRect(start.x + 20, start.y - 17, 80, 34, 17);
-      ctx.fill();
-      ctx.font = '800 17px Outfit, Inter, sans-serif';
-      ctx.fillStyle = '#ffffff';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('Start', start.x + 60, start.y);
+        points = coords.map((c) => ({
+          x: x + padX + ((c.longitude - minLng) / lngRange) * drawW,
+          y: y + height - padY - ((c.latitude - minLat) / latRange) * drawH,
+        }));
+      } else {
+        // Exact circuit track matching the reference image layout
+        const sX = x + width * 0.52;
+        const sY = y + height * 0.18;
+        const fX = x + width * 0.86;
+        const fY = y + height * 0.68;
 
-      // Finish Marker
-      const end = points[points.length - 1];
-      ctx.beginPath();
-      ctx.arc(end.x, end.y, 15, 0, Math.PI * 2);
-      ctx.fillStyle = '#ef4444';
-      ctx.fill();
-      ctx.lineWidth = 3.5;
-      ctx.strokeStyle = '#ffffff';
-      ctx.stroke();
+        points = [
+          { x: sX, y: sY },
+          { x: x + width * 0.54, y: y + height * 0.26 },
+          { x: x + width * 0.44, y: y + height * 0.3 },
+          { x: x + width * 0.32, y: y + height * 0.36 },
+          { x: x + width * 0.18, y: y + height * 0.44 },
+          { x: x + width * 0.13, y: y + height * 0.52 },
+          { x: x + width * 0.14, y: y + height * 0.62 },
+          { x: x + width * 0.19, y: y + height * 0.72 },
+          { x: x + width * 0.25, y: y + height * 0.81 },
+          { x: x + width * 0.36, y: y + height * 0.83 },
+          { x: x + width * 0.48, y: y + height * 0.86 },
+          { x: x + width * 0.6, y: y + height * 0.83 },
+          { x: x + width * 0.66, y: y + height * 0.73 },
+          { x: x + width * 0.74, y: y + height * 0.7 },
+          { x: x + width * 0.82, y: y + height * 0.68 },
+          { x: fX, y: fY },
+          { x: x + width * 0.82, y: y + height * 0.42 },
+          { x: x + width * 0.79, y: y + height * 0.28 },
+          // Branch back down from start
+          { x: x + width * 0.57, y: y + height * 0.4 },
+          { x: x + width * 0.63, y: y + height * 0.6 },
+          { x: x + width * 0.66, y: y + height * 0.73 },
+        ];
+      }
 
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.82)';
-      ctx.beginPath();
-      ctx.roundRect(end.x + 20, end.y - 17, 88, 34, 17);
-      ctx.fill();
-      ctx.font = '800 17px Outfit, Inter, sans-serif';
-      ctx.fillStyle = '#ffffff';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('Finish', end.x + 64, end.y);
+      if (points.length >= 2) {
+        // 1. Radiant Multi-Layer Neon Cyan-Mint Route Glow
+        ctx.beginPath();
+        ctx.strokeStyle = '#00f2fe';
+        ctx.lineWidth = 18;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.shadowColor = '#00ffb2';
+        ctx.shadowBlur = 28;
+        ctx.globalAlpha = 0.35;
+        points.forEach((p, idx) => {
+          if (idx === 0) ctx.moveTo(p.x, p.y);
+          else ctx.lineTo(p.x, p.y);
+        });
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.strokeStyle = '#00ffb2';
+        ctx.lineWidth = 12;
+        ctx.shadowColor = '#00d09c';
+        ctx.shadowBlur = 18;
+        ctx.globalAlpha = 0.65;
+        points.forEach((p, idx) => {
+          if (idx === 0) ctx.moveTo(p.x, p.y);
+          else ctx.lineTo(p.x, p.y);
+        });
+        ctx.stroke();
+
+        // 2. Solid Crisp Core Route Line
+        ctx.globalAlpha = 1.0;
+        ctx.beginPath();
+        ctx.strokeStyle = '#00ffb2';
+        ctx.lineWidth = 6.5;
+        ctx.shadowBlur = 6;
+        points.forEach((p, idx) => {
+          if (idx === 0) ctx.moveTo(p.x, p.y);
+          else ctx.lineTo(p.x, p.y);
+        });
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+
+        // 3. White Checkpoint Node Dots along the route (matching reference screenshot)
+        const step = Math.max(1, Math.floor(points.length / 9));
+        for (let i = 1; i < points.length - 1; i += step) {
+          const pt = points[i];
+          ctx.beginPath();
+          ctx.arc(pt.x, pt.y, 4.5, 0, Math.PI * 2);
+          ctx.fillStyle = '#ffffff';
+          ctx.shadowColor = '#00ffb2';
+          ctx.shadowBlur = 8;
+          ctx.fill();
+          ctx.shadowBlur = 0;
+        }
+
+        // 4. Start Marker (Green Ring + White Core + Dark Capsule Pill Badge "Start")
+        const startPt = points[0];
+        // Green outer beacon
+        ctx.beginPath();
+        ctx.arc(startPt.x, startPt.y, 14, 0, Math.PI * 2);
+        ctx.fillStyle = '#00ffb2';
+        ctx.shadowColor = '#00ffb2';
+        ctx.shadowBlur = 16;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        // White inner center
+        ctx.beginPath();
+        ctx.arc(startPt.x, startPt.y, 6.5, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+
+        // Start Capsule Pill Badge
+        const startBadgeX = startPt.x + 22 > x + width - 85 ? startPt.x - 95 : startPt.x + 22;
+        const startBadgeY = startPt.y - 18;
+        ctx.fillStyle = 'rgba(2, 6, 23, 0.9)';
+        ctx.beginPath();
+        ctx.roundRect(startBadgeX, startBadgeY, 78, 36, 18);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(0, 255, 178, 0.4)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        ctx.font = '800 16px Outfit, Inter, sans-serif';
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('Start', startBadgeX + 39, startBadgeY + 18);
+
+        // 5. Finish Marker (Red Ring + White Core + Dark Capsule Pill Badge "Finish")
+        const endPt = points[points.length - (coords && coords.length >= 2 ? 1 : 4)];
+        // Red outer beacon
+        ctx.beginPath();
+        ctx.arc(endPt.x, endPt.y, 14, 0, Math.PI * 2);
+        ctx.fillStyle = '#ef4444';
+        ctx.shadowColor = '#ef4444';
+        ctx.shadowBlur = 16;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        // White inner center
+        ctx.beginPath();
+        ctx.arc(endPt.x, endPt.y, 6.5, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+
+        // Finish Capsule Pill Badge
+        const finishBadgeX = endPt.x + 22 > x + width - 95 ? endPt.x - 100 : endPt.x + 22;
+        const finishBadgeY = endPt.y - 18;
+        ctx.fillStyle = 'rgba(2, 6, 23, 0.9)';
+        ctx.beginPath();
+        ctx.roundRect(finishBadgeX, finishBadgeY, 86, 36, 18);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(239, 68, 68, 0.4)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        ctx.font = '800 16px Outfit, Inter, sans-serif';
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('Finish', finishBadgeX + 43, finishBadgeY + 18);
+      }
 
       ctx.restore();
     },
@@ -522,7 +537,7 @@ export const WorkoutShareModal: React.FC<WorkoutShareModalProps> = ({
     ctx.fillText(timeStr, dateRightX, isStory ? topPadding + 44 : topPadding + 42);
     ctx.restore();
 
-    // 3. Hero Distance & Subtitle (Clean, Spaced, NEVER OVERLAPPING)
+    // 3. Hero Distance & Subtitle
     const distY = isStory ? 325 : 210;
     const kmValue = (workout.distance_meters / 1000).toFixed(2);
     const heroLeftX = isStory ? 90 : 70;
@@ -532,7 +547,6 @@ export const WorkoutShareModal: React.FC<WorkoutShareModalProps> = ({
     ctx.textBaseline = 'alphabetic';
     ctx.font = isStory ? '900 130px Outfit, Inter, sans-serif' : '900 90px Outfit, Inter, sans-serif';
 
-    // Measure distance text width with actual font
     const numberWidth = ctx.measureText(kmValue).width;
 
     ctx.fillStyle = '#ffffff';
@@ -540,42 +554,26 @@ export const WorkoutShareModal: React.FC<WorkoutShareModalProps> = ({
     ctx.shadowBlur = isStory ? 24 : 18;
     ctx.fillText(kmValue, heroLeftX, distY);
 
-    // KM unit positioned after the number
     ctx.font = isStory ? '900 50px Outfit, Inter, sans-serif' : '900 36px Outfit, Inter, sans-serif';
     ctx.fillStyle = '#00d09c';
     ctx.shadowBlur = 0;
     ctx.fillText('KM', heroLeftX + numberWidth + (isStory ? 20 : 14), distY - (isStory ? 24 : 16));
 
-    // Subtitle
     ctx.font = isStory ? '700 28px Inter, sans-serif' : '700 19px Inter, sans-serif';
     ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
     ctx.fillText('A step closer to a healthier you!', heroLeftX, distY + (isStory ? 48 : 34));
 
-    // Green Underline Accent Bar
     ctx.fillStyle = '#00d09c';
     ctx.beginPath();
     ctx.roundRect(heroLeftX, distY + (isStory ? 68 : 46), isStory ? 88 : 68, isStory ? 6 : 5, 2.5);
     ctx.fill();
     ctx.restore();
 
-    // 4. Center Route Polyline Map Area
+    // 4. Center Realistic GPS Route (Direct seamless rendering across canvas without container box)
     const mapY = isStory ? 445 : 285;
     const mapW = isStory ? W - 180 : W - 140;
     const mapH = isStory ? 750 : 390;
     const mapX = isStory ? 90 : 70;
-
-    // Route title watermark in center of loop
-    if (theme === 'default') {
-      ctx.save();
-      ctx.font = isStory
-        ? 'italic 700 30px "Playfair Display", Outfit, Inter, sans-serif'
-        : 'italic 700 24px "Playfair Display", Outfit, Inter, sans-serif';
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(workout.title || 'Jog Session', W / 2, mapY + mapH * 0.44);
-      ctx.restore();
-    }
 
     drawRouteOnCanvas(ctx, workout.route_coordinates || [], mapX, mapY, mapW, mapH);
 
@@ -683,9 +681,9 @@ export const WorkoutShareModal: React.FC<WorkoutShareModalProps> = ({
       if (document.fonts) {
         try {
           await Promise.all([
-            document.fonts.load('900 52px Outfit').catch(() => {}),
-            document.fonts.load('800 20px Outfit').catch(() => {}),
-            document.fonts.load('700 16px Outfit').catch(() => {}),
+            document.fonts.load('900 52px Outfit').catch(() => { }),
+            document.fonts.load('800 20px Outfit').catch(() => { }),
+            document.fonts.load('700 16px Outfit').catch(() => { }),
             document.fonts.ready,
           ]);
         } catch (err) {
@@ -784,14 +782,6 @@ export const WorkoutShareModal: React.FC<WorkoutShareModalProps> = ({
     }
   };
 
-  const themeOptions: { id: ThemeStyle; label: string; previewBg: string; isPhoto?: boolean }[] = [
-    { id: 'default', label: 'Default', previewBg: 'bg-gradient-to-tr from-emerald-900 to-teal-800' },
-    { id: 'dark', label: 'Dark', previewBg: 'bg-gradient-to-tr from-slate-950 via-slate-900 to-indigo-950' },
-    { id: 'sunrise', label: 'Sunrise', previewBg: 'bg-gradient-to-tr from-orange-600 via-amber-500 to-yellow-400' },
-    { id: 'minimal', label: 'Minimal', previewBg: 'bg-gradient-to-tr from-emerald-100 to-teal-200 text-emerald-900' },
-    { id: 'photo', label: 'Photo', previewBg: 'bg-gradient-to-tr from-sky-800 to-teal-900', isPhoto: true },
-  ];
-
   return createPortal(
     <div
       className="fixed inset-0 z-[99999] bg-[#eef8f4] dark:bg-slate-950 flex flex-col h-[100dvh] max-h-[100dvh] w-full overflow-hidden touch-none select-none overscroll-none animate-fade-in"
@@ -853,53 +843,7 @@ export const WorkoutShareModal: React.FC<WorkoutShareModalProps> = ({
 
         {/* Controls Section */}
         <footer className="shrink-0 space-y-2.5">
-          {/* 1. Theme Aesthetic Thumbnail Cards (5 Options) */}
-          <div className="flex items-center justify-between gap-2 px-0.5">
-            {themeOptions.map((opt) => {
-              const isSelected = theme === opt.id;
-              return (
-                <div key={opt.id} className="flex flex-col items-center gap-1 flex-1">
-                  <button
-                    onClick={() => {
-                      if (opt.isPhoto) {
-                        fileInputRef.current?.click();
-                      } else {
-                        setTheme(opt.id);
-                      }
-                    }}
-                    className={`relative w-full h-12 rounded-2xl overflow-hidden border-2 transition-all shadow-sm ${opt.previewBg} flex items-center justify-center ${isSelected
-                      ? 'border-emerald-500 ring-2 ring-emerald-500/30 scale-105'
-                      : 'border-transparent hover:opacity-90 opacity-80'
-                      }`}
-                  >
-                    {isSelected && (
-                      <div className="w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-sm">
-                        <Check size={12} strokeWidth={3} />
-                      </div>
-                    )}
-                    {opt.isPhoto && !isSelected && (
-                      <Camera size={15} className="text-white/80" />
-                    )}
-                  </button>
-                  <span
-                    className={`text-[10px] font-bold tracking-tight ${isSelected ? 'text-emerald-950 dark:text-emerald-400 font-extrabold' : 'text-slate-500 dark:text-slate-400'
-                      }`}
-                  >
-                    {opt.label}
-                  </span>
-                </div>
-              );
-            })}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handlePhotoUpload}
-              className="hidden"
-            />
-          </div>
-
-          {/* 2. Format Toggle (Side-by-Side Wide Pill Buttons) */}
+          {/* Format Toggle (Side-by-Side Wide Pill Buttons) */}
           <div className="grid grid-cols-2 gap-2.5">
             <button
               onClick={() => setAspectRatio('story')}

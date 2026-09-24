@@ -1,8 +1,9 @@
 import { insforge } from '../lib/insforge';
-import { Workout, WorkoutType, GPSCoordinate, WorkoutSplit } from '../types';
+import { Workout, WorkoutType, GPSCoordinate, WorkoutSplit, Achievement } from '../types';
 import { achievementsService } from './achievementsService';
 import { recordsService } from './recordsService';
 import { goalsService } from './goalsService';
+import { gearService } from './gearService';
 import { syncQueue } from './syncQueue';
 import { workoutLogger } from '../utils/workoutLogger';
 import { getLocalDateKey, getStartOfLocalWeek, isSameLocalDate } from '../utils/dateUtils';
@@ -14,6 +15,7 @@ export interface SaveWorkoutResult {
   workout: Workout;
   isCloudSynced: boolean;
   message: string;
+  newlyUnlockedAchievements?: Achievement[];
 }
 
 export function normalizeWorkout(raw: any): Workout {
@@ -303,13 +305,19 @@ export const workoutService = {
         }
       }
 
-      // 4. Evaluate Goals, Achievements & Personal Records
+      // 4. Evaluate Goals, Achievements, Gear Mileage & Personal Records
+      let newlyUnlocked: Achievement[] = [];
       try {
-        await Promise.allSettled([
+        const [goalRes, achRes, prRes, gearRes] = await Promise.allSettled([
           goalsService.updateProgress(savedWorkout.user_id),
           achievementsService.checkAchievements(savedWorkout.user_id, savedWorkout),
           recordsService.checkPersonalRecords(savedWorkout.user_id, savedWorkout),
+          gearService.addDistanceToActiveGear(savedWorkout.user_id, savedWorkout.distance_meters),
         ]);
+
+        if (achRes.status === 'fulfilled' && Array.isArray(achRes.value)) {
+          newlyUnlocked = achRes.value;
+        }
       } catch (e) {
         console.warn('Error evaluating badges/goals after save:', e);
       }
@@ -320,6 +328,7 @@ export const workoutService = {
         workout: savedWorkout,
         isCloudSynced: true,
         message: 'Workout saved successfully!',
+        newlyUnlockedAchievements: newlyUnlocked,
       };
     } catch (error) {
       console.error('Failed to save workout to cloud DB, falling back to local queue:', error);
@@ -329,6 +338,10 @@ export const workoutService = {
       };
       this.addWorkoutToCache(fallbackWorkout);
       syncQueue.queueCompletedWorkout(newWorkoutPayload);
+
+      // Attribute local gear distance
+      gearService.addDistanceToActiveGear(fallbackWorkout.user_id, fallbackWorkout.distance_meters).catch(() => {});
+
       return {
         workout: fallbackWorkout,
         isCloudSynced: false,

@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { LiveWorkoutState, UserProfile, Workout } from '../types';
+import { LiveWorkoutState, UserProfile, Workout, Achievement } from '../types';
 import { workoutService } from '../services/workoutService';
 import { formatDistance, formatDuration, formatPace } from '../utils/formatters';
 import { StaticRouteMap } from '../components/map/StaticRouteMap';
 import { WorkoutShareModal } from '../components/workout/WorkoutShareModal';
+import { AchievementCelebrationModal } from '../components/achievements/AchievementCelebrationModal';
 import confetti from 'canvas-confetti';
 import {
   Trophy,
@@ -54,6 +55,7 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
   const [saving, setSaving] = useState(false);
   const [savedWorkout, setSavedWorkout] = useState<Workout | null>(null);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [newlyUnlockedAchievements, setNewlyUnlockedAchievements] = useState<Achievement[]>([]);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [quoteIndex, setQuoteIndex] = useState(0);
 
@@ -147,6 +149,9 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
 
       const result = await workoutService.saveWorkout(payload);
       setSavedWorkout(result.workout);
+      if (result.newlyUnlockedAchievements && result.newlyUnlockedAchievements.length > 0) {
+        setNewlyUnlockedAchievements(result.newlyUnlockedAchievements);
+      }
       onSaved(result.workout);
     } catch (err) {
       console.error('Error auto-saving workout:', err);
@@ -503,6 +508,15 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
         <WorkoutShareModal
           workout={currentWorkoutObject}
           onClose={() => setShowShareModal(false)}
+        />
+      )}
+
+      {/* Achievement Unlocked Celebration Popup */}
+      {newlyUnlockedAchievements.length > 0 && (
+        <AchievementCelebrationModal
+          achievements={newlyUnlockedAchievements}
+          isOpen={newlyUnlockedAchievements.length > 0}
+          onClose={() => setNewlyUnlockedAchievements([])}
         />
       )}
     </div>
