@@ -275,7 +275,12 @@ export const WorkoutDetailScreen: React.FC<WorkoutDetailScreenProps> = ({
 
       {/* 5. Elevation Profile */}
       {workout.route_coordinates && workout.route_coordinates.some((c) => c.altitude != null) && (
-        <ElevationChart coordinates={workout.route_coordinates} />
+        <ElevationChart
+          coordinates={workout.route_coordinates}
+          elevationGain={workout.elevation_gain}
+          elevationLoss={workout.elevation_loss}
+          distanceUnit={distanceUnit}
+        />
       )}
 
       {/* 6. Splits Table */}

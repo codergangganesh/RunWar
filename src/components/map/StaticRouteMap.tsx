@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { GPSCoordinate } from '../../types';
-import { Maximize2, Minimize2, Play, Pause, RotateCcw, X } from 'lucide-react';
+import { Maximize2, Minimize2, Play, Pause, RotateCcw, X, LocateFixed } from 'lucide-react';
 import { calculateSplits, getRouteDistanceMilestones, calculateHaversineDistance } from '../../utils/calculations';
 import { formatDistance, formatDuration, formatPace } from '../../utils/formatters';
 
@@ -50,7 +50,7 @@ const createKilometerMarkerIcon = (kilometer: number) =>
     iconAnchor: [14, 14],
   });
 
-function MapController({ coordinates, isFullscreen }: { coordinates: GPSCoordinate[]; isFullscreen?: boolean }) {
+function MapController({ coordinates, isFullscreen, recenterTrigger }: { coordinates: GPSCoordinate[]; isFullscreen?: boolean; recenterTrigger?: number }) {
   const map = useMap();
 
   useEffect(() => {
@@ -58,7 +58,7 @@ function MapController({ coordinates, isFullscreen }: { coordinates: GPSCoordina
       const bounds = L.latLngBounds(coordinates.map((c) => [c.latitude, c.longitude]));
       map.fitBounds(bounds, { padding: isFullscreen ? [50, 50] : [35, 35], maxZoom: 16 });
     }
-  }, [coordinates, map, isFullscreen]);
+  }, [coordinates, map, isFullscreen, recenterTrigger]);
 
   useEffect(() => {
     const container = map.getContainer();
@@ -183,6 +183,7 @@ interface MapInnerContentProps {
   kilometerMilestones: ReturnType<typeof getRouteDistanceMilestones>;
   kilometerSplits: ReturnType<typeof calculateSplits>;
   isFullscreen: boolean;
+  recenterTrigger?: number;
 }
 
 const MapInnerContent: React.FC<MapInnerContentProps> = ({
@@ -197,6 +198,7 @@ const MapInnerContent: React.FC<MapInnerContentProps> = ({
   kilometerMilestones,
   kilometerSplits,
   isFullscreen,
+  recenterTrigger,
 }) => {
   return (
     <>
@@ -206,7 +208,7 @@ const MapInnerContent: React.FC<MapInnerContentProps> = ({
         maxZoom={19}
       />
 
-      <MapController coordinates={coordinates} isFullscreen={isFullscreen} />
+      <MapController coordinates={coordinates} isFullscreen={isFullscreen} recenterTrigger={recenterTrigger} />
 
       {/* Outer athletic glow */}
       <Polyline
@@ -303,6 +305,7 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackIndex, setPlaybackIndex] = useState(0);
   const [playbackSpeed, setPlaybackSpeed] = useState<1 | 2 | 4>(1);
+  const [recenterTrigger, setRecenterTrigger] = useState(0);
   const playbackIntervalRef = useRef<any>(null);
 
   // Keyboard shortcut listener to close fullscreen on Escape
@@ -438,6 +441,7 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
             kilometerMilestones={kilometerMilestones}
             kilometerSplits={kilometerSplits}
             isFullscreen={false}
+            recenterTrigger={recenterTrigger}
           />
         </MapContainer>
 
@@ -455,15 +459,28 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
           />
         )}
 
-        {/* Fullscreen Expand Button */}
-        <button
-          onClick={handleFullscreenClick}
-          className="absolute bottom-3 right-3 z-[10] p-2 rounded-xl bg-slate-900/90 dark:bg-slate-900/95 backdrop-blur-md border border-slate-700/80 text-white hover:text-emerald-400 shadow-md active:scale-95 transition-all cursor-pointer"
-          title="Expand Fullscreen Map"
-          aria-label="Expand Fullscreen Map"
-        >
-          <Maximize2 size={15} />
-        </button>
+        {/* Map Controls */}
+        <div className="absolute bottom-3 right-3 z-[10] flex items-center gap-2">
+          {/* Recenter Button */}
+          <button
+            onClick={() => setRecenterTrigger(prev => prev + 1)}
+            className="p-2 rounded-xl bg-slate-900/90 dark:bg-slate-900/95 backdrop-blur-md border border-slate-700/80 text-white hover:text-emerald-400 shadow-md active:scale-95 transition-all cursor-pointer"
+            title="Recenter Map"
+            aria-label="Recenter Map"
+          >
+            <LocateFixed size={15} />
+          </button>
+
+          {/* Fullscreen Expand Button */}
+          <button
+            onClick={handleFullscreenClick}
+            className="p-2 rounded-xl bg-slate-900/90 dark:bg-slate-900/95 backdrop-blur-md border border-slate-700/80 text-white hover:text-emerald-400 shadow-md active:scale-95 transition-all cursor-pointer"
+            title="Expand Fullscreen Map"
+            aria-label="Expand Fullscreen Map"
+          >
+            <Maximize2 size={15} />
+          </button>
+        </div>
       </div>
 
       {/* Fullscreen Modal View via React Portal */}
@@ -527,6 +544,7 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
                     kilometerMilestones={kilometerMilestones}
                     kilometerSplits={kilometerSplits}
                     isFullscreen={true}
+                    recenterTrigger={recenterTrigger}
                   />
                 </MapContainer>
 
@@ -544,15 +562,28 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
                   />
                 )}
 
-                {/* Bottom Right Minimize Button */}
-                <button
-                  onClick={() => setIsFullscreen(false)}
-                  className="absolute bottom-3 right-3 z-[10] p-2 rounded-xl bg-slate-900/90 dark:bg-slate-900/95 backdrop-blur-md border border-slate-700/80 text-white hover:text-emerald-400 shadow-md active:scale-95 transition-all cursor-pointer"
-                  title="Exit Fullscreen"
-                  aria-label="Exit Fullscreen"
-                >
-                  <Minimize2 size={16} />
-                </button>
+                {/* Fullscreen Bottom Buttons */}
+                <div className="absolute bottom-3 right-3 z-[10] flex items-center gap-2">
+                  {/* Recenter Button */}
+                  <button
+                    onClick={() => setRecenterTrigger(prev => prev + 1)}
+                    className="p-2 rounded-xl bg-slate-900/90 dark:bg-slate-900/95 backdrop-blur-md border border-slate-700/80 text-white hover:text-emerald-400 shadow-md active:scale-95 transition-all cursor-pointer"
+                    title="Recenter Map"
+                    aria-label="Recenter Map"
+                  >
+                    <LocateFixed size={16} />
+                  </button>
+
+                  {/* Bottom Right Minimize Button */}
+                  <button
+                    onClick={() => setIsFullscreen(false)}
+                    className="p-2 rounded-xl bg-slate-900/90 dark:bg-slate-900/95 backdrop-blur-md border border-slate-700/80 text-white hover:text-emerald-400 shadow-md active:scale-95 transition-all cursor-pointer"
+                    title="Exit Fullscreen"
+                    aria-label="Exit Fullscreen"
+                  >
+                    <Minimize2 size={16} />
+                  </button>
+                </div>
               </div>
             </div>
           </div>,

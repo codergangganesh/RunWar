@@ -371,7 +371,7 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({ workouts, profil
         </div>
 
         {/* Secondary 4 Metrics Grid */}
-        <div className="grid grid-cols-4 gap-2 pt-4 border-t border-slate-100 dark:border-slate-800/80">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-2 pt-4 border-t border-slate-100 dark:border-slate-800/80">
           {/* Time */}
           <div className="flex flex-col items-start gap-1">
             <div className="flex items-center gap-1 text-slate-400 dark:text-slate-500 text-[10px] font-semibold">
@@ -389,7 +389,7 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({ workouts, profil
               <Gauge className="w-3.5 h-3.5 text-[#00b284]" />
               <span>Avg Pace</span>
             </div>
-            <div className="font-display font-bold text-xs sm:text-sm text-slate-900 dark:text-white truncate max-w-full">
+            <div className="font-display font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
               {totalDistanceMeters > 0 ? formatPace(avgPace, paceUnit) : `--:-- /${distanceUnit}`}
             </div>
           </div>
@@ -711,82 +711,82 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({ workouts, profil
         </div>
 
         {/* 4 Clean Left-Aligned Stat Cards in 4 Columns */}
-        <div className="grid grid-cols-4 gap-2.5 sm:gap-3.5">
+        <div className="grid grid-cols-4 gap-1.5 sm:gap-3.5">
           {/* 1. Best Distance (Emerald Theme) */}
-          <div className="bg-slate-50/90 dark:bg-[#080e1c] hover:bg-emerald-50/30 dark:hover:bg-[#0c162c] p-3 sm:p-4 rounded-2xl border border-slate-100 dark:border-[#1a263d] flex flex-col items-start justify-between text-left transition-all min-h-[110px] sm:min-h-[120px]">
+          <div className="bg-slate-50/90 dark:bg-[#080e1c] hover:bg-emerald-50/30 dark:hover:bg-[#0c162c] p-2 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-100 dark:border-[#1a263d] flex flex-col items-start justify-between text-left transition-all min-h-[85px] sm:min-h-[120px]">
             {/* Icon Box */}
-            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-emerald-100/80 dark:bg-[#0d2a24] flex items-center justify-center text-[#00d09c] shrink-0">
-              <Footprints className="w-4 h-4 text-[#00d09c]" />
+            <div className="w-6 h-6 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl bg-emerald-100/80 dark:bg-[#0d2a24] flex items-center justify-center text-[#00d09c] shrink-0">
+              <Footprints className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#00d09c]" />
             </div>
             {/* Label */}
-            <div className="text-[11px] sm:text-xs font-semibold text-slate-500 dark:text-slate-400 leading-tight mt-2.5 mb-1 truncate w-full">
+            <div className="text-[9px] sm:text-xs font-semibold text-slate-500 dark:text-slate-400 leading-tight mt-1.5 sm:mt-2.5 mb-0.5 sm:mb-1 w-full tracking-tighter sm:tracking-normal">
               Best Distance
             </div>
             {/* Value */}
-            <div className="font-display font-black text-slate-950 dark:text-white leading-none flex items-baseline gap-1">
-              <span className="text-sm sm:text-base md:text-lg font-black">
+            <div className="font-display font-black text-slate-950 dark:text-white leading-none flex items-baseline gap-0.5 sm:gap-1">
+              <span className="text-xs sm:text-base md:text-lg font-black tracking-tight">
                 {bestDistanceMeters > 0 ? formatDistance(bestDistanceMeters, distanceUnit) : '0.00'}
               </span>
-              <span className="text-[10px] sm:text-xs font-semibold text-slate-400 dark:text-slate-500 lowercase">
+              <span className="text-[8px] sm:text-xs font-semibold text-slate-400 dark:text-slate-500 lowercase">
                 {distanceUnit}
               </span>
             </div>
           </div>
 
           {/* 2. Best Pace (Cyan / Sky Theme) */}
-          <div className="bg-slate-50/90 dark:bg-[#080e1c] hover:bg-sky-50/30 dark:hover:bg-[#0c162c] p-3 sm:p-4 rounded-2xl border border-slate-100 dark:border-[#1a263d] flex flex-col items-start justify-between text-left transition-all min-h-[110px] sm:min-h-[120px]">
+          <div className="bg-slate-50/90 dark:bg-[#080e1c] hover:bg-sky-50/30 dark:hover:bg-[#0c162c] p-2 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-100 dark:border-[#1a263d] flex flex-col items-start justify-between text-left transition-all min-h-[85px] sm:min-h-[120px]">
             {/* Icon Box */}
-            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-sky-100/80 dark:bg-[#0f243e] flex items-center justify-center text-[#38bdf8] shrink-0">
-              <Gauge className="w-4 h-4 text-sky-500 dark:text-[#38bdf8]" />
+            <div className="w-6 h-6 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl bg-sky-100/80 dark:bg-[#0f243e] flex items-center justify-center text-[#38bdf8] shrink-0">
+              <Gauge className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-sky-500 dark:text-[#38bdf8]" />
             </div>
             {/* Label */}
-            <div className="text-[11px] sm:text-xs font-semibold text-slate-500 dark:text-slate-400 leading-tight mt-2.5 mb-1 truncate w-full">
+            <div className="text-[9px] sm:text-xs font-semibold text-slate-500 dark:text-slate-400 leading-tight mt-1.5 sm:mt-2.5 mb-0.5 sm:mb-1 w-full tracking-tighter sm:tracking-normal">
               Best Pace
             </div>
             {/* Value */}
-            <div className="font-display font-black text-slate-950 dark:text-white leading-none flex items-baseline gap-1">
-              <span className="text-sm sm:text-base md:text-lg font-black">
+            <div className="font-display font-black text-slate-950 dark:text-white leading-none flex items-baseline gap-0.5 sm:gap-1">
+              <span className="text-xs sm:text-base md:text-lg font-black tracking-tight">
                 {bestPaceSec > 0 ? formatPace(bestPaceSec, paceUnit).replace(/\s*\/\w+/, '') : '--:--'}
               </span>
-              <span className="text-[10px] sm:text-xs font-semibold text-slate-400 dark:text-slate-500">
+              <span className="text-[8px] sm:text-xs font-semibold text-slate-400 dark:text-slate-500">
                 /{distanceUnit}
               </span>
             </div>
           </div>
 
           {/* 3. Most Calories (Amber / Orange Theme) */}
-          <div className="bg-slate-50/90 dark:bg-[#080e1c] hover:bg-amber-50/30 dark:hover:bg-[#0c162c] p-3 sm:p-4 rounded-2xl border border-slate-100 dark:border-[#1a263d] flex flex-col items-start justify-between text-left transition-all min-h-[110px] sm:min-h-[120px]">
+          <div className="bg-slate-50/90 dark:bg-[#080e1c] hover:bg-amber-50/30 dark:hover:bg-[#0c162c] p-2 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-100 dark:border-[#1a263d] flex flex-col items-start justify-between text-left transition-all min-h-[85px] sm:min-h-[120px]">
             {/* Icon Box */}
-            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-amber-100/80 dark:bg-[#2a1b0e] flex items-center justify-center text-amber-500 dark:text-[#fb923c] shrink-0">
-              <Flame className="w-4 h-4 text-amber-500 dark:text-[#fb923c]" />
+            <div className="w-6 h-6 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl bg-amber-100/80 dark:bg-[#2a1b0e] flex items-center justify-center text-amber-500 dark:text-[#fb923c] shrink-0">
+              <Flame className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-500 dark:text-[#fb923c]" />
             </div>
             {/* Label */}
-            <div className="text-[11px] sm:text-xs font-semibold text-slate-500 dark:text-slate-400 leading-tight mt-2.5 mb-1 truncate w-full">
+            <div className="text-[9px] sm:text-xs font-semibold text-slate-500 dark:text-slate-400 leading-tight mt-1.5 sm:mt-2.5 mb-0.5 sm:mb-1 w-full tracking-tighter sm:tracking-normal">
               Most Calories
             </div>
             {/* Value */}
-            <div className="font-display font-black text-slate-950 dark:text-white leading-none flex items-baseline gap-1">
-              <span className="text-sm sm:text-base md:text-lg font-black">
+            <div className="font-display font-black text-slate-950 dark:text-white leading-none flex items-baseline gap-0.5 sm:gap-1">
+              <span className="text-xs sm:text-base md:text-lg font-black tracking-tight">
                 {mostCalories}
               </span>
-              <span className="text-[10px] sm:text-xs font-semibold text-slate-400 dark:text-slate-500 lowercase">
+              <span className="text-[8px] sm:text-xs font-semibold text-slate-400 dark:text-slate-500 lowercase">
                 kcal
               </span>
             </div>
           </div>
 
           {/* 4. Total Workouts (Purple Theme) */}
-          <div className="bg-slate-50/90 dark:bg-[#080e1c] hover:bg-purple-50/30 dark:hover:bg-[#0c162c] p-3 sm:p-4 rounded-2xl border border-slate-100 dark:border-[#1a263d] flex flex-col items-start justify-between text-left transition-all min-h-[110px] sm:min-h-[120px]">
+          <div className="bg-slate-50/90 dark:bg-[#080e1c] hover:bg-purple-50/30 dark:hover:bg-[#0c162c] p-2 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-100 dark:border-[#1a263d] flex flex-col items-start justify-between text-left transition-all min-h-[85px] sm:min-h-[120px]">
             {/* Icon Box */}
-            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-purple-100/80 dark:bg-[#221638] flex items-center justify-center text-purple-500 dark:text-[#a855f7] shrink-0">
-              <BarChart2 className="w-4 h-4 text-purple-500 dark:text-[#a855f7]" />
+            <div className="w-6 h-6 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl bg-purple-100/80 dark:bg-[#221638] flex items-center justify-center text-purple-500 dark:text-[#a855f7] shrink-0">
+              <BarChart2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-purple-500 dark:text-[#a855f7]" />
             </div>
             {/* Label */}
-            <div className="text-[11px] sm:text-xs font-semibold text-slate-500 dark:text-slate-400 leading-tight mt-2.5 mb-1 truncate w-full">
+            <div className="text-[9px] sm:text-xs font-semibold text-slate-500 dark:text-slate-400 leading-tight mt-1.5 sm:mt-2.5 mb-0.5 sm:mb-1 w-full tracking-tighter sm:tracking-normal">
               Total Workouts
             </div>
             {/* Value */}
-            <div className="font-display font-black text-sm sm:text-base md:text-lg text-slate-950 dark:text-white leading-none">
+            <div className="font-display font-black text-xs sm:text-base md:text-lg text-slate-950 dark:text-white leading-none tracking-tight">
               {totalWorkouts}
             </div>
           </div>
