@@ -99,7 +99,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     try {
       localStorage.setItem('runwar_pocket_unlock_mode', next);
       if ('vibrate' in navigator) navigator.vibrate(25);
-    } catch {}
+    } catch { }
 
     if (profile?.user_id) {
       try {
@@ -129,7 +129,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     try {
       localStorage.setItem('runwar_pocket_unlock_mode', next);
       if ('vibrate' in navigator) navigator.vibrate(25);
-    } catch {}
+    } catch { }
 
     if (profile?.user_id) {
       try {
@@ -147,6 +147,9 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
       onUpdateSettings({ ...settings, pocket_unlock_mode: next });
     }
   };
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [saveProfileSuccess, setSaveProfileSuccess] = useState(false);
+  const [saveProfileError, setSaveProfileError] = useState<string | null>(null);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
@@ -342,7 +345,11 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
 
   const handleSaveProfileAndSettings = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!profile) return;
+    if (!profile || isSavingProfile) return;
+
+    setIsSavingProfile(true);
+    setSaveProfileSuccess(false);
+    setSaveProfileError(null);
 
     try {
       const distUnit = unitSystem === 'imperial' ? 'mi' : 'km';
@@ -370,15 +377,30 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
 
       try {
         localStorage.setItem('runwar_pocket_unlock_mode', pocketUnlockMode);
-      } catch {}
+      } catch { }
 
       onUpdateProfile(updatedProf);
       onUpdateSettings(updatedSet);
-      setSavedSuccess(true);
-      setEditingProfile(false);
-      setTimeout(() => setSavedSuccess(false), 2500);
-    } catch (err) {
+
+      // Show brief success checkmark animation on button
+      setSaveProfileSuccess(true);
+      try {
+        if ('vibrate' in navigator) navigator.vibrate([30, 40, 30]);
+      } catch { }
+
+      // Keep success state visible for 600ms before closing edit mode
+      setTimeout(() => {
+        setIsSavingProfile(false);
+        setSaveProfileSuccess(false);
+        setEditingProfile(false);
+        setSavedSuccess(true);
+        setTimeout(() => setSavedSuccess(false), 3000);
+      }, 650);
+    } catch (err: any) {
       console.error('Error saving settings:', err);
+      setIsSavingProfile(false);
+      setSaveProfileSuccess(false);
+      setSaveProfileError(err?.message || 'Failed to save settings. Please try again.');
     }
   };
 
@@ -468,9 +490,9 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
         )}
 
         {savedSuccess && (
-          <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-xs flex items-center gap-2">
-            <Check size={16} />
-            <span>Profile and photo updated successfully!</span>
+          <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-500/15 border border-emerald-200 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-300 text-xs flex items-center gap-2 animate-slide-up shadow-2xs">
+            <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <span>Settings and preferences updated successfully!</span>
           </div>
         )}
 
@@ -672,11 +694,40 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
             />
           </div>
 
+          {saveProfileError && (
+            <div className="p-3 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-2 animate-fade-in">
+              <X size={15} className="shrink-0" />
+              <span>{saveProfileError}</span>
+            </div>
+          )}
+
           <button
             type="submit"
-            className="w-full py-3.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white dark:text-slate-950 font-bold text-xs shadow-md shadow-emerald-500/30 dark:shadow-glow-brand"
+            disabled={isSavingProfile}
+            className={`w-full py-3.5 px-4 rounded-xl font-bold text-xs shadow-md transition-all active:scale-98 flex items-center justify-center gap-2 cursor-pointer ${saveProfileSuccess
+                ? 'bg-emerald-600 text-white shadow-emerald-600/30'
+                : isSavingProfile
+                  ? 'bg-emerald-500/80 text-white cursor-wait opacity-90'
+                  : 'bg-emerald-500 hover:bg-emerald-600 text-white dark:text-slate-950 shadow-emerald-500/30 dark:shadow-glow-brand'
+              }`}
           >
-            Save Changes
+            {isSavingProfile && !saveProfileSuccess && (
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                <span>Updating Profile...</span>
+              </>
+            )}
+
+            {saveProfileSuccess && (
+              <>
+                <CheckCircle2 size={16} className="text-white scale-110 animate-scale-in" />
+                <span>Saved successfully!</span>
+              </>
+            )}
+
+            {!isSavingProfile && !saveProfileSuccess && (
+              <span>Save Changes</span>
+            )}
           </button>
         </form>
       ) : (
