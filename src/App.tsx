@@ -906,6 +906,13 @@ export const App: React.FC = () => {
                 workouts={workouts}
                 profile={profile}
                 onSelectWorkout={handleSelectWorkout}
+                onRefreshRecords={async () => {
+                  const activeId = currentUser?.id || authService.getCachedUser()?.id;
+                  if (activeId) {
+                    const freshRecords = await recordsService.getPersonalRecords(activeId);
+                    setRecords(freshRecords);
+                  }
+                }}
               />
             )}
 
@@ -914,6 +921,7 @@ export const App: React.FC = () => {
                 profile={profile}
                 settings={settings}
                 workouts={workouts}
+                records={records}
                 onNavigate={(destination) => {
                   if (destination === 'privacy') setScreen('privacy');
                   else if (destination === 'connected_health') setScreen('connected_health');

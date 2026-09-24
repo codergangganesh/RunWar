@@ -88,7 +88,25 @@ export const recordsService = {
         }
       }
 
-      // 4. Fastest 5K
+      // 4. Fastest 1 Mile (1609m)
+      if (workout.distance_meters >= 1609) {
+        const currentFastestMile = prMap.get('fastest_1mi');
+        if (!currentFastestMile || workout.average_pace < currentFastestMile.value) {
+          const pr = await this.upsertRecord(userId, 'fastest_1mi', workout.average_pace, workout.id);
+          if (pr) newBrokenPRs.push(pr);
+        }
+      }
+
+      // 5. Fastest 3K
+      if (workout.distance_meters >= 3000) {
+        const currentFastest3k = prMap.get('fastest_3k');
+        if (!currentFastest3k || workout.average_pace < currentFastest3k.value) {
+          const pr = await this.upsertRecord(userId, 'fastest_3k', workout.average_pace, workout.id);
+          if (pr) newBrokenPRs.push(pr);
+        }
+      }
+
+      // 6. Fastest 5K
       if (workout.distance_meters >= 5000) {
         const currentFastest5k = prMap.get('fastest_5k');
         if (!currentFastest5k || workout.average_pace < currentFastest5k.value) {
@@ -97,11 +115,47 @@ export const recordsService = {
         }
       }
 
-      // 5. Fastest 10K
+      // 7. Fastest 10K
       if (workout.distance_meters >= 10000) {
         const currentFastest10k = prMap.get('fastest_10k');
         if (!currentFastest10k || workout.average_pace < currentFastest10k.value) {
           const pr = await this.upsertRecord(userId, 'fastest_10k', workout.average_pace, workout.id);
+          if (pr) newBrokenPRs.push(pr);
+        }
+      }
+
+      // 8. Fastest Half Marathon (21.1 km)
+      if (workout.distance_meters >= 21097) {
+        const currentHalf = prMap.get('fastest_half_marathon');
+        if (!currentHalf || workout.average_pace < currentHalf.value) {
+          const pr = await this.upsertRecord(userId, 'fastest_half_marathon', workout.average_pace, workout.id);
+          if (pr) newBrokenPRs.push(pr);
+        }
+      }
+
+      // 9. Highest Elevation Gain
+      if (workout.elevation_gain && workout.elevation_gain > 5) {
+        const currentElev = prMap.get('highest_elevation');
+        if (!currentElev || workout.elevation_gain > currentElev.value) {
+          const pr = await this.upsertRecord(userId, 'highest_elevation', workout.elevation_gain, workout.id);
+          if (pr) newBrokenPRs.push(pr);
+        }
+      }
+
+      // 10. Most Calories Burned
+      if (workout.calories && workout.calories > 50) {
+        const currentCals = prMap.get('most_calories');
+        if (!currentCals || workout.calories > currentCals.value) {
+          const pr = await this.upsertRecord(userId, 'most_calories', workout.calories, workout.id);
+          if (pr) newBrokenPRs.push(pr);
+        }
+      }
+
+      // 11. Max Speed Record
+      if (workout.max_speed && workout.max_speed > 5) {
+        const currentSpeed = prMap.get('max_speed');
+        if (!currentSpeed || workout.max_speed > currentSpeed.value) {
+          const pr = await this.upsertRecord(userId, 'max_speed', workout.max_speed, workout.id);
           if (pr) newBrokenPRs.push(pr);
         }
       }
@@ -111,6 +165,27 @@ export const recordsService = {
       console.warn('Error checking personal records:', err);
       return [];
     }
+  },
+
+  /**
+   * Scan and recalculate all personal records across user's complete workout history
+   */
+  async recalculateAllPRs(userId: string, workouts: Workout[]): Promise<PersonalRecord[]> {
+    if (!workouts || workouts.length === 0) return [];
+
+    const completed = workouts.filter((w) => w.status === 'completed' || !w.status);
+    if (completed.length === 0) return [];
+
+    // Sort chronologically to evaluate progressions accurately
+    const sorted = [...completed].sort(
+      (a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime()
+    );
+
+    for (const w of sorted) {
+      await this.checkPersonalRecords(userId, w);
+    }
+
+    return this.getPersonalRecords(userId);
   },
 
   async upsertRecord(

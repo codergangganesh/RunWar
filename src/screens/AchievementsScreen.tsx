@@ -16,11 +16,8 @@ import {
   Sunrise,
   Moon,
   Target,
-  ChevronRight,
-  TrendingUp,
 } from 'lucide-react';
 import { AchievementDetailModal } from '../components/achievements/AchievementDetailModal';
-import { formatDistance } from '../utils/formatters';
 
 interface AchievementsScreenProps {
   achievements: Achievement[];
@@ -151,8 +148,9 @@ export const AchievementsScreen: React.FC<AchievementsScreenProps> = ({
     if (selectedCategory === 'all') return true;
     if (selectedCategory === 'unlocked') return unlockedMap.has(a.id);
     if (selectedCategory === 'locked') return !unlockedMap.has(a.id);
-    if (selectedCategory === 'legendary' || selectedCategory === 'epic' || selectedCategory === 'rare' || selectedCategory === 'common') {
-      return (a.rarity || 'common') === selectedCategory;
+    if (selectedCategory === 'speed') return a.category === 'speed';
+    if (selectedCategory === 'endurance') {
+      return a.category === 'distance' || a.category === 'milestones' || a.category === 'consistency';
     }
     return a.category === selectedCategory;
   });
@@ -161,7 +159,7 @@ export const AchievementsScreen: React.FC<AchievementsScreenProps> = ({
     <div className="p-4 space-y-4 animate-fade-in max-w-xl md:max-w-2xl mx-auto pb-8">
       {/* Header */}
       <div className="pt-1">
-        <h2 className="font-display text-2xl font-black text-emerald-950 dark:text-white tracking-tight whitespace-nowrap">
+        <h2 className="font-display text-xl sm:text-2xl font-black text-emerald-950 dark:text-white tracking-tight whitespace-nowrap">
           Achievements & Badges
         </h2>
         <div className="flex items-center justify-between gap-2 mt-1">
@@ -174,7 +172,7 @@ export const AchievementsScreen: React.FC<AchievementsScreenProps> = ({
           </p>
 
           {/* Filter Dropdown at Right Corner */}
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-200/80 dark:border-slate-800 shadow-sm shrink-0">
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-200/80 dark:border-slate-800 shadow-sm shrink-0">
             <Filter size={13} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
             <select
               value={selectedCategory}
@@ -182,217 +180,180 @@ export const AchievementsScreen: React.FC<AchievementsScreenProps> = ({
               className="bg-transparent text-xs font-bold text-emerald-950 dark:text-slate-200 outline-none cursor-pointer pr-1"
               aria-label="Filter achievements"
             >
-              <option value="all" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">All Badges</option>
-              <option value="unlocked" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Unlocked ({unlockedMap.size})</option>
-              <option value="locked" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">In Progress ({achievements.length - unlockedMap.size})</option>
-              <option value="legendary" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Legendary Tier</option>
-              <option value="epic" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Epic Tier</option>
-              <option value="rare" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Rare Tier</option>
-              <option value="milestones" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Milestones</option>
-              <option value="distance" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Distance</option>
-              <option value="consistency" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Consistency</option>
-              <option value="speed" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Speed Records</option>
+              <option value="all" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+                All Badges
+              </option>
+              <option value="speed" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+                Speed & Splits
+              </option>
+              <option value="endurance" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+                Endurance & Power
+              </option>
+              <option value="unlocked" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+                Unlocked ({unlockedMap.size})
+              </option>
+              <option value="locked" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+                In Progress ({achievements.length - unlockedMap.size})
+              </option>
             </select>
           </div>
         </div>
       </div>
 
-      {/* Runner Level & XP Strip */}
-      <div className="rounded-3xl bg-gradient-to-r from-emerald-500/10 via-lime-500/10 to-teal-500/10 border border-emerald-200/80 dark:border-emerald-500/20 p-4 shadow-sm">
+      {/* Runner Level & XP Strip (Compact & Clean) */}
+      <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 sm:p-3.5 shadow-xs space-y-2">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-500 to-lime-400 text-slate-950 font-black text-sm flex items-center justify-center shadow-md shadow-emerald-500/30">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="w-7 h-7 rounded-lg bg-emerald-500 text-white dark:text-slate-950 font-black text-xs flex items-center justify-center shrink-0">
               L{runnerLevel}
-            </div>
-            <div>
+            </span>
+            <div className="min-w-0">
               <div className="flex items-center gap-1.5">
-                <span className="text-xs font-black text-emerald-950 dark:text-white">{levelTitle}</span>
-                <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.2 rounded-full">
+                <span className="text-xs font-bold text-slate-900 dark:text-white truncate">{levelTitle}</span>
+                <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded-full shrink-0">
                   Level {runnerLevel}
                 </span>
               </div>
-              <span className="text-[11px] text-emerald-700/80 dark:text-slate-400 font-medium">
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 block truncate">
                 {totalXP} Total XP Earned
               </span>
             </div>
           </div>
 
-          <div className="text-right">
-            <span className="text-[10px] font-mono font-bold text-emerald-700 dark:text-emerald-400">
-              {currentLevelProgressXP} / 250 XP
-            </span>
-          </div>
+          <span className="text-[10px] font-mono font-bold text-slate-600 dark:text-slate-400 shrink-0">
+            {currentLevelProgressXP} / 250 XP
+          </span>
         </div>
 
         {/* Level XP Bar */}
-        <div className="h-2 w-full rounded-full bg-emerald-200/50 dark:bg-slate-950 overflow-hidden mt-2.5">
+        <div className="h-1.5 w-full rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
           <div
             style={{ width: `${levelProgressPct}%` }}
-            className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-teal-400 to-lime-400 transition-all duration-500 shadow-sm"
+            className="h-full rounded-full bg-emerald-500 transition-all duration-300"
           />
         </div>
       </div>
 
-      {/* Next Up to Unlock Spotlight */}
+      {/* Next Up to Unlock Spotlight (Compact Strip) */}
       {nextUp && (
         <div
           onClick={() => setSelectedAchievement(nextUp.achievement)}
-          className="rounded-3xl bg-white dark:bg-slate-900 border border-emerald-200 dark:border-slate-800 p-4 shadow-md hover:border-emerald-400 dark:hover:border-emerald-500/50 cursor-pointer active:scale-98 transition-all relative overflow-hidden group"
+          className="rounded-2xl bg-emerald-50/50 dark:bg-slate-900/60 border border-emerald-200/70 dark:border-slate-800 p-2.5 sm:p-3 hover:border-emerald-400 dark:hover:border-emerald-500/40 cursor-pointer active:scale-98 transition-all flex items-center justify-between gap-2.5"
         >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-              <TrendingUp size={12} />
-              <span>Closest Badge to Unlock</span>
-            </span>
-            <span className="text-[10px] font-bold text-slate-500 flex items-center gap-0.5 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
-              <span>View Goal</span>
-              <ChevronRight size={12} />
-            </span>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-emerald-500/15 border border-emerald-400/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
-              {React.createElement(getIconComponent(nextUp.achievement.icon), { size: 22 })}
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+              {React.createElement(getIconComponent(nextUp.achievement.icon), { size: 16 })}
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-bold text-emerald-950 dark:text-white truncate">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 shrink-0">
+                  Next Goal
+                </span>
+                <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
                   {nextUp.achievement.name}
-                </h4>
-                <span className="text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                  {nextUp.progress.pct}%
                 </span>
               </div>
-              <p className="text-[11px] text-emerald-800/80 dark:text-slate-400 truncate">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
                 {nextUp.achievement.description}
               </p>
             </div>
           </div>
 
-          <div className="h-1.5 w-full rounded-full bg-emerald-100 dark:bg-slate-950 overflow-hidden mt-3">
-            <div
-              style={{ width: `${nextUp.progress.pct}%` }}
-              className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-lime-400"
-            />
+          <div className="text-right shrink-0">
+            <span className="text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400">
+              {nextUp.progress.pct}%
+            </span>
           </div>
         </div>
       )}
 
-      {/* Badges Grid */}
+      {/* Badges Grid (Compact & Simple) */}
       {filtered.length === 0 ? (
-        <div className="rounded-3xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-slate-800 p-8 text-center space-y-2">
-          <Award size={32} className="mx-auto text-emerald-400 opacity-60" />
-          <p className="text-sm font-bold text-emerald-950 dark:text-white">No badges found</p>
-          <p className="text-xs text-emerald-700/80 dark:text-slate-400">Try switching your filter selection</p>
+        <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 text-center space-y-1.5">
+          <Award size={24} className="mx-auto text-slate-400" />
+          <p className="text-xs font-bold text-slate-900 dark:text-white">No badges found</p>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">Try switching your filter selection</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5">
           {filtered.map((ach) => {
             const isUnlocked = unlockedMap.has(ach.id);
-            const unlockedInfo = unlockedMap.get(ach.id);
             const Icon = getIconComponent(ach.icon);
             const progress = getProgress(ach);
             const rarity = ach.rarity || 'common';
             const xp = ach.xp || (rarity === 'legendary' ? 500 : rarity === 'epic' ? 250 : rarity === 'rare' ? 100 : 50);
 
-            // Completed (Unlocked) Styles
-            const unlockedBorder = {
-              common: 'border-slate-300 dark:border-slate-700 shadow-sm',
-              rare: 'border-sky-400 dark:border-sky-500/80 shadow-[0_4px_16px_rgba(14,165,233,0.15)] ring-1 ring-sky-400/30',
-              epic: 'border-amber-400 dark:border-amber-500/80 shadow-[0_4px_16px_rgba(245,158,11,0.18)] ring-1 ring-amber-400/30',
-              legendary: 'border-emerald-400 dark:border-emerald-400 shadow-[0_4px_20px_rgba(16,185,129,0.22)] ring-1 ring-emerald-400/40',
-            }[rarity];
-
-            const unlockedIconStyle = {
-              common: 'bg-gradient-to-tr from-slate-700 to-slate-500 dark:from-slate-700 dark:to-slate-500 text-white shadow-sm',
-              rare: 'bg-gradient-to-tr from-sky-500 to-cyan-400 text-slate-950 shadow-md shadow-sky-500/30',
-              epic: 'bg-gradient-to-tr from-amber-500 to-yellow-300 text-slate-950 shadow-md shadow-amber-500/30',
-              legendary: 'bg-gradient-to-tr from-emerald-500 to-lime-300 text-slate-950 shadow-md shadow-emerald-500/30 animate-pulse',
-            }[rarity];
-
-            const unlockedRarityPill = {
-              common: 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700',
-              rare: 'bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-300 border-sky-300 dark:border-sky-500/40 font-bold',
-              epic: 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-500/40 font-bold',
-              legendary: 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-400/60 dark:border-emerald-400/40 font-black',
-            }[rarity];
-
             return (
               <div
                 key={ach.id}
                 onClick={() => setSelectedAchievement(ach)}
-                className={`rounded-3xl p-4 flex flex-col justify-between gap-3 transition-all cursor-pointer active:scale-98 ${
+                className={`rounded-2xl p-3 border transition-all cursor-pointer active:scale-98 flex flex-col justify-between gap-2.5 ${
                   isUnlocked
-                    ? `bg-white dark:bg-slate-900 border-2 ${unlockedBorder} hover:shadow-xl`
-                    : 'bg-slate-100/90 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800/80 grayscale opacity-75 dark:opacity-55 hover:opacity-95 hover:grayscale-0'
+                    ? 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-emerald-400/80 shadow-xs'
+                    : 'bg-slate-50/70 dark:bg-slate-900/50 border-slate-200/60 dark:border-slate-800/50 opacity-75 hover:opacity-100'
                 }`}
               >
-                <div className="flex items-start gap-3">
-                  {/* Icon medallion */}
+                <div className="flex items-start gap-2.5">
                   <div
-                    className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 border transition-transform ${
+                    className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border ${
                       isUnlocked
-                        ? unlockedIconStyle
-                        : 'bg-slate-200/80 dark:bg-slate-900 border-slate-300 dark:border-slate-800 text-slate-400 dark:text-slate-600'
+                        ? rarity === 'legendary'
+                          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+                          : rarity === 'epic'
+                          ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
+                          : rarity === 'rare'
+                          ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 border-slate-200 dark:border-slate-800'
                     }`}
                   >
-                    {isUnlocked ? <Icon size={24} /> : <Lock size={20} />}
+                    {isUnlocked ? <Icon size={18} /> : <Lock size={15} />}
                   </div>
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-1">
                       <h4
                         className={`text-xs font-bold truncate ${
-                          isUnlocked ? 'text-slate-950 dark:text-white font-black' : 'text-slate-600 dark:text-slate-400'
+                          isUnlocked ? 'text-slate-900 dark:text-white' : 'text-slate-600 dark:text-slate-400'
                         }`}
                       >
                         {ach.name}
                       </h4>
-                      <span
-                        className={`text-[9px] px-1.5 py-0.2 rounded-full border uppercase shrink-0 ${
-                          isUnlocked
-                            ? unlockedRarityPill
-                            : 'bg-slate-200/70 dark:bg-slate-900 text-slate-500 dark:text-slate-500 border-slate-300 dark:border-slate-800'
-                        }`}
-                      >
+                      <span className="text-[9px] font-mono font-medium text-slate-400 dark:text-slate-500 capitalize shrink-0">
                         {rarity}
                       </span>
                     </div>
 
-                    <p
-                      className={`text-[11px] mt-0.5 leading-tight line-clamp-2 ${
-                        isUnlocked ? 'text-slate-700 dark:text-slate-300 font-medium' : 'text-slate-500 dark:text-slate-500'
-                      }`}
-                    >
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1 mt-0.5">
                       {ach.description}
                     </p>
                   </div>
                 </div>
 
-                {/* Bottom card footer */}
+                {/* Bottom Status / Progress */}
                 {!isUnlocked ? (
-                  <div className="space-y-1 pt-1.5 border-t border-slate-200 dark:border-slate-800/60">
-                    <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-500">
-                      <span className="flex items-center gap-1 font-medium">
+                  <div className="space-y-1 pt-1.5 border-t border-slate-100 dark:border-slate-800/60">
+                    <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400">
+                      <span className="flex items-center gap-1">
                         <Lock size={10} />
-                        <span>Locked</span>
+                        <span>In Progress</span>
                       </span>
-                      <span className="font-mono font-bold text-slate-600 dark:text-slate-400">{progress.pct}%</span>
+                      <span className="font-mono font-medium">{progress.pct}%</span>
                     </div>
-                    <div className="h-1.5 w-full rounded-full bg-slate-200 dark:bg-slate-900 overflow-hidden">
+                    <div className="h-1 w-full rounded-full bg-slate-200/80 dark:bg-slate-800 overflow-hidden">
                       <div
                         style={{ width: `${progress.pct}%` }}
-                        className="h-full rounded-full bg-slate-400 dark:bg-slate-600"
+                        className="h-full rounded-full bg-slate-400 dark:bg-slate-500"
                       />
                     </div>
                   </div>
                 ) : (
-                  <div className="flex items-center justify-between text-[10px] text-slate-600 dark:text-slate-300 pt-1.5 border-t border-slate-100 dark:border-slate-800/80">
+                  <div className="flex items-center justify-between text-[10px] pt-1.5 border-t border-slate-100 dark:border-slate-800/60">
                     <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-bold">
-                      <CheckCircle2 size={13} />
+                      <CheckCircle2 size={12} />
                       <span>Unlocked</span>
                     </span>
-                    <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-200/60 dark:border-emerald-500/20">
+                    <span className="font-mono text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
                       +{xp} XP
                     </span>
                   </div>

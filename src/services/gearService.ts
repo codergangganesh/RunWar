@@ -4,39 +4,88 @@ import { toDeterministicUUID } from '../utils/uuid';
 
 const GEAR_CACHE_KEY_PREFIX = 'runwar_cached_gear_';
 
-const DEFAULT_SAMPLE_GEAR: GearItem[] = [
-  {
-    id: 'gear_default_1',
-    user_id: 'guest_user',
-    name: 'Road Runners',
-    brand: 'Nike',
-    model: 'Air Zoom Pegasus 40',
-    max_distance_meters: 500000, // 500 km
-    current_distance_meters: 142300, // 142.3 km
-    is_active: true,
-    created_at: new Date().toISOString(),
-  },
-];
+/**
+ * Filter out any mock, placeholder, or default sample shoes
+ */
+function isRealUserGear(g: any): boolean {
+  if (!g || typeof g !== 'object') return false;
+  const idStr = String(g.id || '');
+  const nameStr = String(g.name || '');
+  if (idStr === 'gear_default_1' || idStr.startsWith('gear_default') || idStr.startsWith('mock_')) {
+    return false;
+  }
+  if (nameStr === 'Road Runners') {
+    return false;
+  }
+  if (nameStr.includes('Pegasus 40') && (g.current_distance_meters === 142300 || g.current_distance_meters === 142.3)) {
+    return false;
+  }
+  return true;
+}
 
 export const gearService = {
+  /**
+   * Get cached gear from localStorage, ensuring sample/fake mock shoes are stripped out
+   */
   getCachedGear(userId: string): GearItem[] {
     try {
       const raw = localStorage.getItem(`${GEAR_CACHE_KEY_PREFIX}${userId}`);
-      if (raw) return JSON.parse(raw);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          const clean = parsed.filter(isRealUserGear);
+          // If clean list is different, update localStorage immediately to purge mock data
+          if (clean.length !== parsed.length) {
+            this.setCachedGear(userId, clean);
+          }
+          return clean;
+        }
+      }
     } catch {
       // Ignored
     }
-    return DEFAULT_SAMPLE_GEAR.map((g) => ({ ...g, user_id: userId }));
+    return [];
   },
 
   setCachedGear(userId: string, gear: GearItem[]) {
     try {
-      localStorage.setItem(`${GEAR_CACHE_KEY_PREFIX}${userId}`, JSON.stringify(gear));
+      const clean = gear.filter(isRealUserGear);
+      localStorage.setItem(`${GEAR_CACHE_KEY_PREFIX}${userId}`, JSON.stringify(clean));
     } catch (e) {
       console.warn('Failed to cache gear:', e);
     }
   },
 
+  /**
+   * Upload shoe photo to InsForge storage with base64 Data URL fallback
+   */
+  async uploadGearImage(userId: string, file: File): Promise<string> {
+    const normalizedId = toDeterministicUUID(userId);
+    const fileExt = file.name.split('.').pop() || 'jpg';
+    const filePath = `gear_${normalizedId}_${Date.now()}.${fileExt}`;
+
+    try {
+      const { data, error } = await insforge.storage
+        .from('avatars')
+        .upload(filePath, file);
+
+      if (!error && data?.url) {
+        return data.url;
+      }
+    } catch (err) {
+      console.warn('InsForge storage upload notice, using local data URL fallback:', err);
+    }
+
+    return new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.readAsDataURL(file);
+    });
+  },
+
+  /**
+   * Fetch real user gear from database with cache fallback
+   */
   async getGear(userId: string): Promise<GearItem[]> {
     if (!userId || userId === 'guest_user' || userId === 'usr_guest_demo') {
       return this.getCachedGear(userId);
@@ -50,23 +99,40 @@ export const gearService = {
         .eq('user_id', normalizedId)
         .order('created_at', { ascending: false });
 
-      if (error || !data || data.length === 0) {
+      if (error) {
+        // Table may not exist yet or connection issue, use real local cached gear
         return this.getCachedGear(userId);
       }
 
-      this.setCachedGear(userId, data as GearItem[]);
-      return data as GearItem[];
+      if (data) {
+        const realData = (data as GearItem[]).filter(isRealUserGear);
+        this.setCachedGear(userId, realData);
+        return realData;
+      }
+
+      return this.getCachedGear(userId);
     } catch (err) {
       console.warn('Failed to fetch gear from server, using cache:', err);
       return this.getCachedGear(userId);
     }
   },
 
-  async addGear(userId: string, gear: Omit<GearItem, 'id' | 'user_id' | 'created_at'>): Promise<GearItem> {
+  /**
+   * Add a new pair of shoes to the user's closet
+   */
+  async addGear(
+    userId: string,
+    gear: Omit<GearItem, 'id' | 'user_id' | 'created_at'>
+  ): Promise<GearItem> {
+    const id = typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `00000000-0000-4000-8000-${Date.now().toString(16).padStart(12, '0')}`;
+
     const newGear: GearItem = {
       ...gear,
-      id: `gear_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      id,
       user_id: userId,
+      image_url: gear.image_url || null,
       created_at: new Date().toISOString(),
     };
 
@@ -94,6 +160,7 @@ export const gearService = {
             max_distance_meters: newGear.max_distance_meters,
             current_distance_meters: newGear.current_distance_meters,
             is_active: newGear.is_active,
+            image_url: newGear.image_url || null,
             notes: newGear.notes || null,
           },
         ]);
@@ -168,3 +235,4 @@ export const gearService = {
     return list;
   },
 };
+

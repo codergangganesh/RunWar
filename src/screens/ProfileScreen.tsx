@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { UserProfile, UserSettings, Workout, GearItem } from '../types';
+import { UserProfile, UserSettings, Workout, GearItem, PersonalRecord } from '../types';
 import { authService } from '../services/authService';
 import { gearService } from '../services/gearService';
 import { DEFAULT_ACHIEVEMENTS } from '../services/achievementsService';
 import { downloadFile, generateWorkoutsCSV } from '../utils/exportGenerators';
-import { formatDistance, formatDuration } from '../utils/formatters';
+import { formatDistance, formatDuration, formatPace } from '../utils/formatters';
 import { BottomSheet } from '../components/ui/BottomSheet';
 import {
   User,
@@ -27,11 +27,14 @@ import {
   Camera,
   Loader2,
   Image as ImageIcon,
+  X,
   Activity,
   Star,
   Plus,
   ShieldCheck,
   CheckCircle2,
+  Mountain,
+  Zap,
 } from 'lucide-react';
 import { healthService } from '../services/health/healthService';
 
@@ -39,6 +42,7 @@ interface ProfileScreenProps {
   profile: UserProfile | null;
   settings: UserSettings | null;
   workouts: Workout[];
+  records?: PersonalRecord[];
   onNavigate: (screen: any) => void;
   onSignOut: () => void;
   onUpdateProfile: (updated: UserProfile) => void;
@@ -50,6 +54,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   profile,
   settings,
   workouts,
+  records = [],
   onNavigate,
   onSignOut,
   onUpdateProfile,
@@ -81,6 +86,11 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   const [newShoeBrand, setNewShoeBrand] = useState('Nike');
   const [newShoeModel, setNewShoeModel] = useState('');
   const [newShoeMaxDistanceKm, setNewShoeMaxDistanceKm] = useState(500);
+  const [newShoeInitialDistanceKm, setNewShoeInitialDistanceKm] = useState(0);
+  const [newShoeImageFile, setNewShoeImageFile] = useState<File | null>(null);
+  const [newShoeImagePreview, setNewShoeImagePreview] = useState<string | null>(null);
+  const [isSavingShoe, setIsSavingShoe] = useState(false);
+  const shoeFileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (profile?.user_id) {
@@ -88,23 +98,62 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     }
   }, [profile?.user_id]);
 
+  const handleShoeImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      alert('Please select a valid image file (JPG, PNG, WebP).');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Image file size must be under 5MB.');
+      return;
+    }
+    setNewShoeImageFile(file);
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setNewShoeImagePreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleAddShoe = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!profile || !newShoeModel.trim()) return;
+    if (!profile || !newShoeModel.trim() || isSavingShoe) return;
 
-    const added = await gearService.addGear(profile.user_id, {
-      name: `${newShoeBrand} ${newShoeModel}`,
-      brand: newShoeBrand,
-      model: newShoeModel.trim(),
-      max_distance_meters: Math.round(newShoeMaxDistanceKm * 1000),
-      current_distance_meters: 0,
-      is_active: gearList.length === 0,
-    });
+    setIsSavingShoe(true);
+    try {
+      let imageUrl: string | null = null;
+      if (newShoeImageFile) {
+        imageUrl = await gearService.uploadGearImage(profile.user_id, newShoeImageFile);
+      }
 
-    setGearList([added, ...gearList.filter((g) => g.id !== added.id)]);
-    setShowAddShoeModal(false);
-    setNewShoeModel('');
-    setNewShoeMaxDistanceKm(500);
+      const distanceFactor = distanceUnit === 'mi' ? 1609.344 : 1000;
+      const initialMeters = Math.max(0, Math.round(Number(newShoeInitialDistanceKm || 0) * distanceFactor));
+      const targetMeters = Math.max(10000, Math.round(Number(newShoeMaxDistanceKm || (distanceUnit === 'mi' ? 400 : 600)) * distanceFactor));
+
+      const added = await gearService.addGear(profile.user_id, {
+        name: `${newShoeBrand} ${newShoeModel.trim()}`,
+        brand: newShoeBrand,
+        model: newShoeModel.trim(),
+        max_distance_meters: targetMeters,
+        current_distance_meters: initialMeters,
+        is_active: gearList.length === 0,
+        image_url: imageUrl,
+      });
+
+      setGearList([added, ...gearList.filter((g) => g.id !== added.id)]);
+      setShowAddShoeModal(false);
+      setNewShoeModel('');
+      setNewShoeMaxDistanceKm(distanceUnit === 'mi' ? 400 : 600);
+      setNewShoeInitialDistanceKm(0);
+      setNewShoeImageFile(null);
+      setNewShoeImagePreview(null);
+    } catch (err) {
+      console.error('Error adding shoe:', err);
+    } finally {
+      setIsSavingShoe(false);
+    }
   };
 
   const handleSetActiveShoe = async (gearId: string) => {
@@ -115,6 +164,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
 
   const handleDeleteShoe = async (gearId: string) => {
     if (!profile) return;
+    if (!window.confirm('Are you sure you want to remove this shoe from your gear closet?')) return;
     const updated = await gearService.deleteGear(profile.user_id, gearId);
     setGearList(updated);
   };
@@ -485,16 +535,14 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
               <div className="w-9 h-9 rounded-xl bg-sky-50 dark:bg-sky-500/10 text-sky-600 dark:text-sky-400 flex items-center justify-center mb-2">
                 <Trophy size={18} />
               </div>
-              <span className="text-xs font-bold text-emerald-950 dark:text-white">Personal Records</span>
+              <span className="text-xs font-bold text-emerald-950 dark:text-white whitespace-nowrap">Personal Records</span>
               <span className="text-[10px] text-emerald-700/80 dark:text-slate-400">1k, 5k, 10k bests</span>
             </button>
           </div>
         </div>
       )}
 
-
-
-      {/* 2. Shoe & Gear Mileage Tracker */}
+      {/* Running Shoes & Gear Tracker */}
       <div className="rounded-3xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-slate-800 p-4 space-y-3 shadow-sm">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
@@ -525,76 +573,97 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
         ) : (
           <div className="space-y-2.5">
             {gearList.map((gear) => {
-              const currentKm = (gear.current_distance_meters / 1000).toFixed(1);
-              const maxKm = Math.round(gear.max_distance_meters / 1000);
-              const pct = Math.min(100, Math.round((gear.current_distance_meters / gear.max_distance_meters) * 100));
+              const currentFormatted = formatDistance(gear.current_distance_meters, distanceUnit);
+              const maxFormatted = formatDistance(gear.max_distance_meters, distanceUnit);
+              const pct = Math.min(100, Math.round((gear.current_distance_meters / (gear.max_distance_meters || 1)) * 100));
               const isNearRetirement = pct >= 90;
 
               return (
                 <div
                   key={gear.id}
-                  className={`p-3.5 rounded-2xl border transition-all ${gear.is_active
-                    ? 'bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-300 dark:border-emerald-500/40 shadow-xs'
-                    : 'bg-emerald-50/30 dark:bg-slate-950 border-emerald-100 dark:border-slate-800'
-                    }`}
+                  className={`p-3.5 rounded-2xl border transition-all overflow-hidden ${
+                    gear.is_active
+                      ? 'bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-300 dark:border-emerald-500/40 shadow-xs'
+                      : 'bg-emerald-50/30 dark:bg-slate-950 border-emerald-100 dark:border-slate-800'
+                  }`}
                 >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-black text-emerald-950 dark:text-white">{gear.name}</span>
-                        {gear.is_active && (
-                          <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.2 rounded-full border border-emerald-500/20">
-                            Active
+                  <div className="flex items-center gap-3">
+                    {/* Shoe Photo or Fallback Icon */}
+                    <div className="w-14 h-14 min-w-[3.5rem] max-w-[3.5rem] min-h-[3.5rem] max-h-[3.5rem] sm:w-16 sm:h-16 sm:min-w-[4rem] sm:max-w-[4rem] sm:min-h-[4rem] sm:max-h-[4rem] rounded-2xl overflow-hidden shrink-0 border border-emerald-200/80 dark:border-slate-800 shadow-xs bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                      {gear.image_url ? (
+                        <img
+                          src={gear.image_url}
+                          alt={gear.name}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full text-emerald-700 dark:text-emerald-400 flex items-center justify-center bg-emerald-500/10">
+                          <Footprints size={22} />
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-1">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="text-xs font-black text-emerald-950 dark:text-white truncate">
+                            {gear.name}
                           </span>
-                        )}
+                          {gear.is_active && (
+                            <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 shrink-0">
+                              Active
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {!gear.is_active && (
+                            <button
+                              onClick={() => handleSetActiveShoe(gear.id)}
+                              className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline"
+                            >
+                              Set Active
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleDeleteShoe(gear.id)}
+                            className="text-slate-400 hover:text-rose-500 p-1"
+                            title="Delete shoe"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
                       </div>
-                      <span className="text-[10px] text-emerald-700/80 dark:text-slate-400">
+
+                      <span className="text-[10px] text-emerald-700/80 dark:text-slate-400 block truncate mt-0.5">
                         {gear.brand} • {gear.model}
                       </span>
-                    </div>
 
-                    <div className="flex items-center gap-2">
-                      {!gear.is_active && (
-                        <button
-                          onClick={() => handleSetActiveShoe(gear.id)}
-                          className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline"
-                        >
-                          Set Active
-                        </button>
-                      )}
-                      <button
-                        onClick={() => handleDeleteShoe(gear.id)}
-                        className="text-slate-400 hover:text-rose-500 p-1"
-                        title="Delete shoe"
-                      >
-                        <Trash2 size={13} />
-                      </button>
+                      {/* Mileage progress */}
+                      <div className="space-y-1 mt-2">
+                        <div className="flex items-center justify-between text-[10px] text-emerald-800/80 dark:text-slate-400">
+                          <span>
+                            {currentFormatted} / {maxFormatted} {distanceUnit}
+                          </span>
+                          <span className="font-mono font-bold">{pct}%</span>
+                        </div>
+                        <div className="h-1.5 w-full rounded-full bg-emerald-100 dark:bg-slate-900 overflow-hidden">
+                          <div
+                            style={{ width: `${pct}%` }}
+                            className={`h-full rounded-full transition-all ${
+                              isNearRetirement ? 'bg-amber-500' : 'bg-emerald-500'
+                            }`}
+                          />
+                        </div>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Mileage progress */}
-                  <div className="space-y-1 mt-2">
-                    <div className="flex items-center justify-between text-[10px] text-emerald-800/80 dark:text-slate-400">
-                      <span>
-                        {currentKm} / {maxKm} {distanceUnit}
-                      </span>
-                      <span className="font-mono font-bold">{pct}%</span>
-                    </div>
-                    <div className="h-1.5 w-full rounded-full bg-emerald-100 dark:bg-slate-900 overflow-hidden">
-                      <div
-                        style={{ width: `${pct}%` }}
-                        className={`h-full rounded-full transition-all ${isNearRetirement
-                          ? 'bg-amber-500'
-                          : 'bg-emerald-500'
-                          }`}
-                      />
-                    </div>
-                    {isNearRetirement && (
-                      <p className="text-[10px] font-bold text-amber-600 dark:text-amber-400">
-                        ⚠️ Shoe is near retirement target ({maxKm} km)!
-                      </p>
-                    )}
-                  </div>
+                  {isNearRetirement && (
+                    <p className="text-[10px] font-bold text-amber-600 dark:text-amber-400 mt-2">
+                      ⚠️ Shoe is near retirement target ({maxFormatted} {distanceUnit})!
+                    </p>
+                  )}
                 </div>
               );
             })}
@@ -720,7 +789,69 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           title="Add Running Shoes"
           icon={<Footprints size={18} className="text-emerald-500" />}
         >
-          <form onSubmit={handleAddShoe} className="space-y-4 text-left pb-4">
+          <form onSubmit={handleAddShoe} className="space-y-3.5 text-left pb-4">
+            {/* Shoe Photo Upload Field */}
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-emerald-950 dark:text-slate-300 mb-1.5">
+                Shoe Photo (Optional)
+              </label>
+              <input
+                type="file"
+                ref={shoeFileInputRef}
+                accept="image/*"
+                onChange={handleShoeImageChange}
+                className="hidden"
+              />
+
+              {newShoeImagePreview ? (
+                <div className="relative w-full h-36 rounded-2xl overflow-hidden border border-emerald-200 dark:border-slate-800 bg-slate-950 shadow-inner">
+                  <img
+                    src={newShoeImagePreview}
+                    alt="Shoe preview"
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent flex items-end justify-between p-2.5">
+                    <button
+                      type="button"
+                      onClick={() => shoeFileInputRef.current?.click()}
+                      className="px-3 py-1.5 rounded-xl bg-white/95 hover:bg-white text-slate-900 text-xs font-bold shadow-md active:scale-95 cursor-pointer flex items-center gap-1.5"
+                    >
+                      <Camera size={13} className="text-emerald-600" />
+                      <span>Change Photo</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewShoeImageFile(null);
+                        setNewShoeImagePreview(null);
+                        if (shoeFileInputRef.current) shoeFileInputRef.current.value = '';
+                      }}
+                      className="px-2.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-md active:scale-95 cursor-pointer flex items-center gap-1"
+                    >
+                      <X size={13} />
+                      <span>Remove</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => shoeFileInputRef.current?.click()}
+                  className="w-full p-4 rounded-2xl border-2 border-dashed border-emerald-300/80 dark:border-slate-800 hover:border-emerald-500 dark:hover:border-emerald-500/50 bg-emerald-50/40 dark:bg-slate-900/40 text-center transition-all flex flex-col items-center justify-center gap-1.5 group cursor-pointer"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 flex items-center justify-center group-hover:scale-105 transition-transform">
+                    <Camera size={18} />
+                  </div>
+                  <span className="text-xs font-bold text-emerald-950 dark:text-white">
+                    Upload Shoe Image
+                  </span>
+                  <span className="text-[10px] text-emerald-700/80 dark:text-slate-400">
+                    JPG, PNG or WebP (up to 5MB)
+                  </span>
+                </button>
+              )}
+            </div>
+
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-emerald-950 dark:text-slate-300 mb-1">
                 Brand
@@ -730,7 +861,21 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                 onChange={(e) => setNewShoeBrand(e.target.value)}
                 className="w-full px-3.5 py-2.5 rounded-xl bg-emerald-50/50 dark:bg-slate-900 border border-emerald-200 dark:border-slate-800 text-emerald-950 dark:text-white text-xs font-bold outline-none focus:border-emerald-500 cursor-pointer"
               >
-                {['Nike', 'Asics', 'Hoka', 'Adidas', 'Saucony', 'Brooks', 'On Running', 'New Balance', 'Puma'].map((b) => (
+                {[
+                  'Nike',
+                  'Asics',
+                  'Hoka',
+                  'Adidas',
+                  'Saucony',
+                  'Brooks',
+                  'On Running',
+                  'New Balance',
+                  'Puma',
+                  'Altra',
+                  'Under Armour',
+                  'Mizuno',
+                  'Topo Athletic',
+                ].map((b) => (
                   <option key={b} value={b} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
                     {b}
                   </option>
@@ -753,31 +898,74 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-emerald-950 dark:text-slate-300 mb-1">
-                Retirement Target ({distanceUnit})
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                {[400, 500, 600].map((km) => (
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-bold uppercase tracking-wider text-emerald-950 dark:text-slate-300">
+                  Starting Mileage ({distanceUnit})
+                </label>
+                <span className="text-[10px] text-emerald-700/80 dark:text-slate-400">
+                  Enter 0 for brand new shoes
+                </span>
+              </div>
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                placeholder="0 (Brand new shoes)"
+                value={newShoeInitialDistanceKm === 0 ? '' : newShoeInitialDistanceKm}
+                onChange={(e) => setNewShoeInitialDistanceKm(parseFloat(e.target.value) || 0)}
+                className="w-full px-3.5 py-2.5 rounded-xl bg-emerald-50/50 dark:bg-slate-900 border border-emerald-200 dark:border-slate-800 text-emerald-950 dark:text-white text-xs outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-bold uppercase tracking-wider text-emerald-950 dark:text-slate-300">
+                  Retirement Target ({distanceUnit})
+                </label>
+                <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">
+                  {distanceUnit === 'mi' ? 'Standard: 300 - 500 mi' : 'Standard: 500 - 800 km'}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 mb-2">
+                {(distanceUnit === 'mi' ? [300, 400, 500] : [400, 600, 800]).map((dist) => (
                   <button
-                    key={km}
+                    key={dist}
                     type="button"
-                    onClick={() => setNewShoeMaxDistanceKm(km)}
-                    className={`py-2 rounded-xl text-xs font-bold border transition-all ${newShoeMaxDistanceKm === km
-                      ? 'bg-emerald-500 text-white border-emerald-500 shadow-sm'
-                      : 'bg-emerald-50/50 dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-emerald-900 dark:text-slate-300'
-                      }`}
+                    onClick={() => setNewShoeMaxDistanceKm(dist)}
+                    className={`py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                      newShoeMaxDistanceKm === dist
+                        ? 'bg-emerald-500 text-white border-emerald-500 shadow-sm'
+                        : 'bg-emerald-50/50 dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-emerald-900 dark:text-slate-300 hover:border-emerald-300'
+                    }`}
                   >
-                    {km} {distanceUnit}
+                    {dist} {distanceUnit}
                   </button>
                 ))}
               </div>
+              <input
+                type="number"
+                min="50"
+                step="10"
+                placeholder={`Or enter custom target (${distanceUnit})`}
+                value={newShoeMaxDistanceKm || ''}
+                onChange={(e) => setNewShoeMaxDistanceKm(parseFloat(e.target.value) || 0)}
+                className="w-full px-3.5 py-2 rounded-xl bg-emerald-50/50 dark:bg-slate-900 border border-emerald-200 dark:border-slate-800 text-emerald-950 dark:text-white text-xs outline-none focus:border-emerald-500"
+              />
             </div>
 
             <button
               type="submit"
-              className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-lime-400 text-slate-950 font-black text-xs shadow-md shadow-emerald-500/30 active:scale-98 transition-all cursor-pointer mt-2"
+              disabled={isSavingShoe || !newShoeModel.trim()}
+              className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-lime-400 text-slate-950 font-black text-xs shadow-md shadow-emerald-500/30 active:scale-98 transition-all cursor-pointer mt-2 disabled:opacity-50 flex items-center justify-center gap-2"
             >
-              Add Shoe to Gear Closet
+              {isSavingShoe ? (
+                <>
+                  <Loader2 size={15} className="animate-spin" />
+                  <span>Saving Shoe to Closet...</span>
+                </>
+              ) : (
+                <span>Add Shoe to Gear Closet</span>
+              )}
             </button>
           </form>
         </BottomSheet>

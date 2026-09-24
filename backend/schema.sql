@@ -302,3 +302,33 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS firebase_uid TEXT UNIQUE;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS phone_number TEXT;
 CREATE INDEX IF NOT EXISTS idx_profiles_firebase_uid ON public.profiles(firebase_uid);
 
+-- ============================================================
+-- 10. RUNNING SHOES & GEAR TABLE
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.user_gear (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    brand TEXT NOT NULL,
+    model TEXT NOT NULL,
+    max_distance_meters NUMERIC DEFAULT 500000,
+    current_distance_meters NUMERIC DEFAULT 0,
+    is_active BOOLEAN DEFAULT FALSE,
+    image_url TEXT,
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_gear_user ON public.user_gear(user_id);
+ALTER TABLE public.user_gear ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own gear" ON public.user_gear
+    FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own gear" ON public.user_gear
+    FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own gear" ON public.user_gear
+    FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can delete own gear" ON public.user_gear
+    FOR DELETE USING (auth.uid() = user_id);
+
+

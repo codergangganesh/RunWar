@@ -52,6 +52,7 @@ export interface GearItem {
   max_distance_meters: number; // e.g. 500,000 for 500km
   current_distance_meters: number;
   is_active: boolean;
+  image_url?: string | null;
   notes?: string;
   created_at: string;
 }
@@ -184,11 +185,26 @@ export interface UserAchievement {
   achievement?: Achievement;
 }
 
+export type PersonalRecordType =
+  | 'fastest_1k'
+  | 'fastest_1mi'
+  | 'fastest_3k'
+  | 'fastest_5k'
+  | 'fastest_10k'
+  | 'fastest_half_marathon'
+  | 'longest_distance'
+  | 'longest_duration'
+  | 'highest_elevation'
+  | 'most_calories'
+  | 'max_speed'
+  | 'most_weekly_distance'
+  | 'most_monthly_distance';
+
 export interface PersonalRecord {
   id: string;
   user_id: string;
-  record_type: 'fastest_1k' | 'fastest_5k' | 'fastest_10k' | 'longest_distance' | 'longest_duration' | 'most_weekly_distance' | 'most_monthly_distance';
-  value: number; // seconds for pace/duration, meters for distance
+  record_type: PersonalRecordType | string;
+  value: number; // seconds for pace/duration, meters for distance/elevation, calories, etc.
   workout_id: string | null;
   achieved_at: string;
 }
