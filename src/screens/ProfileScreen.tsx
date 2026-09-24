@@ -604,18 +604,13 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
       )}
 
       {/* Running Shoes & Gear Tracker */}
-      <div className="rounded-3xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-slate-800 p-4 space-y-3 shadow-sm">
+      <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 sm:p-5 space-y-3.5 shadow-sm">
         <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="flex items-center gap-1.5 shrink-0">
-              <Footprints size={15} className="text-emerald-600 dark:text-emerald-400" />
-              <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-950 dark:text-slate-300">
-                RUNNING SHOES & GEAR
-              </h3>
-            </div>
-            <span className="text-[10px] font-black text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/15 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-500/30 shrink-0">
-              {formatDistance(lifetimeDistanceMeters, distanceUnit)} {distanceUnit} total
-            </span>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <Footprints size={16} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-slate-200 truncate">
+              RUNNING SHOES & GEAR
+            </h3>
           </div>
           <button
             onClick={() => {
@@ -624,21 +619,19 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
               }
               setShowAddShoeModal(true);
             }}
-            className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2.5 py-1 rounded-xl border border-emerald-200 dark:border-emerald-500/20 hover:bg-emerald-100 active:scale-95 transition-all flex items-center gap-1 shrink-0"
+            className="text-[10px] font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-100/80 hover:bg-emerald-200 dark:bg-emerald-500/15 dark:hover:bg-emerald-500/25 px-2.5 py-1.5 rounded-xl border border-emerald-300 dark:border-emerald-500/30 active:scale-95 transition-all flex items-center gap-1 shrink-0 cursor-pointer shadow-2xs"
           >
-
+            <Plus size={12} />
             <span>Add Shoe</span>
           </button>
         </div>
 
         {gearList.length === 0 ? (
-          <div className="p-4 rounded-2xl bg-emerald-50/50 dark:bg-slate-950 border border-emerald-100 dark:border-slate-800/80 text-center space-y-1.5">
-            <p className="text-xs text-emerald-800/80 dark:text-slate-400">No running shoes added yet.</p>
-            {lifetimeDistanceMeters > 0 && (
-              <p className="text-[11px] font-bold text-emerald-950 dark:text-white">
-                Total workout distance logged: <span className="text-emerald-600 dark:text-emerald-400">{formatDistance(lifetimeDistanceMeters, distanceUnit)} {distanceUnit}</span>
-              </p>
-            )}
+          <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800/80 text-center space-y-2">
+            <div className="w-10 h-10 rounded-2xl bg-emerald-100 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto shadow-2xs">
+              <Footprints size={20} />
+            </div>
+            <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">No running shoes added yet.</p>
             <button
               onClick={() => {
                 if (lifetimeDistanceMeters > 0) {
@@ -646,13 +639,13 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                 }
                 setShowAddShoeModal(true);
               }}
-              className="mt-1 text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline inline-block"
+              className="mt-1 text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline inline-block cursor-pointer"
             >
               + Track your current pair of shoes
             </button>
           </div>
         ) : (
-          <div className="space-y-2.5">
+          <div className="space-y-3">
             {gearList.map((gear) => {
               const currentFormatted = formatDistance(gear.current_distance_meters, distanceUnit);
               const maxFormatted = formatDistance(gear.max_distance_meters, distanceUnit);
@@ -662,9 +655,9 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
               return (
                 <div
                   key={gear.id}
-                  className={`p-3.5 rounded-2xl border transition-all overflow-hidden ${gear.is_active
-                      ? 'bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-300 dark:border-emerald-500/40 shadow-xs'
-                      : 'bg-emerald-50/30 dark:bg-slate-950 border-emerald-100 dark:border-slate-800'
+                  className={`p-3.5 sm:p-4 rounded-2xl border transition-all overflow-hidden ${gear.is_active
+                    ? 'bg-emerald-50/90 dark:bg-emerald-950/25 border-2 border-emerald-400 dark:border-emerald-500/50 shadow-xs'
+                    : 'bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 shadow-xs'
                     }`}
                 >
                   <div className="flex items-center gap-3">
@@ -722,34 +715,26 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                       </span>
 
                       {/* Mileage progress */}
-                      <div className="space-y-1 mt-2">
-                        <div className="flex items-center justify-between text-[10px] text-emerald-800/80 dark:text-slate-400">
-                          <span className="font-semibold">
-                            {currentFormatted} / {maxFormatted} {distanceUnit}
+                      <div className="space-y-1.5 mt-2.5">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-bold text-slate-900 dark:text-white">
+                            {currentFormatted} <span className="text-slate-500 dark:text-slate-400 font-normal">/ {maxFormatted} {distanceUnit}</span>
                           </span>
-                          <span className="font-mono font-bold">{pct}%</span>
+                          <span className="font-mono font-black text-[11px] text-emerald-800 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-500/20 px-2 py-0.5 rounded-md border border-emerald-300/80 dark:border-emerald-500/30">
+                            {pct}%
+                          </span>
                         </div>
-                        <div className="h-1.5 w-full rounded-full bg-emerald-100 dark:bg-slate-900 overflow-hidden">
+
+                        {/* High-contrast bold progress bar for light & dark mode */}
+                        <div className="h-3.5 w-full rounded-full bg-slate-200 dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-700/80 overflow-hidden shadow-inner p-0.5">
                           <div
-                            style={{ width: `${pct}%` }}
-                            className={`h-full rounded-full transition-all ${isNearRetirement ? 'bg-amber-500' : 'bg-emerald-500'
+                            style={{ width: `${pct > 0 ? Math.max(pct, 2.5) : 0}%` }}
+                            className={`h-full rounded-full transition-all duration-300 shadow-sm ${isNearRetirement
+                              ? 'bg-gradient-to-r from-amber-500 to-rose-500'
+                              : 'bg-gradient-to-r from-emerald-500 via-emerald-400 to-teal-400'
                               }`}
                           />
                         </div>
-                        {gear.is_active && lifetimeDistanceMeters > 0 && Math.abs(gear.current_distance_meters - lifetimeDistanceMeters) > 50 && (
-                          <div className="pt-1 flex items-center justify-between">
-                            <span className="text-[9px] text-emerald-700/80 dark:text-slate-400">
-                              Workouts: {formatDistance(lifetimeDistanceMeters, distanceUnit)} {distanceUnit}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => handleSyncShoeWithWorkouts(gear.id)}
-                              className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline active:scale-95 transition-all"
-                            >
-                              Sync with Workouts
-                            </button>
-                          </div>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -1042,8 +1027,8 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                     type="button"
                     onClick={() => setNewShoeMaxDistanceKm(dist)}
                     className={`py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${newShoeMaxDistanceKm === dist
-                        ? 'bg-emerald-500 text-white border-emerald-500 shadow-sm'
-                        : 'bg-emerald-50/50 dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-emerald-900 dark:text-slate-300 hover:border-emerald-300'
+                      ? 'bg-emerald-500 text-white border-emerald-500 shadow-sm'
+                      : 'bg-emerald-50/50 dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-emerald-900 dark:text-slate-300 hover:border-emerald-300'
                       }`}
                   >
                     {dist} {distanceUnit}

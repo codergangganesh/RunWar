@@ -162,6 +162,17 @@ export const PersonalRecordsScreen: React.FC<PersonalRecordsScreenProps> = ({
   const totalCount = prDefinitions.length;
   const unlockPercentage = Math.round((unlockedCount / totalCount) * 100);
 
+  const benchmarkDistances: Record<string, number> = {
+    fastest_1k: 1000,
+    fastest_1mi: 1609.34,
+    fastest_3k: 3000,
+    fastest_5k: 5000,
+    fastest_10k: 10000,
+    fastest_half_marathon: 21097.5,
+  };
+
+  const maxSingleDistanceMeters = workouts.reduce((max, w) => Math.max(max, w.distance_meters || 0), 0);
+
   const handleRecalculate = async () => {
     if (!profile?.user_id || isRecalculating) return;
     setIsRecalculating(true);
@@ -186,22 +197,22 @@ export const PersonalRecordsScreen: React.FC<PersonalRecordsScreenProps> = ({
       {/* Header with Title and Actions (Simple Dropdown + Refresh Icon) */}
       <div className="flex items-center justify-between gap-2 pt-1">
         <div className="min-w-0">
-          <h2 className="font-display text-xl sm:text-2xl font-black text-emerald-950 dark:text-white tracking-tight whitespace-nowrap">
+          <h2 className="font-display text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight whitespace-nowrap">
             Personal Records
           </h2>
-          <p className="text-[11px] sm:text-xs text-emerald-800/80 dark:text-slate-400 mt-0.5 truncate">
+          <p className="text-[11px] sm:text-xs text-slate-600 dark:text-slate-400 mt-0.5 truncate font-medium">
             Career milestones & bests
           </p>
         </div>
 
         {/* Right Corner Controls: Simple Dropdown + Refresh Icon */}
         <div className="flex items-center gap-1.5 shrink-0">
-          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-200/80 dark:border-slate-800 shadow-sm">
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
             <Filter size={13} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
             <select
               value={selectedFilter}
               onChange={(e) => setSelectedFilter(e.target.value)}
-              className="bg-transparent text-xs font-bold text-emerald-950 dark:text-slate-200 outline-none cursor-pointer pr-1"
+              className="bg-transparent text-xs font-bold text-slate-900 dark:text-slate-200 outline-none cursor-pointer pr-1"
               aria-label="Filter personal records"
             >
               <option value="all" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
@@ -225,12 +236,12 @@ export const PersonalRecordsScreen: React.FC<PersonalRecordsScreenProps> = ({
           <button
             onClick={handleRecalculate}
             disabled={isRecalculating || workouts.length === 0}
-            className="p-2 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-200/80 dark:border-slate-800 hover:border-emerald-400 text-emerald-700 dark:text-slate-300 active:scale-95 transition-all shadow-sm disabled:opacity-50 flex items-center justify-center shrink-0"
+            className="p-2 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-emerald-400 text-slate-700 dark:text-slate-300 active:scale-95 transition-all shadow-sm disabled:opacity-50 flex items-center justify-center shrink-0 cursor-pointer"
             title="Scan historical workouts to recalculate records"
           >
             <RefreshCw
               size={14}
-              className={isRecalculating ? 'animate-spin text-emerald-500' : 'text-emerald-600 dark:text-emerald-400'}
+              className={isRecalculating ? 'animate-spin text-emerald-500' : 'text-slate-600 dark:text-slate-400'}
             />
           </button>
         </div>
@@ -238,46 +249,59 @@ export const PersonalRecordsScreen: React.FC<PersonalRecordsScreenProps> = ({
 
       {/* Recalculate Banner Notification */}
       {recalcSuccess && (
-        <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-400 text-xs flex items-center gap-2 animate-fade-in">
-          <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
+        <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-300 dark:border-emerald-500/30 text-emerald-900 dark:text-emerald-300 text-xs font-semibold flex items-center gap-2 animate-fade-in shadow-2xs">
+          <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
           <span>{recalcSuccess}</span>
         </div>
       )}
 
       {/* Trophy Progress Summary Card */}
-      <div className="rounded-3xl bg-gradient-to-br from-emerald-600 to-teal-700 p-4 sm:p-5 text-white shadow-lg shadow-emerald-700/20 relative overflow-hidden">
-        <div className="absolute right-0 bottom-0 translate-x-4 translate-y-4 opacity-15 pointer-events-none">
+      <div className="rounded-3xl bg-white dark:bg-slate-900 border border-emerald-200/90 dark:border-slate-800 p-4 sm:p-5 shadow-sm relative overflow-hidden">
+        {/* Subtle Watermark Background Icon */}
+        <div className="absolute right-0 bottom-0 translate-x-4 translate-y-4 opacity-10 dark:opacity-15 pointer-events-none text-emerald-600 dark:text-emerald-400">
           <Trophy size={140} />
         </div>
 
-        <div className="relative z-10 flex items-center justify-between">
-          <div className="space-y-1">
-            <div className="flex items-center gap-1.5 text-emerald-100 text-xs font-bold uppercase tracking-wider">
-
+        <div className="relative z-10 flex items-center justify-between gap-3">
+          <div className="space-y-1 min-w-0">
+            <div className="flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400 text-xs font-bold uppercase tracking-wider">
+              <Trophy size={14} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
               <span>Career Showcase</span>
             </div>
-            <div className="font-display text-2xl sm:text-3xl font-black">
+            <div className="font-display text-2xl sm:text-3xl font-black text-slate-900 dark:text-white truncate">
               {unlockedCount} of {totalCount} Records
             </div>
-            <p className="text-[11px] sm:text-xs text-emerald-100/90 max-w-xs">
+            <p className="text-[11px] sm:text-xs text-slate-600 dark:text-slate-400 font-medium max-w-xs">
               {unlockedCount === totalCount
                 ? 'All-time legend! You have unlocked every personal record category!'
                 : `Keep pushing your boundaries to unlock the remaining ${totalCount - unlockedCount} personal records.`}
             </p>
           </div>
 
-          <div className="text-center bg-white/10 backdrop-blur-md px-3.5 py-2.5 rounded-2xl border border-white/20 shrink-0">
-            <span className="font-display text-2xl font-black">{unlockPercentage}%</span>
-            <span className="block text-[9px] uppercase tracking-wider text-emerald-200 font-bold">Completed</span>
+          <div className="text-center bg-emerald-50/90 dark:bg-slate-800 border border-emerald-200 dark:border-slate-700 px-3.5 py-2.5 rounded-2xl shrink-0 shadow-2xs">
+            <span className="font-display text-2xl sm:text-3xl font-black text-emerald-950 dark:text-emerald-300 block leading-tight">
+              {unlockPercentage}%
+            </span>
+            <span className="block text-[9px] font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-400 mt-0.5">
+              Completed
+            </span>
           </div>
         </div>
 
-        {/* Progress Bar */}
-        <div className="mt-3.5 h-2 w-full rounded-full bg-white/20 overflow-hidden">
-          <div
-            style={{ width: `${unlockPercentage}%` }}
-            className="h-full rounded-full bg-amber-400 transition-all duration-500 shadow-sm"
-          />
+        {/* High-Contrast Bold Progress Bar */}
+        <div className="mt-4 pt-3 border-t border-emerald-100/90 dark:border-slate-800 space-y-2 relative z-10">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-bold text-slate-900 dark:text-white">Overall Career Progress</span>
+            <span className="font-mono font-bold text-xs text-emerald-800 dark:text-emerald-300 bg-emerald-100/80 dark:bg-emerald-500/20 px-2.5 py-0.5 rounded-lg border border-emerald-300/80 dark:border-emerald-500/30">
+              {unlockedCount} / {totalCount} Records ({unlockPercentage}%)
+            </span>
+          </div>
+          <div className="h-3.5 w-full rounded-full bg-slate-200 dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-700 overflow-hidden shadow-inner p-0.5">
+            <div
+              style={{ width: `${unlockPercentage > 0 ? Math.max(unlockPercentage, 3) : 0}%` }}
+              className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-400 dark:from-emerald-400 dark:via-teal-300 dark:to-emerald-400 transition-all duration-500 shadow-xs"
+            />
+          </div>
         </div>
       </div>
 
@@ -289,36 +313,44 @@ export const PersonalRecordsScreen: React.FC<PersonalRecordsScreenProps> = ({
           const matchingWorkout = record?.workout_id
             ? workouts.find((w) => w.id === record.workout_id)
             : null;
+          const targetMeters = benchmarkDistances[def.id];
+          const qualPct = targetMeters
+            ? Math.min(100, Math.round((maxSingleDistanceMeters / targetMeters) * 100))
+            : 0;
 
           return (
             <div
               key={def.id}
-              className={`rounded-3xl border p-4 sm:p-5 shadow-sm dark:shadow-md transition-all ${record
-                  ? 'bg-white dark:bg-slate-900 border-emerald-100 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-500/50'
-                  : 'bg-emerald-50/40 dark:bg-slate-900/50 border-emerald-100/60 dark:border-slate-800/60 opacity-65'
-                }`}
+              className={`rounded-3xl border p-4 sm:p-5 shadow-xs transition-all ${
+                record
+                  ? 'bg-white dark:bg-slate-900 border-slate-200/90 dark:border-slate-800 hover:border-emerald-400/60 dark:hover:border-emerald-500/50'
+                  : 'bg-slate-50 dark:bg-slate-900/60 border-slate-200 dark:border-slate-800'
+              }`}
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-3 min-w-0">
                   <div
-                    className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 shadow-sm ${record
+                    className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 shadow-sm ${
+                      record
                         ? `bg-gradient-to-tr ${def.badgeColor} text-white`
-                        : 'bg-emerald-100/60 dark:bg-slate-800 text-emerald-700/60 dark:text-slate-600'
-                      }`}
+                        : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300/80 dark:border-slate-700'
+                    }`}
                   >
                     <Icon size={22} />
                   </div>
 
                   <div className="min-w-0">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800/80 dark:text-slate-400 block truncate">
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block truncate">
                       {def.title}
                     </span>
                     {record ? (
-                      <div className="font-display text-xl sm:text-2xl font-black text-emerald-950 dark:text-white mt-0.5">
+                      <div className="font-display text-xl sm:text-2xl font-black text-slate-900 dark:text-white mt-0.5">
                         {def.formatter(record.value)}
                       </div>
                     ) : (
-                      <div className="font-mono text-sm text-emerald-700/60 dark:text-slate-500 mt-0.5">--:--</div>
+                      <div className="font-mono text-sm font-bold text-slate-500 dark:text-slate-400 mt-0.5">
+                        Not unlocked yet
+                      </div>
                     )}
                   </div>
                 </div>
@@ -326,7 +358,7 @@ export const PersonalRecordsScreen: React.FC<PersonalRecordsScreenProps> = ({
                 {record && matchingWorkout && (
                   <button
                     onClick={() => onSelectWorkout(matchingWorkout)}
-                    className="py-1.5 px-3 rounded-xl bg-emerald-50 dark:bg-slate-950 border border-emerald-200 dark:border-slate-800 text-emerald-800 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 active:scale-95 transition-all text-xs font-bold flex items-center gap-1 shrink-0"
+                    className="py-1.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200 active:scale-95 transition-all text-xs font-bold flex items-center gap-1 shrink-0 cursor-pointer shadow-2xs"
                     title="View workout"
                   >
                     <span>View Run</span>
@@ -336,9 +368,9 @@ export const PersonalRecordsScreen: React.FC<PersonalRecordsScreenProps> = ({
               </div>
 
               {record ? (
-                <div className="flex items-center justify-between text-[11px] text-emerald-700/80 dark:text-slate-500 pt-3 border-t border-emerald-100/80 dark:border-slate-800/60 mt-3">
+                <div className="flex items-center justify-between text-xs font-medium text-slate-600 dark:text-slate-400 pt-3 border-t border-slate-200 dark:border-slate-800/80 mt-3">
                   <span className="truncate">{def.subtext}</span>
-                  <span className="shrink-0 font-medium">
+                  <span className="shrink-0 font-bold text-slate-800 dark:text-slate-200">
                     {new Date(record.achieved_at).toLocaleDateString([], {
                       month: 'short',
                       day: 'numeric',
@@ -346,9 +378,30 @@ export const PersonalRecordsScreen: React.FC<PersonalRecordsScreenProps> = ({
                     })}
                   </span>
                 </div>
+              ) : targetMeters ? (
+                <div className="space-y-1.5 pt-3 mt-3 border-t border-slate-200 dark:border-slate-800">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="font-bold text-slate-700 dark:text-slate-300">
+                      Distance Benchmark Progress
+                    </span>
+                    <span className="font-mono font-bold text-slate-900 dark:text-white">
+                      {formatDistance(Math.min(maxSingleDistanceMeters, targetMeters), distanceUnit)} / {formatDistance(targetMeters, distanceUnit)} {distanceUnit} ({qualPct}%)
+                    </span>
+                  </div>
+                  {/* High contrast bold progress bar for light & dark mode */}
+                  <div className="h-3.5 w-full rounded-full bg-slate-200 dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-700 overflow-hidden shadow-inner p-0.5">
+                    <div
+                      style={{ width: `${qualPct > 0 ? Math.max(qualPct, 3) : 0}%` }}
+                      className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-300 shadow-sm"
+                    />
+                  </div>
+                  <p className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
+                    Run at least {formatDistance(targetMeters, distanceUnit)} {distanceUnit} in a single session to set this benchmark.
+                  </p>
+                </div>
               ) : (
-                <div className="text-[10px] text-emerald-700/60 dark:text-slate-600 pt-2 mt-2 border-t border-emerald-100/40 dark:border-slate-800/40">
-                  Log a run matching this distance or metric to set your first benchmark.
+                <div className="text-[11px] font-medium text-slate-600 dark:text-slate-400 pt-2.5 mt-2.5 border-t border-slate-200 dark:border-slate-800">
+                  Complete any workout session to establish your personal {def.title.toLowerCase()}.
                 </div>
               )}
             </div>
@@ -356,21 +409,21 @@ export const PersonalRecordsScreen: React.FC<PersonalRecordsScreenProps> = ({
         })}
 
         {filteredDefs.length === 0 && (
-          <div className="rounded-3xl border border-dashed border-emerald-200 dark:border-slate-800 p-8 text-center bg-white dark:bg-slate-900 space-y-3">
-            <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 mx-auto flex items-center justify-center">
+          <div className="rounded-3xl border border-dashed border-slate-300 dark:border-slate-800 p-8 text-center bg-white dark:bg-slate-900 space-y-3">
+            <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 mx-auto flex items-center justify-center">
               <Trophy size={24} />
             </div>
-            <h4 className="font-bold text-sm text-emerald-950 dark:text-white">
+            <h4 className="font-bold text-sm text-slate-900 dark:text-white">
               No matching records found
             </h4>
-            <p className="text-xs text-emerald-700/80 dark:text-slate-400 max-w-xs mx-auto">
+            <p className="text-xs text-slate-600 dark:text-slate-400 max-w-xs mx-auto">
               {selectedFilter === 'unlocked'
                 ? 'No personal records unlocked yet. Go for a run to set your first benchmark!'
                 : 'All records have been unlocked! Incredible effort!'}
             </p>
             <button
               onClick={() => setSelectedFilter('all')}
-              className="text-xs font-bold text-emerald-600 dark:text-emerald-400 underline active:scale-95"
+              className="text-xs font-bold text-emerald-600 dark:text-emerald-400 underline active:scale-95 cursor-pointer"
             >
               Show All Records
             </button>

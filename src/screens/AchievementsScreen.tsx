@@ -226,10 +226,10 @@ export const AchievementsScreen: React.FC<AchievementsScreenProps> = ({
         </div>
 
         {/* Level XP Bar */}
-        <div className="h-1.5 w-full rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+        <div className="h-2.5 w-full rounded-full bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 overflow-hidden shadow-inner p-0.5">
           <div
             style={{ width: `${levelProgressPct}%` }}
-            className="h-full rounded-full bg-emerald-500 transition-all duration-300"
+            className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-300 shadow-sm"
           />
         </div>
       </div>
@@ -340,10 +340,10 @@ export const AchievementsScreen: React.FC<AchievementsScreenProps> = ({
                       </span>
                       <span className="font-mono font-medium">{progress.pct}%</span>
                     </div>
-                    <div className="h-1 w-full rounded-full bg-slate-200/80 dark:bg-slate-800 overflow-hidden">
+                    <div className="h-2 w-full rounded-full bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 overflow-hidden shadow-inner p-0.5">
                       <div
-                        style={{ width: `${progress.pct}%` }}
-                        className="h-full rounded-full bg-slate-400 dark:bg-slate-500"
+                        style={{ width: `${progress.pct > 0 ? Math.max(progress.pct, 3) : 0}%` }}
+                        className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-300 shadow-xs"
                       />
                     </div>
                   </div>
