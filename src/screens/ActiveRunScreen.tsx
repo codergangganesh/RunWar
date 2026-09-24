@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { LiveWorkoutState, SplitToastInfo, UserProfile, UserSettings, WorkoutType } from '../types';
 import { gpsEngine } from '../services/gpsEngine';
 import { audioCoach } from '../services/audioCoach';
+import { offlineSync } from '../services/offlineSync';
 import { GlanceableHUD } from '../components/workout/GlanceableHUD';
 import { LiveWorkoutMap } from '../components/map/LiveWorkoutMap';
 import {
@@ -20,6 +21,10 @@ import {
   AlertTriangle,
   TrendingUp,
   TrendingDown,
+  Lock,
+  Unlock,
+  Smartphone,
+  X,
 } from 'lucide-react';
 import { formatDistance, formatDuration, formatPace, formatPaceRaw } from '../utils/formatters';
 
@@ -46,6 +51,90 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
   const [audioMuted, setAudioMuted] = useState(!audioCoach.getIsEnabled());
   const [simMode, setSimMode] = useState(gpsEngine.isSimulationMode);
   const [activeToast, setActiveToast] = useState<SplitToastInfo | null>(null);
+  const [isPocketMode, setIsPocketMode] = useState(false);
+  const [bannerDismissed, setBannerDismissed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('runwar_keep_screen_banner_dismissed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [unlockProgress, setUnlockProgress] = useState(0);
+  const unlockTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const unlockStartRef = useRef<number | null>(null);
+  const lastTapRef = useRef<number>(0);
+  const tapCountRef = useRef<number>(0);
+
+  const handleDismissBanner = () => {
+    setBannerDismissed(true);
+    try {
+      localStorage.setItem('runwar_keep_screen_banner_dismissed', 'true');
+    } catch {}
+  };
+
+  const handleUnlockTouchStart = () => {
+    unlockStartRef.current = Date.now();
+    setUnlockProgress(0);
+
+    if (unlockTimerRef.current) clearInterval(unlockTimerRef.current);
+
+    unlockTimerRef.current = setInterval(() => {
+      if (!unlockStartRef.current) return;
+      const elapsed = Date.now() - unlockStartRef.current;
+      const progress = Math.min(100, Math.round((elapsed / 1000) * 100));
+      setUnlockProgress(progress);
+
+      if (progress >= 100) {
+        if (unlockTimerRef.current) {
+          clearInterval(unlockTimerRef.current);
+          unlockTimerRef.current = null;
+        }
+        unlockStartRef.current = null;
+        setUnlockProgress(0);
+        setIsPocketMode(false);
+        try {
+          if ('vibrate' in navigator) navigator.vibrate([40]);
+        } catch {}
+      }
+    }, 30);
+  };
+
+  const handleUnlockTouchEnd = () => {
+    if (unlockTimerRef.current) {
+      clearInterval(unlockTimerRef.current);
+      unlockTimerRef.current = null;
+    }
+    unlockStartRef.current = null;
+    setUnlockProgress(0);
+  };
+
+  const handleTripleTapUnlock = (e: React.MouseEvent | React.TouchEvent) => {
+    if ((e.target as HTMLElement)?.closest('button')) return;
+    const now = Date.now();
+    // If the next tap is within 450ms, increment count; otherwise reset to 1
+    if (now - lastTapRef.current < 450) {
+      tapCountRef.current += 1;
+    } else {
+      tapCountRef.current = 1;
+    }
+    lastTapRef.current = now;
+
+    if (tapCountRef.current >= 3) {
+      tapCountRef.current = 0;
+      setIsPocketMode(false);
+      try {
+        if ('vibrate' in navigator) navigator.vibrate([40, 40]);
+      } catch {}
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (unlockTimerRef.current) {
+        clearInterval(unlockTimerRef.current);
+      }
+    };
+  }, []);
 
   // Auto-dismiss kilometer split toast after 8 seconds
   useEffect(() => {
@@ -82,14 +171,21 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
       setWorkoutState(state);
     });
 
-    if (workoutState.status === 'idle' || workoutState.status === 'finished') {
-      gpsEngine.startTracking(workoutType);
+    const currentState = gpsEngine.getState();
+    if (currentState.status === 'idle' || currentState.status === 'finished') {
+      const backup = offlineSync.getActiveWorkoutBackup();
+      if (backup && (backup.status === 'tracking' || backup.status === 'paused' || backup.engineState === 'ACTIVE' || backup.engineState === 'PAUSED')) {
+        gpsEngine.restoreWorkout(backup, backup.status === 'tracking' || backup.engineState === 'ACTIVE');
+      } else {
+        gpsEngine.startTracking(workoutType);
+      }
     }
 
     return () => {
       unsubscribe();
     };
   }, [workoutType, profile, settings, audioMuted]);
+
 
   const handlePauseResume = () => {
     if (workoutState.status === 'tracking') {
@@ -234,6 +330,16 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
               {audioMuted ? <VolumeX size={15} /> : <Volume2 size={15} />}
             </button>
 
+            {/* Pocket Mode Toggle */}
+            <button
+              onClick={() => setIsPocketMode(true)}
+              className="p-2 rounded-xl border transition-all active:scale-95 bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-emerald-800 dark:text-slate-300 hover:text-emerald-950 dark:hover:text-white"
+              title="Pocket Mode: Lock touch & dim display"
+              aria-label="Pocket Mode"
+            >
+              <Lock size={15} />
+            </button>
+
             {/* View Mode Switcher (Split View vs Fullscreen Map) */}
             <button
               onClick={handleToggleViewMode}
@@ -248,6 +354,47 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Keep Screen Active / Web GPS Advisory Banner */}
+        {!bannerDismissed && (
+          <div className="shrink-0 w-full rounded-2xl bg-white/95 dark:bg-slate-900/95 border border-emerald-200/80 dark:border-slate-800 p-2.5 sm:p-3 shadow-sm flex items-start gap-2.5 animate-fade-in">
+            <div className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5">
+              <Smartphone size={16} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[11px] font-bold text-emerald-950 dark:text-white">
+                  Keep Screen Active
+                </span>
+                <button
+                  onClick={handleDismissBanner}
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded transition-colors"
+                  aria-label="Dismiss notice"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-snug mt-0.5">
+                Keep RunWar on-screen while running. Turning off the screen or switching apps suspends web GPS tracking.
+              </p>
+              <div className="flex items-center gap-2 mt-2">
+                <button
+                  onClick={() => setIsPocketMode(true)}
+                  className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-[11px] font-bold flex items-center gap-1.5 transition-all shadow-sm"
+                >
+                  <Lock size={12} />
+                  <span>Pocket Mode</span>
+                </button>
+                <button
+                  onClick={handleDismissBanner}
+                  className="px-2 py-1 rounded-lg text-[11px] font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
+                >
+                  Got it
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Milestone Split Toast - Simple, clean, standard look */}
         {activeToast && (
@@ -548,6 +695,95 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
           </div>
         )}
       </div>
+
+      {/* Pocket Mode: AMOLED Low Power & Anti-Ghost-Touch Screen */}
+      {isPocketMode && (
+        <div
+          className="fixed inset-0 z-50 bg-black text-white flex flex-col justify-between items-center p-6 select-none animate-fade-in"
+          onClick={handleTripleTapUnlock}
+        >
+          {/* Header: Mode Badge */}
+          <div className="w-full flex items-center justify-between pt-2">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900 border border-slate-800 text-xs font-semibold text-emerald-400">
+              <Lock size={13} className="text-emerald-400" />
+              <span>Pocket Mode Active</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse ml-0.5" />
+            </div>
+
+            <div className="text-[11px] font-medium text-slate-400">
+              Screen Locked
+            </div>
+          </div>
+
+          {/* Center: Large High-Contrast AMOLED Stats */}
+          <div className="w-full flex flex-col items-center justify-center my-auto space-y-6">
+            {/* Distance */}
+            <div className="flex flex-col items-center">
+              <div className="text-5xl sm:text-6xl font-black font-mono tracking-tight text-white">
+                {formatDistance(workoutState.distanceMeters, distanceUnit, 2)}
+              </div>
+              <span className="text-xs uppercase font-bold tracking-widest text-emerald-400 mt-1">
+                {distanceUnit === 'mi' ? 'Miles' : 'Kilometers'}
+              </span>
+            </div>
+
+            {/* Time & Pace in 2 columns */}
+            <div className="grid grid-cols-2 gap-8 text-center w-full max-w-xs pt-2">
+              <div>
+                <div className="text-2xl sm:text-3xl font-bold font-mono text-slate-200">
+                  {formatDuration(workoutState.movingTime > 0 ? workoutState.movingTime : workoutState.elapsedTime)}
+                </div>
+                <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400 mt-0.5">
+                  Duration
+                </div>
+              </div>
+
+              <div>
+                <div className="text-2xl sm:text-3xl font-bold font-mono text-emerald-400">
+                  {workoutState.currentPace > 0 ? formatPaceRaw(workoutState.currentPace, paceUnit) : '--:--'}
+                </div>
+                <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400 mt-0.5">
+                  Pace ({paceUnit === 'min_mi' ? '/mi' : '/km'})
+                </div>
+              </div>
+            </div>
+
+            {/* Status Notice */}
+            <div className="text-center px-4">
+              <p className="text-[11px] text-slate-400 max-w-xs leading-relaxed">
+                Screen stays awake to track your GPS continuously while preventing accidental pocket touches.
+              </p>
+            </div>
+          </div>
+
+          {/* Bottom: Hold / Double-Tap to Unlock */}
+          <div className="w-full max-w-xs flex flex-col items-center gap-2 pb-4">
+            <button
+              type="button"
+              onMouseDown={handleUnlockTouchStart}
+              onMouseUp={handleUnlockTouchEnd}
+              onMouseLeave={handleUnlockTouchEnd}
+              onTouchStart={handleUnlockTouchStart}
+              onTouchEnd={handleUnlockTouchEnd}
+              onTouchCancel={handleUnlockTouchEnd}
+              className="relative w-full py-4 rounded-2xl bg-slate-900 border border-slate-800 text-white font-bold text-sm overflow-hidden active:scale-[0.98] transition-transform flex items-center justify-center gap-2 shadow-lg"
+            >
+              {/* Visual Progress Fill */}
+              <div
+                className="absolute inset-0 bg-emerald-500/30 transition-all pointer-events-none"
+                style={{ width: `${unlockProgress}%` }}
+              />
+              <Unlock size={18} className="text-emerald-400 shrink-0 relative z-10" />
+              <span className="relative z-10">
+                {unlockProgress > 0 ? `Unlocking... ${unlockProgress}%` : 'Hold to Unlock'}
+              </span>
+            </button>
+            <span className="text-[10px] text-slate-400">
+              Hold for 1 sec or triple-tap anywhere to unlock
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -14,7 +14,11 @@ export const offlineSync = {
     if (!backup) return false;
     try {
       const parsed = JSON.parse(backup);
-      return Boolean(parsed && parsed.coordinates && parsed.coordinates.length > 2 && parsed.distanceMeters > 50);
+      return Boolean(
+        parsed &&
+        parsed.workoutId &&
+        (parsed.engineState === 'ACTIVE' || parsed.engineState === 'PAUSED' || parsed.status === 'tracking' || parsed.status === 'paused')
+      );
     } catch {
       return false;
     }

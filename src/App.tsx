@@ -59,8 +59,31 @@ type ScreenState =
   | 'connected_health';
 
 export const App: React.FC = () => {
+  // Check if there is an active running session from a browser refresh
+  const initialActiveWorkout = (() => {
+    try {
+      const backupRaw = localStorage.getItem('runwar_active_workout_backup');
+      if (backupRaw) {
+        const parsed = JSON.parse(backupRaw);
+        if (
+          parsed &&
+          parsed.workoutId &&
+          (parsed.engineState === 'ACTIVE' || parsed.engineState === 'PAUSED' || parsed.status === 'tracking' || parsed.status === 'paused')
+        ) {
+          return parsed as LiveWorkoutState;
+        }
+      }
+    } catch {}
+    return null;
+  })();
+
   // Navigation & Screen States
-  const [screen, setScreen] = useState<ScreenState>('splash');
+  const [screen, setScreen] = useState<ScreenState>(() => {
+    if (initialActiveWorkout) {
+      return 'active_run';
+    }
+    return 'splash';
+  });
   const [activeTab, setActiveTab] = useState<ActiveTab>('home');
 
   // User & Settings (Synchronously load cached session on frame 0)
@@ -115,12 +138,22 @@ export const App: React.FC = () => {
   const [records, setRecords] = useState<PersonalRecord[]>([]);
 
   // Active workout & selection
-  const [activeWorkoutType, setActiveWorkoutType] = useState<WorkoutType>('run');
+  const [activeWorkoutType, setActiveWorkoutType] = useState<WorkoutType>(() => {
+    return initialActiveWorkout ? initialActiveWorkout.type : 'run';
+  });
   const [finishedWorkoutState, setFinishedWorkoutState] = useState<LiveWorkoutState | null>(null);
   const [selectedWorkout, setSelectedWorkout] = useState<Workout | null>(null);
 
   // Recovery modal state
   const [recoveredWorkoutBackup, setRecoveredWorkoutBackup] = useState<LiveWorkoutState | null>(null);
+
+  // Immediate synchronous session restoration on frame 0 if recovering from reload
+  useEffect(() => {
+    if (initialActiveWorkout) {
+      const shouldResume = initialActiveWorkout.status === 'tracking' || initialActiveWorkout.engineState === 'ACTIVE';
+      gpsEngine.restoreWorkout(initialActiveWorkout, shouldResume);
+    }
+  }, []);
 
   // Fetch all app data with optional background/silent mode
   const loadAppData = useCallback(async (userId: string, silent = false) => {
@@ -316,8 +349,8 @@ export const App: React.FC = () => {
         setIsAuthInitializing(false);
       }
 
-      // Check if crash recovery exists
-      if (offlineSync.hasActiveWorkoutBackup()) {
+      // Check if crash recovery exists and user is not already in active run
+      if (offlineSync.hasActiveWorkoutBackup() && screen !== 'active_run' && !initialActiveWorkout) {
         const backup = offlineSync.getActiveWorkoutBackup();
         if (backup) {
           setRecoveredWorkoutBackup(backup);
@@ -425,11 +458,11 @@ export const App: React.FC = () => {
       if (targetScreen === 'connected_health' || targetScreen === 'privacy') {
         setScreen(targetScreen);
       } else {
-        setScreen('main');
+        setScreen((prev) => (prev === 'active_run' ? 'active_run' : 'main'));
         if (targetTab) setActiveTab(targetTab);
       }
     } else if (!isAuthInitializing) {
-      setScreen('welcome');
+      setScreen((prev) => (prev === 'active_run' ? 'active_run' : 'welcome'));
     }
   };
 

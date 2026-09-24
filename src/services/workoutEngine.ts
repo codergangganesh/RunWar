@@ -818,7 +818,11 @@ export class WorkoutEngine {
     if (!raw) return false;
     try {
       const parsed: LiveWorkoutState = JSON.parse(raw);
-      return Boolean(parsed && parsed.coordinates && parsed.coordinates.length >= 2 && parsed.distanceMeters > 30);
+      return Boolean(
+        parsed &&
+        parsed.workoutId &&
+        (parsed.engineState === 'ACTIVE' || parsed.engineState === 'PAUSED' || parsed.status === 'tracking' || parsed.status === 'paused')
+      );
     } catch {
       return false;
     }
@@ -833,17 +837,32 @@ export class WorkoutEngine {
     }
   }
 
-  public restoreWorkout(backup: LiveWorkoutState) {
+  public restoreWorkout(backup: LiveWorkoutState, autoResume?: boolean) {
+    const shouldResume = autoResume ?? (backup.status === 'tracking' || backup.engineState === 'ACTIVE');
     this.state = {
       ...backup,
-      engineState: 'PAUSED',
-      status: 'paused',
+      activeSplitToast: null,
+      engineState: shouldResume ? 'ACTIVE' : 'PAUSED',
+      status: shouldResume ? 'tracking' : 'paused',
     };
+
     workoutLogger.log('RECOVERY_DETECTED', 'info', {
       workoutId: backup.workoutId,
       restoredDistance: backup.distanceMeters,
       restoredPoints: backup.coordinates.length,
+      shouldResume,
     }, backup.workoutId);
+
+    if (shouldResume) {
+      this.acquireWakeLock();
+      this.startBackgroundTimer();
+      if (this.isSimulationMode) {
+        this.startSimulation();
+      } else {
+        this.startGPSWatcher();
+      }
+    }
+
     this.notify();
   }
 
@@ -854,7 +873,16 @@ export class WorkoutEngine {
   private async acquireWakeLock() {
     try {
       if ('wakeLock' in navigator) {
+        if (this.wakeLock && !this.wakeLock.released) {
+          return;
+        }
         this.wakeLock = await (navigator as any).wakeLock.request('screen');
+        this.wakeLock.addEventListener('release', () => {
+          // Re-acquire if screen wake lock was released unexpectedly while workout is still active
+          if (this.state.engineState === 'ACTIVE' && typeof document !== 'undefined' && document.visibilityState === 'visible') {
+            this.acquireWakeLock();
+          }
+        });
       }
     } catch (e) {
       // Ignore
@@ -906,6 +934,14 @@ export class WorkoutEngine {
         }
       }
     });
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', () => {
+        if (this.state.engineState === 'ACTIVE') {
+          this.acquireWakeLock();
+        }
+      });
+    }
   }
 }
 

@@ -53,8 +53,8 @@ export class GPSEngineFacade {
     workoutEngine.reset();
   }
 
-  public restoreWorkout(savedState: LiveWorkoutState) {
-    workoutEngine.restoreWorkout(savedState);
+  public restoreWorkout(savedState: LiveWorkoutState, autoResume?: boolean) {
+    workoutEngine.restoreWorkout(savedState, autoResume);
   }
 
   public processNewCoordinate(coord: GPSCoordinate) {
