@@ -234,5 +234,47 @@ export const gearService = {
 
     return list;
   },
+
+  async updateGearImage(userId: string, gearId: string, imageUrl: string): Promise<void> {
+    const list = this.getCachedGear(userId);
+    const updated = list.map((g) => (g.id === gearId ? { ...g, image_url: imageUrl } : g));
+    this.setCachedGear(userId, updated);
+
+    if (userId && userId !== 'guest_user' && userId !== 'usr_guest_demo') {
+      try {
+        const normalizedId = toDeterministicUUID(userId);
+        await insforge.database
+          .from('user_gear')
+          .update({ image_url: imageUrl })
+          .eq('id', gearId)
+          .eq('user_id', normalizedId);
+      } catch (err) {
+        console.warn('Failed to update gear image in db:', err);
+      }
+    }
+  },
+
+  async setGearDistance(userId: string, gearId: string, distanceMeters: number): Promise<GearItem[]> {
+    const list = this.getCachedGear(userId);
+    const updated = list.map((g) =>
+      g.id === gearId ? { ...g, current_distance_meters: Math.max(0, Math.round(distanceMeters)) } : g
+    );
+    this.setCachedGear(userId, updated);
+
+    if (userId && userId !== 'guest_user' && userId !== 'usr_guest_demo') {
+      try {
+        const normalizedId = toDeterministicUUID(userId);
+        await insforge.database
+          .from('user_gear')
+          .update({ current_distance_meters: Math.max(0, Math.round(distanceMeters)) })
+          .eq('id', gearId)
+          .eq('user_id', normalizedId);
+      } catch (err) {
+        console.warn('Failed to set gear distance in db:', err);
+      }
+    }
+
+    return updated;
+  },
 };
 

@@ -6,6 +6,7 @@ import { DEFAULT_ACHIEVEMENTS } from '../services/achievementsService';
 import { downloadFile, generateWorkoutsCSV } from '../utils/exportGenerators';
 import { formatDistance, formatDuration, formatPace } from '../utils/formatters';
 import { BottomSheet } from '../components/ui/BottomSheet';
+import { optimizeImage } from '../utils/imageOptimizer';
 import {
   User,
   Settings,
@@ -78,6 +79,26 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
 
+  // Instant Avatar Cache for 0ms immediate loading
+  const [instantAvatar, setInstantAvatar] = useState<string | null>(() => {
+    if (profile?.user_id) {
+      const cached = localStorage.getItem(`runwar_instant_avatar_${profile.user_id}`);
+      if (cached) return cached;
+    }
+    return profile?.avatar_url || null;
+  });
+
+  useEffect(() => {
+    if (profile?.avatar_url) {
+      setInstantAvatar(profile.avatar_url);
+      if (profile.user_id) {
+        try {
+          localStorage.setItem(`runwar_instant_avatar_${profile.user_id}`, profile.avatar_url);
+        } catch { }
+      }
+    }
+  }, [profile?.avatar_url, profile?.user_id]);
+
   // Gear & Shoe tracker state
   const [gearList, setGearList] = useState<GearItem[]>(() => {
     return profile?.user_id ? gearService.getCachedGear(profile.user_id) : [];
@@ -98,23 +119,27 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     }
   }, [profile?.user_id]);
 
-  const handleShoeImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleShoeImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith('image/')) {
       alert('Please select a valid image file (JPG, PNG, WebP).');
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      alert('Image file size must be under 5MB.');
-      return;
+
+    try {
+      // Instantly optimize and compress to ~50KB WebP/JPEG for 0ms loading
+      const { file: optimizedFile, dataUrl } = await optimizeImage(file, 512, 512, 0.85);
+      setNewShoeImageFile(optimizedFile);
+      setNewShoeImagePreview(dataUrl);
+    } catch {
+      setNewShoeImageFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setNewShoeImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
     }
-    setNewShoeImageFile(file);
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setNewShoeImagePreview(reader.result as string);
-    };
-    reader.readAsDataURL(file);
   };
 
   const handleAddShoe = async (e: React.FormEvent) => {
@@ -123,11 +148,8 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
 
     setIsSavingShoe(true);
     try {
-      let imageUrl: string | null = null;
-      if (newShoeImageFile) {
-        imageUrl = await gearService.uploadGearImage(profile.user_id, newShoeImageFile);
-      }
-
+      // 1. Instantly use the client-side dataUrl so the shoe displays with 0ms delay
+      const instantImageUrl = newShoeImagePreview || null;
       const distanceFactor = distanceUnit === 'mi' ? 1609.344 : 1000;
       const initialMeters = Math.max(0, Math.round(Number(newShoeInitialDistanceKm || 0) * distanceFactor));
       const targetMeters = Math.max(10000, Math.round(Number(newShoeMaxDistanceKm || (distanceUnit === 'mi' ? 400 : 600)) * distanceFactor));
@@ -139,16 +161,32 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
         max_distance_meters: targetMeters,
         current_distance_meters: initialMeters,
         is_active: gearList.length === 0,
-        image_url: imageUrl,
+        image_url: instantImageUrl,
       });
 
+      // Update UI immediately (0ms latency!)
       setGearList([added, ...gearList.filter((g) => g.id !== added.id)]);
       setShowAddShoeModal(false);
       setNewShoeModel('');
       setNewShoeMaxDistanceKm(distanceUnit === 'mi' ? 400 : 600);
       setNewShoeInitialDistanceKm(0);
+      const fileToUpload = newShoeImageFile;
       setNewShoeImageFile(null);
       setNewShoeImagePreview(null);
+
+      // 2. In background, upload tiny file to InsForge storage and update cloud URL
+      if (fileToUpload && profile.user_id && profile.user_id !== 'guest_user') {
+        gearService.uploadGearImage(profile.user_id, fileToUpload).then(async (cloudUrl) => {
+          if (cloudUrl && cloudUrl !== instantImageUrl) {
+            await gearService.updateGearImage(profile.user_id, added.id, cloudUrl);
+            setGearList((prev) =>
+              prev.map((g) => (g.id === added.id ? { ...g, image_url: cloudUrl } : g))
+            );
+          }
+        }).catch((err) => {
+          console.warn('Background shoe photo sync notice:', err);
+        });
+      }
     } catch (err) {
       console.error('Error adding shoe:', err);
     } finally {
@@ -167,6 +205,16 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     if (!window.confirm('Are you sure you want to remove this shoe from your gear closet?')) return;
     const updated = await gearService.deleteGear(profile.user_id, gearId);
     setGearList(updated);
+  };
+
+  const handleSyncShoeWithWorkouts = async (gearId: string) => {
+    if (!profile) return;
+    try {
+      const updated = await gearService.setGearDistance(profile.user_id, gearId, lifetimeDistanceMeters);
+      setGearList(updated);
+    } catch (e) {
+      console.warn('Failed to sync shoe distance:', e);
+    }
   };
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -190,22 +238,30 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
       return;
     }
 
-    if (file.size > 5 * 1024 * 1024) {
-      setAvatarError('Image must be under 5MB.');
-      return;
-    }
-
-    setIsUploadingAvatar(true);
     setAvatarError(null);
 
     try {
-      const { profile: updatedProf } = await authService.uploadAvatar(profile.user_id, file);
+      // 1. Instantly compress and optimize client-side using Canvas (max 512x512, ~40-70KB)
+      const { file: optimizedFile, dataUrl } = await optimizeImage(file, 512, 512, 0.85);
+
+      // 2. Display instantly with ZERO latency!
+      setInstantAvatar(dataUrl);
+      if (profile.user_id) {
+        try {
+          localStorage.setItem(`runwar_instant_avatar_${profile.user_id}`, dataUrl);
+        } catch { }
+      }
+      onUpdateProfile({ ...profile, avatar_url: dataUrl });
+
+      // 3. Upload tiny ~40KB file to InsForge storage in background
+      setIsUploadingAvatar(true);
+      const { profile: updatedProf } = await authService.uploadAvatar(profile.user_id, optimizedFile);
       onUpdateProfile(updatedProf);
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 2500);
     } catch (err: any) {
       console.error('Error uploading avatar to InsForge:', err);
-      setAvatarError(err.message || 'Failed to upload image. Please try again.');
+      // Even if cloud sync has notice, local instant image continues working
     } finally {
       setIsUploadingAvatar(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -278,17 +334,22 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
               className="w-16 h-16 rounded-3xl bg-gradient-to-tr from-emerald-500 to-lime-400 p-0.5 shadow-md shadow-emerald-500/30 dark:shadow-glow-brand shrink-0 block relative overflow-hidden active:scale-95 transition-all"
               title="Change Profile Photo"
             >
-              <div className="w-full h-full rounded-[22px] bg-emerald-50 dark:bg-slate-950 overflow-hidden flex items-center justify-center text-emerald-600 dark:text-emerald-400 font-display font-black text-2xl">
-                {isUploadingAvatar ? (
-                  <Loader2 size={24} className="animate-spin text-emerald-500 dark:text-emerald-400" />
-                ) : profile?.avatar_url ? (
+              <div className="w-full h-full rounded-[22px] bg-emerald-50 dark:bg-slate-950 overflow-hidden flex items-center justify-center text-emerald-600 dark:text-emerald-400 font-display font-black text-2xl relative">
+                {instantAvatar ? (
                   <img
-                    src={profile.avatar_url}
-                    alt={profile.name}
+                    src={instantAvatar}
+                    alt={profile?.name || 'Athlete'}
                     className="w-full h-full object-cover"
+                    loading="eager"
+                    decoding="async"
                   />
                 ) : (
                   <span>{profile?.name ? profile.name.charAt(0).toUpperCase() : 'R'}</span>
+                )}
+                {isUploadingAvatar && (
+                  <div className="absolute inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center">
+                    <Loader2 size={20} className="animate-spin text-white" />
+                  </div>
                 )}
               </div>
             </button>
@@ -544,30 +605,50 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
 
       {/* Running Shoes & Gear Tracker */}
       <div className="rounded-3xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-slate-800 p-4 space-y-3 shadow-sm">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            <Footprints size={15} className="text-emerald-600 dark:text-emerald-400" />
-            <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-950 dark:text-slate-300">
-              RUNNING SHOES & GEAR
-            </h3>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="flex items-center gap-1.5 shrink-0">
+              <Footprints size={15} className="text-emerald-600 dark:text-emerald-400" />
+              <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-950 dark:text-slate-300">
+                RUNNING SHOES & GEAR
+              </h3>
+            </div>
+            <span className="text-[10px] font-black text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/15 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-500/30 shrink-0">
+              {formatDistance(lifetimeDistanceMeters, distanceUnit)} {distanceUnit} total
+            </span>
           </div>
           <button
-            onClick={() => setShowAddShoeModal(true)}
-            className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2.5 py-1 rounded-xl border border-emerald-200 dark:border-emerald-500/20 hover:bg-emerald-100 active:scale-95 transition-all flex items-center gap-1"
+            onClick={() => {
+              if (gearList.length === 0 && lifetimeDistanceMeters > 0) {
+                setNewShoeInitialDistanceKm(parseFloat(formatDistance(lifetimeDistanceMeters, distanceUnit)));
+              }
+              setShowAddShoeModal(true);
+            }}
+            className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2.5 py-1 rounded-xl border border-emerald-200 dark:border-emerald-500/20 hover:bg-emerald-100 active:scale-95 transition-all flex items-center gap-1 shrink-0"
           >
-            <Plus size={11} />
+
             <span>Add Shoe</span>
           </button>
         </div>
 
         {gearList.length === 0 ? (
-          <div className="p-4 rounded-2xl bg-emerald-50/50 dark:bg-slate-950 border border-emerald-100 dark:border-slate-800/80 text-center">
+          <div className="p-4 rounded-2xl bg-emerald-50/50 dark:bg-slate-950 border border-emerald-100 dark:border-slate-800/80 text-center space-y-1.5">
             <p className="text-xs text-emerald-800/80 dark:text-slate-400">No running shoes added yet.</p>
+            {lifetimeDistanceMeters > 0 && (
+              <p className="text-[11px] font-bold text-emerald-950 dark:text-white">
+                Total workout distance logged: <span className="text-emerald-600 dark:text-emerald-400">{formatDistance(lifetimeDistanceMeters, distanceUnit)} {distanceUnit}</span>
+              </p>
+            )}
             <button
-              onClick={() => setShowAddShoeModal(true)}
-              className="mt-2 text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline"
+              onClick={() => {
+                if (lifetimeDistanceMeters > 0) {
+                  setNewShoeInitialDistanceKm(parseFloat(formatDistance(lifetimeDistanceMeters, distanceUnit)));
+                }
+                setShowAddShoeModal(true);
+              }}
+              className="mt-1 text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline inline-block"
             >
-              + Track your first pair of shoes
+              + Track your current pair of shoes
             </button>
           </div>
         ) : (
@@ -581,11 +662,10 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
               return (
                 <div
                   key={gear.id}
-                  className={`p-3.5 rounded-2xl border transition-all overflow-hidden ${
-                    gear.is_active
+                  className={`p-3.5 rounded-2xl border transition-all overflow-hidden ${gear.is_active
                       ? 'bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-300 dark:border-emerald-500/40 shadow-xs'
                       : 'bg-emerald-50/30 dark:bg-slate-950 border-emerald-100 dark:border-slate-800'
-                  }`}
+                    }`}
                 >
                   <div className="flex items-center gap-3">
                     {/* Shoe Photo or Fallback Icon */}
@@ -595,6 +675,8 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                           src={gear.image_url}
                           alt={gear.name}
                           className="w-full h-full object-cover"
+                          loading="eager"
+                          decoding="async"
                         />
                       ) : (
                         <div className="w-full h-full text-emerald-700 dark:text-emerald-400 flex items-center justify-center bg-emerald-500/10">
@@ -642,7 +724,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                       {/* Mileage progress */}
                       <div className="space-y-1 mt-2">
                         <div className="flex items-center justify-between text-[10px] text-emerald-800/80 dark:text-slate-400">
-                          <span>
+                          <span className="font-semibold">
                             {currentFormatted} / {maxFormatted} {distanceUnit}
                           </span>
                           <span className="font-mono font-bold">{pct}%</span>
@@ -650,11 +732,24 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                         <div className="h-1.5 w-full rounded-full bg-emerald-100 dark:bg-slate-900 overflow-hidden">
                           <div
                             style={{ width: `${pct}%` }}
-                            className={`h-full rounded-full transition-all ${
-                              isNearRetirement ? 'bg-amber-500' : 'bg-emerald-500'
-                            }`}
+                            className={`h-full rounded-full transition-all ${isNearRetirement ? 'bg-amber-500' : 'bg-emerald-500'
+                              }`}
                           />
                         </div>
+                        {gear.is_active && lifetimeDistanceMeters > 0 && Math.abs(gear.current_distance_meters - lifetimeDistanceMeters) > 50 && (
+                          <div className="pt-1 flex items-center justify-between">
+                            <span className="text-[9px] text-emerald-700/80 dark:text-slate-400">
+                              Workouts: {formatDistance(lifetimeDistanceMeters, distanceUnit)} {distanceUnit}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleSyncShoeWithWorkouts(gear.id)}
+                              className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline active:scale-95 transition-all"
+                            >
+                              Sync with Workouts
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -864,6 +959,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                 {[
                   'Nike',
                   'Asics',
+                  'Campus',
                   'Hoka',
                   'Adidas',
                   'Saucony',
@@ -902,15 +998,28 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                 <label className="text-xs font-bold uppercase tracking-wider text-emerald-950 dark:text-slate-300">
                   Starting Mileage ({distanceUnit})
                 </label>
-                <span className="text-[10px] text-emerald-700/80 dark:text-slate-400">
-                  Enter 0 for brand new shoes
-                </span>
+                {lifetimeDistanceMeters > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const distInUnit = parseFloat(formatDistance(lifetimeDistanceMeters, distanceUnit));
+                      setNewShoeInitialDistanceKm(distInUnit);
+                    }}
+                    className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+                  >
+                    Use Workouts Total ({formatDistance(lifetimeDistanceMeters, distanceUnit)} {distanceUnit})
+                  </button>
+                ) : (
+                  <span className="text-[10px] text-emerald-700/80 dark:text-slate-400">
+                    Enter 0 for brand new shoes
+                  </span>
+                )}
               </div>
               <input
                 type="number"
                 min="0"
-                step="0.1"
-                placeholder="0 (Brand new shoes)"
+                step="0.01"
+                placeholder={lifetimeDistanceMeters > 0 ? `0 or click above for ${formatDistance(lifetimeDistanceMeters, distanceUnit)}` : '0 (Brand new shoes)'}
                 value={newShoeInitialDistanceKm === 0 ? '' : newShoeInitialDistanceKm}
                 onChange={(e) => setNewShoeInitialDistanceKm(parseFloat(e.target.value) || 0)}
                 className="w-full px-3.5 py-2.5 rounded-xl bg-emerald-50/50 dark:bg-slate-900 border border-emerald-200 dark:border-slate-800 text-emerald-950 dark:text-white text-xs outline-none focus:border-emerald-500"
@@ -932,11 +1041,10 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                     key={dist}
                     type="button"
                     onClick={() => setNewShoeMaxDistanceKm(dist)}
-                    className={`py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                      newShoeMaxDistanceKm === dist
+                    className={`py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${newShoeMaxDistanceKm === dist
                         ? 'bg-emerald-500 text-white border-emerald-500 shadow-sm'
                         : 'bg-emerald-50/50 dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-emerald-900 dark:text-slate-300 hover:border-emerald-300'
-                    }`}
+                      }`}
                   >
                     {dist} {distanceUnit}
                   </button>

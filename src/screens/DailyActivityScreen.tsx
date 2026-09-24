@@ -233,6 +233,8 @@ export const DailyActivityScreen: React.FC<DailyActivityScreenProps> = ({
                 src={profile.avatar_url}
                 alt={profile.name || 'Athlete'}
                 className="w-full h-full object-cover"
+                loading="eager"
+                decoding="async"
               />
             ) : (
               <div className="w-full h-full bg-gradient-to-tr from-cyan-500 to-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center">

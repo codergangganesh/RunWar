@@ -139,7 +139,13 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             title="Athlete Profile"
           >
             {profile.avatar_url ? (
-              <img src={profile.avatar_url} alt={profile.name} className="w-full h-full object-cover" />
+              <img
+                src={profile.avatar_url}
+                alt={profile.name}
+                className="w-full h-full object-cover"
+                loading="eager"
+                decoding="async"
+              />
             ) : (
               <span className="text-xs font-black">{profile.name.charAt(0).toUpperCase()}</span>
             )}
