@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useRef } from 'react';
+import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -50,40 +50,94 @@ const createKilometerMarkerIcon = (kilometer: number) =>
     iconAnchor: [14, 14],
   });
 
-function MapController({ coordinates, isFullscreen, recenterTrigger }: { coordinates: GPSCoordinate[]; isFullscreen?: boolean; recenterTrigger?: number }) {
+/**
+ * Controller to manage map sizing, bounds fitting, and view stabilization.
+ * Prevents zero/unmeasured container dimensions from causing Leaflet NaN zoom corruption.
+ */
+function MapController({
+  coordinates,
+  isFullscreen,
+  recenterTrigger,
+}: {
+  coordinates: GPSCoordinate[];
+  isFullscreen?: boolean;
+  recenterTrigger?: number;
+}) {
   const map = useMap();
 
-  useEffect(() => {
-    if (coordinates.length > 0) {
-      const bounds = L.latLngBounds(coordinates.map((c) => [c.latitude, c.longitude]));
-      map.fitBounds(bounds, { padding: isFullscreen ? [50, 50] : [35, 35], maxZoom: 16 });
-    }
-  }, [coordinates, map, isFullscreen, recenterTrigger]);
+  const fitBoundsSafely = useCallback(() => {
+    if (!coordinates || coordinates.length === 0) return false;
+    const container = map.getContainer();
+    if (!container) return false;
 
+    // Invalidate size first so Leaflet recalculates pixel boundaries
+    map.invalidateSize();
+
+    const size = map.getSize();
+    // Guard: Never invoke fitBounds if container has 0 or negligible dimensions
+    if (!size || size.x <= 20 || size.y <= 20) {
+      return false;
+    }
+
+    try {
+      const bounds = L.latLngBounds(coordinates.map((c) => [c.latitude, c.longitude]));
+      if (!bounds.isValid()) return false;
+
+      // Safe padding that cannot exceed container dimensions
+      const maxPadX = Math.floor(size.x / 4);
+      const maxPadY = Math.floor(size.y / 4);
+      const targetPad = isFullscreen ? 50 : 35;
+      const padX = Math.max(10, Math.min(targetPad, maxPadX));
+      const padY = Math.max(10, Math.min(targetPad, maxPadY));
+
+      map.fitBounds(bounds, {
+        padding: [padX, padY],
+        maxZoom: 16,
+        animate: false,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }, [coordinates, isFullscreen, map]);
+
+  // Initial and reactive bounds fitting with RAF and progressive retry timers
+  useEffect(() => {
+    fitBoundsSafely();
+
+    const rafId = requestAnimationFrame(() => {
+      fitBoundsSafely();
+    });
+    const t1 = setTimeout(fitBoundsSafely, 50);
+    const t2 = setTimeout(fitBoundsSafely, 150);
+    const t3 = setTimeout(fitBoundsSafely, 350);
+    const t4 = setTimeout(fitBoundsSafely, 600);
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      clearTimeout(t4);
+    };
+  }, [fitBoundsSafely, recenterTrigger]);
+
+  // ResizeObserver on the container to dynamically re-adjust whenever size changes
   useEffect(() => {
     const container = map.getContainer();
     if (!container) return;
 
-    const invalidate = () => {
-      map.invalidateSize();
-    };
-
     const ro = new ResizeObserver(() => {
-      requestAnimationFrame(invalidate);
+      requestAnimationFrame(() => {
+        fitBoundsSafely();
+      });
     });
     ro.observe(container);
 
-    const t1 = setTimeout(invalidate, 50);
-    const t2 = setTimeout(invalidate, 150);
-    const t3 = setTimeout(invalidate, 400);
-
     return () => {
       ro.disconnect();
-      clearTimeout(t1);
-      clearTimeout(t2);
-      clearTimeout(t3);
     };
-  }, [map]);
+  }, [map, fitBoundsSafely]);
 
   return null;
 }
@@ -99,6 +153,10 @@ interface PlaybackControlProps {
   className?: string;
 }
 
+/**
+ * Redesigned Route Playback Control:
+ * Sleek, ultra-compact, and minimal floating pill with micro-interactions.
+ */
 const PlaybackControl: React.FC<PlaybackControlProps> = ({
   isPlaying,
   playbackIndex,
@@ -107,63 +165,63 @@ const PlaybackControl: React.FC<PlaybackControlProps> = ({
   onTogglePlay,
   onReset,
   onCycleSpeed,
-  className = 'top-3 left-3',
+  className = 'top-2.5 left-2.5',
 }) => {
   const progressPercent = Math.round((playbackIndex / Math.max(totalPoints - 1, 1)) * 100);
   const isActive = isPlaying || playbackIndex > 0;
 
   return (
     <div
-      className={`absolute ${className} z-[10] flex items-center gap-1.5 p-1 px-1.5 rounded-full bg-slate-950/85 dark:bg-slate-950/90 backdrop-blur-md border border-white/15 shadow-lg text-white select-none transition-all duration-200`}
+      className={`absolute ${className} z-[10] flex items-center gap-1.5 p-1 px-1.5 rounded-full bg-slate-950/80 dark:bg-slate-950/90 backdrop-blur-md border border-white/15 shadow-md text-white select-none transition-all duration-200`}
       onClick={(e) => e.stopPropagation()}
     >
       {/* Play / Pause Circular Mini Button */}
       <button
         onClick={onTogglePlay}
-        className="w-6 h-6 rounded-full bg-emerald-500 hover:bg-emerald-400 active:scale-90 text-slate-950 flex items-center justify-center transition-transform shadow-xs shrink-0 cursor-pointer"
+        className="w-5 h-5 rounded-full bg-emerald-500 hover:bg-emerald-400 active:scale-90 text-slate-950 flex items-center justify-center transition-transform shadow-xs shrink-0 cursor-pointer"
         title={isPlaying ? 'Pause route animation' : 'Play route animation'}
         aria-label={isPlaying ? 'Pause Route' : 'Play Route'}
       >
         {isPlaying ? (
-          <Pause size={11} className="fill-slate-950" />
+          <Pause size={9} className="fill-slate-950" />
         ) : (
-          <Play size={11} className="fill-slate-950 translate-x-[0.5px]" />
+          <Play size={9} className="fill-slate-950 translate-x-[0.5px]" />
         )}
       </button>
 
-      {/* Idle State: Small "Preview" text label */}
+      {/* Idle State: Minimal "Play" text */}
       {!isActive ? (
         <button
           onClick={onTogglePlay}
-          className="text-[11px] font-semibold text-slate-200 hover:text-white pr-1.5 transition-colors cursor-pointer"
+          className="text-[10px] font-semibold text-slate-200 hover:text-white pr-1 transition-colors cursor-pointer"
         >
-          Preview
+          Play
         </button>
       ) : (
-        /* Active State: Minimal Speed + Progress + Reset controls */
+        /* Active State: Minimal Speed + Progress % + Reset icon */
         <div className="flex items-center gap-1.5 pr-0.5">
           {/* Speed Toggle Badge */}
           <button
             onClick={onCycleSpeed}
-            className="px-1.5 py-0.5 rounded-full bg-white/10 hover:bg-white/20 text-slate-200 hover:text-white font-mono font-bold text-[9px] border border-white/10 active:scale-90 transition-all cursor-pointer"
+            className="px-1.5 py-0.2 rounded-full bg-white/10 hover:bg-white/20 text-slate-200 hover:text-white font-mono font-bold text-[9px] border border-white/10 active:scale-90 transition-all cursor-pointer"
             title="Cycle Speed (1x, 2x, 4x)"
           >
             {playbackSpeed}x
           </button>
 
           {/* Progress % */}
-          <span className="text-[10px] font-mono font-bold text-emerald-400 min-w-[26px] text-center">
+          <span className="text-[9px] font-mono font-bold text-emerald-400 min-w-[22px] text-center">
             {progressPercent}%
           </span>
 
           {/* Reset button */}
           <button
             onClick={onReset}
-            className="p-1 rounded-full hover:bg-white/15 text-slate-400 hover:text-white active:scale-90 transition-all shrink-0 cursor-pointer"
+            className="p-0.5 rounded-full hover:bg-white/15 text-slate-400 hover:text-white active:scale-90 transition-all shrink-0 cursor-pointer"
             title="Reset to start"
             aria-label="Reset Route"
           >
-            <RotateCcw size={10} />
+            <RotateCcw size={9} />
           </button>
         </div>
       )}
@@ -205,12 +263,13 @@ const MapInnerContent: React.FC<MapInnerContentProps> = ({
       <TileLayer
         url="https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png"
         subdomains="abc"
+        maxNativeZoom={19}
         maxZoom={19}
       />
 
       <MapController coordinates={coordinates} isFullscreen={isFullscreen} recenterTrigger={recenterTrigger} />
 
-      {/* Outer athletic glow */}
+      {/* Outer athletic glow polyline */}
       <Polyline
         positions={polylinePositions}
         pathOptions={{
@@ -248,7 +307,7 @@ const MapInnerContent: React.FC<MapInnerContentProps> = ({
         />
       )}
 
-      {/* Completed-kilometre markers */}
+      {/* Completed-kilometre markers with splits detail popup */}
       {kilometerMilestones.map((milestone, index) => {
         const split = kilometerSplits[index];
         const kilometer = milestone.distanceMeters / 1000;
@@ -387,11 +446,12 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
   const kilometerSplits = useMemo(() => calculateSplits(coordinates), [coordinates]);
   const center: [number, number] = [startCoord.latitude, startCoord.longitude];
 
-  const handleFullscreenClick = () => {
+  const handleFullscreenClick = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
     if (onToggleFullscreen) {
       onToggleFullscreen();
     } else {
-      setIsFullscreen(!isFullscreen);
+      setIsFullscreen((prev) => !prev);
     }
   };
 
@@ -418,6 +478,7 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
         className={`relative overflow-hidden rounded-2xl bg-emerald-50/30 dark:bg-slate-950 border border-emerald-200/80 dark:border-slate-800 shadow-sm ${className}`}
       >
         <MapContainer
+          key="inline-route-map"
           center={center}
           zoom={15}
           scrollWheelZoom={interactive}
@@ -455,16 +516,19 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
             onTogglePlay={handleTogglePlay}
             onReset={handleResetPlayback}
             onCycleSpeed={handleCycleSpeed}
-            className="top-3 left-3"
+            className="top-2.5 left-2.5"
           />
         )}
 
         {/* Map Controls */}
-        <div className="absolute bottom-3 right-3 z-[10] flex items-center gap-2">
+        <div className="absolute bottom-2.5 right-2.5 z-[10] flex items-center gap-1.5">
           {/* Recenter Button */}
           <button
-            onClick={() => setRecenterTrigger(prev => prev + 1)}
-            className="p-2 rounded-xl bg-slate-900/90 dark:bg-slate-900/95 backdrop-blur-md border border-slate-700/80 text-white hover:text-emerald-400 shadow-md active:scale-95 transition-all cursor-pointer"
+            onClick={(e) => {
+              e.stopPropagation();
+              setRecenterTrigger((prev) => prev + 1);
+            }}
+            className="p-1.5 sm:p-2 rounded-xl bg-slate-900/90 dark:bg-slate-900/95 backdrop-blur-md border border-slate-700/80 text-white hover:text-emerald-400 shadow-md active:scale-95 transition-all cursor-pointer"
             title="Recenter Map"
             aria-label="Recenter Map"
           >
@@ -474,7 +538,7 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
           {/* Fullscreen Expand Button */}
           <button
             onClick={handleFullscreenClick}
-            className="p-2 rounded-xl bg-slate-900/90 dark:bg-slate-900/95 backdrop-blur-md border border-slate-700/80 text-white hover:text-emerald-400 shadow-md active:scale-95 transition-all cursor-pointer"
+            className="p-1.5 sm:p-2 rounded-xl bg-slate-900/90 dark:bg-slate-900/95 backdrop-blur-md border border-slate-700/80 text-white hover:text-emerald-400 shadow-md active:scale-95 transition-all cursor-pointer"
             title="Expand Fullscreen Map"
             aria-label="Expand Fullscreen Map"
           >
@@ -487,7 +551,7 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
       {isFullscreen &&
         createPortal(
           <div
-            className="fixed inset-0 z-[99999] bg-slate-950/85 backdrop-blur-md flex flex-col p-2 sm:p-4 md:p-6 animate-fade-in select-none"
+            className="fixed inset-0 z-[99999] bg-slate-950/85 backdrop-blur-md flex flex-col p-2 sm:p-4 md:p-6 select-none"
             onClick={(e) => {
               if (e.target === e.currentTarget) setIsFullscreen(false);
             }}
@@ -495,20 +559,19 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
             <div className="relative w-full h-full rounded-2xl sm:rounded-3xl overflow-hidden bg-slate-900 border border-slate-700/80 shadow-2xl flex flex-col">
               {/* Fullscreen Header Bar */}
               <div className="flex items-center justify-between px-3 sm:px-5 py-2.5 sm:py-3 bg-slate-900/95 border-b border-slate-800 z-10 shrink-0">
-                <div className="flex items-center gap-2.5">
-
-                  <div>
-                    <div className="text-xs sm:text-sm font-bold text-white">GPS Route Map</div>
-                    <div className="text-[10px] sm:text-[11px] text-slate-400 font-medium">
-                      {formatDistance(totalDistanceMeters, 'km')} km • {coordinates.length} GPS points
-                    </div>
+                <div>
+                  <div className="text-xs sm:text-sm font-bold text-white">GPS Route Map</div>
+                  <div className="text-[10px] sm:text-[11px] text-slate-400 font-medium">
+                    {formatDistance(totalDistanceMeters, 'km')} km • {coordinates.length} GPS points
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2">
-
                   <button
-                    onClick={() => setIsFullscreen(false)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsFullscreen(false);
+                    }}
                     className="p-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white border border-slate-700 active:scale-95 transition-all cursor-pointer"
                     title="Close Fullscreen Map"
                     aria-label="Close Fullscreen Map"
@@ -518,9 +581,10 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
                 </div>
               </div>
 
-              {/* Fullscreen Map Body */}
-              <div className="flex-1 w-full h-full relative overflow-hidden">
+              {/* Fullscreen Map Body with guaranteed flex dimensions */}
+              <div className="relative flex-1 min-h-0 w-full overflow-hidden">
                 <MapContainer
+                  key="fullscreen-route-map"
                   center={center}
                   zoom={15}
                   scrollWheelZoom={true}
@@ -529,7 +593,7 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
                   doubleClickZoom={true}
                   zoomControl={false}
                   attributionControl={false}
-                  className="h-full w-full z-0"
+                  className="absolute inset-0 h-full w-full z-0"
                   style={{ height: '100%', width: '100%' }}
                 >
                   <MapInnerContent
@@ -566,7 +630,10 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
                 <div className="absolute bottom-3 right-3 z-[10] flex items-center gap-2">
                   {/* Recenter Button */}
                   <button
-                    onClick={() => setRecenterTrigger(prev => prev + 1)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setRecenterTrigger((prev) => prev + 1);
+                    }}
                     className="p-2 rounded-xl bg-slate-900/90 dark:bg-slate-900/95 backdrop-blur-md border border-slate-700/80 text-white hover:text-emerald-400 shadow-md active:scale-95 transition-all cursor-pointer"
                     title="Recenter Map"
                     aria-label="Recenter Map"
@@ -576,7 +643,10 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
 
                   {/* Bottom Right Minimize Button */}
                   <button
-                    onClick={() => setIsFullscreen(false)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsFullscreen(false);
+                    }}
                     className="p-2 rounded-xl bg-slate-900/90 dark:bg-slate-900/95 backdrop-blur-md border border-slate-700/80 text-white hover:text-emerald-400 shadow-md active:scale-95 transition-all cursor-pointer"
                     title="Exit Fullscreen"
                     aria-label="Exit Fullscreen"

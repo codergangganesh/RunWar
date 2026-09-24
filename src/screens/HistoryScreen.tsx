@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserProfile, Workout, WorkoutType } from '../types';
 import { formatDistance, formatDuration, formatPace, formatWorkoutDate } from '../utils/formatters';
 import { RouteThumbnail } from '../components/map/RouteThumbnail';
@@ -38,6 +38,11 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'longest' | 'fastest' | 'calories'>('newest');
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+  const [displayCount, setDisplayCount] = useState(10);
+
+  useEffect(() => {
+    setDisplayCount(10);
+  }, [filterType, sortBy]);
 
   const distanceUnit = profile?.distance_unit || 'km';
   const paceUnit = profile?.pace_unit || 'min_km';
@@ -109,6 +114,8 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
     }
   };
 
+  const visibleWorkouts = filtered.slice(0, displayCount);
+
   return (
     <div className="p-3.5 sm:p-4 space-y-3.5 animate-fade-in max-w-xl md:max-w-2xl mx-auto">
       {/* Header & Aggregate metrics */}
@@ -141,11 +148,10 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
           {/* Filter Modal Trigger Button */}
           <button
             onClick={() => setShowFilterModal(true)}
-            className={`py-1.5 px-3 rounded-xl border text-xs font-bold flex items-center gap-1.5 shadow-sm active:scale-95 transition-all ${
-              filterType !== 'all' || sortBy !== 'newest'
+            className={`py-1.5 px-3 rounded-xl border text-xs font-bold flex items-center gap-1.5 shadow-sm active:scale-95 transition-all ${filterType !== 'all' || sortBy !== 'newest'
                 ? 'bg-emerald-500/20 border-emerald-500 text-emerald-700 dark:text-emerald-400 shadow-sm shadow-emerald-500/20'
                 : 'bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-emerald-900 dark:text-slate-300 hover:text-emerald-700 dark:hover:text-white'
-            }`}
+              }`}
           >
             <SlidersHorizontal size={13} className="text-emerald-600 dark:text-emerald-400" />
             <span>Filter</span>
@@ -185,20 +191,18 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
           <button
             key={item.id}
             onClick={() => setFilterType(item.id as any)}
-            className={`flex-1 py-1.5 px-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all active:scale-95 ${
-              filterType === item.id
+            className={`flex-1 py-1.5 px-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all active:scale-95 ${filterType === item.id
                 ? 'bg-emerald-500 text-white dark:text-slate-950 shadow-md shadow-emerald-500/25 font-black'
                 : 'text-emerald-800/80 dark:text-slate-400 hover:text-emerald-950 dark:hover:text-white'
-            }`}
+              }`}
           >
             <span className="text-xs">{item.icon}</span>
             <span className="capitalize text-[11px] sm:text-xs">{item.label}</span>
             <span
-              className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
-                filterType === item.id
+              className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${filterType === item.id
                   ? 'bg-white/25 dark:bg-slate-950/30 text-white dark:text-slate-950 font-black'
                   : 'bg-emerald-100/70 dark:bg-slate-800 text-emerald-700 dark:text-slate-400'
-              }`}
+                }`}
             >
               {item.count}
             </span>
@@ -268,7 +272,7 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
 
       {/* Workouts Card List (Neat, Compact Styling) */}
       <div className="space-y-2.5">
-        {filtered.map((workout) => (
+        {visibleWorkouts.map((workout) => (
           <div
             key={workout.id}
             onClick={() => onSelectWorkout(workout)}
@@ -294,10 +298,10 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
                         {workout.source_provider === 'google_health'
                           ? 'Google Health'
                           : workout.source_provider === 'health_connect'
-                          ? 'Health Connect'
-                          : workout.source_provider === 'manual_import'
-                          ? 'File Import'
-                          : workout.source_provider}
+                            ? 'Health Connect'
+                            : workout.source_provider === 'manual_import'
+                              ? 'File Import'
+                              : workout.source_provider}
                       </span>
                     )}
                     {workout.heart_rate_avg && workout.heart_rate_avg > 0 && (
@@ -355,6 +359,16 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
         ))}
       </div>
 
+      {/* Load More Button */}
+      {displayCount < filtered.length && (
+        <button
+          onClick={() => setDisplayCount((prev) => prev + 10)}
+          className="w-full mt-4 py-3.5 rounded-2xl bg-emerald-50/80 hover:bg-emerald-100 dark:bg-slate-900 border border-emerald-200 dark:border-slate-800 text-emerald-800 dark:text-emerald-400 font-bold text-sm shadow-sm active:scale-98 transition-all"
+        >
+          Load More Activity
+        </button>
+      )}
+
       {/* Smooth Bottom Sheet for Filters & Sorting */}
       <BottomSheet
         isOpen={showFilterModal}
@@ -377,11 +391,10 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
               <button
                 key={item.id}
                 onClick={() => setFilterType(item.id as any)}
-                className={`py-3 px-3 rounded-2xl text-xs font-bold flex items-center justify-between border transition-all active:scale-95 ${
-                  filterType === item.id
+                className={`py-3 px-3 rounded-2xl text-xs font-bold flex items-center justify-between border transition-all active:scale-95 ${filterType === item.id
                     ? 'bg-emerald-500 text-white dark:text-slate-950 border-emerald-500 shadow-md shadow-emerald-500/25 font-black'
                     : 'bg-slate-50 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-emerald-400'
-                }`}
+                  }`}
               >
                 <span className="flex items-center gap-2">
                   <span className="text-base">{item.icon}</span>
@@ -389,11 +402,10 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
                 </span>
                 <div className="flex items-center gap-1.5">
                   <span
-                    className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
-                      filterType === item.id
+                    className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${filterType === item.id
                         ? 'bg-white/25 dark:bg-slate-950/30 text-white dark:text-slate-950'
                         : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
-                    }`}
+                      }`}
                   >
                     {item.count}
                   </span>
@@ -420,11 +432,10 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
               <button
                 key={sortOption.id}
                 onClick={() => setSortBy(sortOption.id as any)}
-                className={`w-full py-3 px-4 rounded-2xl text-xs font-bold flex items-center justify-between border transition-all active:scale-98 ${
-                  sortBy === sortOption.id
+                className={`w-full py-3 px-4 rounded-2xl text-xs font-bold flex items-center justify-between border transition-all active:scale-98 ${sortBy === sortOption.id
                     ? 'bg-emerald-500 text-white dark:text-slate-950 border-emerald-500 shadow-md shadow-emerald-500/25 font-black'
                     : 'bg-slate-50 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-emerald-400'
-                }`}
+                  }`}
               >
                 <span>{sortOption.label}</span>
                 {sortBy === sortOption.id && <Check size={16} strokeWidth={3} />}
