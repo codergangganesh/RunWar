@@ -62,8 +62,9 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
   const [unlockProgress, setUnlockProgress] = useState(0);
   const unlockTimerRef = useRef<NodeJS.Timeout | null>(null);
   const unlockStartRef = useRef<number | null>(null);
-  const lastTapRef = useRef<number>(0);
-  const tapCountRef = useRef<number>(0);
+  const [tapCount, setTapCount] = useState(0);
+  const tapTimesRef = useRef<number[]>([]);
+  const tapResetTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const handleDismissBanner = () => {
     setBannerDismissed(true);
@@ -90,37 +91,51 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
           unlockTimerRef.current = null;
         }
         unlockStartRef.current = null;
-        setUnlockProgress(0);
-        setIsPocketMode(false);
         try {
-          if ('vibrate' in navigator) navigator.vibrate([40]);
+          if ('vibrate' in navigator) navigator.vibrate([40, 40]);
         } catch {}
+        setTimeout(() => {
+          setUnlockProgress(0);
+          setIsPocketMode(false);
+        }, 150);
       }
-    }, 30);
+    }, 25);
   };
 
   const handleUnlockTouchEnd = () => {
-    if (unlockTimerRef.current) {
-      clearInterval(unlockTimerRef.current);
-      unlockTimerRef.current = null;
+    if (unlockProgress < 100) {
+      if (unlockTimerRef.current) {
+        clearInterval(unlockTimerRef.current);
+        unlockTimerRef.current = null;
+      }
+      unlockStartRef.current = null;
+      setUnlockProgress(0);
     }
-    unlockStartRef.current = null;
-    setUnlockProgress(0);
   };
 
-  const handleTripleTapUnlock = (e: React.MouseEvent | React.TouchEvent) => {
+  const handlePointerTap = (e: React.PointerEvent) => {
+    // If tapping inside the Hold to Unlock button, let the button handle it
     if ((e.target as HTMLElement)?.closest('button')) return;
-    const now = Date.now();
-    // If the next tap is within 450ms, increment count; otherwise reset to 1
-    if (now - lastTapRef.current < 450) {
-      tapCountRef.current += 1;
-    } else {
-      tapCountRef.current = 1;
-    }
-    lastTapRef.current = now;
 
-    if (tapCountRef.current >= 3) {
-      tapCountRef.current = 0;
+    const now = Date.now();
+    // Keep taps from the last 1500ms
+    const recent = tapTimesRef.current.filter((t) => now - t < 1500);
+    recent.push(now);
+    tapTimesRef.current = recent;
+
+    const count = recent.length;
+    setTapCount(count);
+
+    if (tapResetTimerRef.current) clearTimeout(tapResetTimerRef.current);
+    tapResetTimerRef.current = setTimeout(() => {
+      tapTimesRef.current = [];
+      setTapCount(0);
+    }, 1500);
+
+    if (count >= 3) {
+      if (tapResetTimerRef.current) clearTimeout(tapResetTimerRef.current);
+      tapTimesRef.current = [];
+      setTapCount(0);
       setIsPocketMode(false);
       try {
         if ('vibrate' in navigator) navigator.vibrate([40, 40]);
@@ -130,9 +145,8 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
 
   useEffect(() => {
     return () => {
-      if (unlockTimerRef.current) {
-        clearInterval(unlockTimerRef.current);
-      }
+      if (unlockTimerRef.current) clearInterval(unlockTimerRef.current);
+      if (tapResetTimerRef.current) clearTimeout(tapResetTimerRef.current);
     };
   }, []);
 
@@ -699,8 +713,8 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
       {/* Pocket Mode: AMOLED Low Power & Anti-Ghost-Touch Screen */}
       {isPocketMode && (
         <div
-          className="fixed inset-0 z-50 bg-black text-white flex flex-col justify-between items-center p-6 select-none animate-fade-in"
-          onClick={handleTripleTapUnlock}
+          className="fixed inset-0 z-50 bg-black text-white flex flex-col justify-between items-center p-6 select-none animate-fade-in touch-none cursor-pointer"
+          onPointerDown={handlePointerTap}
         >
           {/* Header: Mode Badge */}
           <div className="w-full flex items-center justify-between pt-2">
@@ -756,31 +770,84 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
             </div>
           </div>
 
-          {/* Bottom: Hold / Double-Tap to Unlock */}
-          <div className="w-full max-w-xs flex flex-col items-center gap-2 pb-4">
-            <button
-              type="button"
-              onMouseDown={handleUnlockTouchStart}
-              onMouseUp={handleUnlockTouchEnd}
-              onMouseLeave={handleUnlockTouchEnd}
-              onTouchStart={handleUnlockTouchStart}
-              onTouchEnd={handleUnlockTouchEnd}
-              onTouchCancel={handleUnlockTouchEnd}
-              className="relative w-full py-4 rounded-2xl bg-slate-900 border border-slate-800 text-white font-bold text-sm overflow-hidden active:scale-[0.98] transition-transform flex items-center justify-center gap-2 shadow-lg"
-            >
-              {/* Visual Progress Fill */}
-              <div
-                className="absolute inset-0 bg-emerald-500/30 transition-all pointer-events-none"
-                style={{ width: `${unlockProgress}%` }}
-              />
-              <Unlock size={18} className="text-emerald-400 shrink-0 relative z-10" />
-              <span className="relative z-10">
-                {unlockProgress > 0 ? `Unlocking... ${unlockProgress}%` : 'Hold to Unlock'}
+          {/* Bottom: Round Hold & Triple-Tap to Unlock */}
+          <div className="w-full max-w-xs flex flex-col items-center gap-3 pb-4">
+            {/* Circular Hold-to-Unlock Button */}
+            <div className="relative flex items-center justify-center">
+              <button
+                type="button"
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  handleUnlockTouchStart();
+                }}
+                onPointerUp={(e) => {
+                  e.stopPropagation();
+                  handleUnlockTouchEnd();
+                }}
+                onPointerLeave={handleUnlockTouchEnd}
+                onPointerCancel={handleUnlockTouchEnd}
+                className="relative w-20 h-20 sm:w-22 sm:h-22 rounded-full bg-slate-900 border border-slate-800 text-white flex flex-col items-center justify-center shadow-2xl active:scale-95 transition-transform group"
+                aria-label="Hold circle to unlock"
+              >
+                {/* Circular Progress Ring SVG */}
+                <svg
+                  className="absolute -inset-1.5 w-[calc(100%+12px)] h-[calc(100%+12px)] -rotate-90 pointer-events-none"
+                  viewBox="0 0 92 92"
+                >
+                  {/* Track Ring */}
+                  <circle
+                    cx="46"
+                    cy="46"
+                    r="40"
+                    className="stroke-slate-800"
+                    strokeWidth="3.5"
+                    fill="transparent"
+                  />
+                  {/* Progress Fill Ring */}
+                  <circle
+                    cx="46"
+                    cy="46"
+                    r="40"
+                    className="stroke-emerald-400 transition-all duration-75 ease-linear"
+                    strokeWidth="3.5"
+                    strokeDasharray={251.33}
+                    strokeDashoffset={251.33 - (unlockProgress / 100) * 251.33}
+                    strokeLinecap="round"
+                    fill="transparent"
+                  />
+                </svg>
+
+                {/* Inner Icon: Lock -> Unlock when unlocked */}
+                {unlockProgress >= 100 ? (
+                  <Unlock size={28} className="text-emerald-400 scale-110 transition-transform animate-scale-in" />
+                ) : (
+                  <Lock size={26} className="text-slate-200 group-active:scale-105 transition-transform" />
+                )}
+
+                {/* Live % text if holding */}
+                {unlockProgress > 0 && unlockProgress < 100 && (
+                  <span className="text-[10px] font-mono font-bold text-emerald-400 leading-none mt-1">
+                    {unlockProgress}%
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {/* Labels & Triple-Tap Feedback */}
+            <div className="flex flex-col items-center gap-1.5">
+              <span className="text-xs font-semibold text-slate-300">
+                {unlockProgress > 0 ? 'Keep holding to unlock...' : 'Hold circle to unlock'}
               </span>
-            </button>
-            <span className="text-[10px] text-slate-400">
-              Hold for 1 sec or triple-tap anywhere to unlock
-            </span>
+              <span className="text-[10px] text-slate-400">
+                or triple-tap anywhere
+              </span>
+              {/* Visual tap dots indicator */}
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className={`w-1.5 h-1.5 rounded-full transition-all duration-200 ${tapCount >= 1 ? 'bg-emerald-400 scale-125' : 'bg-slate-700'}`} />
+                <span className={`w-1.5 h-1.5 rounded-full transition-all duration-200 ${tapCount >= 2 ? 'bg-emerald-400 scale-125' : 'bg-slate-700'}`} />
+                <span className={`w-1.5 h-1.5 rounded-full transition-all duration-200 ${tapCount >= 3 ? 'bg-emerald-400 scale-125' : 'bg-slate-700'}`} />
+              </div>
+            </div>
           </div>
         </div>
       )}
