@@ -44,26 +44,27 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
     setDisplayCount(10);
   }, [filterType, sortBy]);
 
+  // Always refresh latest workouts from InsForge on mount
+  useEffect(() => {
+    if (onRefresh) {
+      onRefresh().catch(() => {});
+    }
+  }, []);
+
   const distanceUnit = profile?.distance_unit || 'km';
   const paceUnit = profile?.pace_unit || 'min_km';
 
-  // Deduplicate workouts by ID, external key, and start timestamp for safety
+  // Deduplicate workouts strictly by ID and external record key
   const seenIds = new Set<string>();
   const seenExtKeys = new Set<string>();
-  const seenTimes: number[] = [];
   const uniqueWorkouts: Workout[] = [];
 
   for (const w of workouts) {
-    if (seenIds.has(w.id)) continue;
-    if (w.source_provider && w.external_record_id) {
+    if (!w || !w.id || seenIds.has(w.id)) continue;
+    if (w.source_provider && w.external_record_id && w.source_provider !== 'runwar_gps') {
       const extKey = `${w.source_provider}_${w.external_record_id}`;
       if (seenExtKeys.has(extKey)) continue;
       seenExtKeys.add(extKey);
-    }
-    const t = new Date(w.started_at).getTime();
-    if (!isNaN(t)) {
-      if (seenTimes.some((st) => Math.abs(st - t) < 120 * 1000)) continue;
-      seenTimes.push(t);
     }
     seenIds.add(w.id);
     uniqueWorkouts.push(w);

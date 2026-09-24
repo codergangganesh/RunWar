@@ -1,11 +1,18 @@
 import { insforge } from '../lib/insforge';
 import { UserProfile, UserSettings } from '../types';
 import { firebaseAuthService } from './firebaseAuthService';
-import { toDeterministicUUID } from '../utils/uuid';
+import { toDeterministicUUID, isValidUUID } from '../utils/uuid';
 
 const PROFILE_CACHE_KEY = 'runwar_cached_profile';
 const SETTINGS_CACHE_KEY = 'runwar_cached_settings';
 const SESSION_USER_KEY = 'runwar_session_user';
+
+export function normalizeUserId(id?: string | null): string {
+  if (!id) return 'guest_user';
+  const trimmed = id.trim();
+  if (isValidUUID(trimmed)) return trimmed.toLowerCase();
+  return toDeterministicUUID(trimmed);
+}
 
 export const authService = {
   /**
@@ -28,7 +35,7 @@ export const authService = {
     try {
       const normalizedUser = {
         ...user,
-        id: toDeterministicUUID(user.id || user.firebase_uid || 'guest_user'),
+        id: normalizeUserId(user.id || user.firebase_uid),
       };
       localStorage.setItem(SESSION_USER_KEY, JSON.stringify(normalizedUser));
     } catch (e) {
@@ -71,7 +78,7 @@ export const authService = {
         if (user?.id) {
           const normalizedUser = {
             ...user,
-            id: toDeterministicUUID(user.id),
+            id: normalizeUserId(user.id),
           };
           this.setCachedUser(normalizedUser);
           return normalizedUser;
@@ -98,7 +105,7 @@ export const authService = {
     
     // Create initial profile and settings if user was returned
     if (data?.user?.id) {
-      const normalizedId = toDeterministicUUID(data.user.id);
+      const normalizedId = normalizeUserId(data.user.id);
       this.setCachedUser({ ...data.user, id: normalizedId });
       await this.createInitialProfile(normalizedId, name, email);
     }
@@ -115,7 +122,7 @@ export const authService = {
     });
     if (error) throw error;
     if (data?.user?.id) {
-      const normalizedId = toDeterministicUUID(data.user.id);
+      const normalizedId = normalizeUserId(data.user.id);
       this.setCachedUser({ ...data.user, id: normalizedId });
     }
     return data;
@@ -227,7 +234,7 @@ export const authService = {
       if (!error && (data?.user || data?.accessToken)) {
         const user: any = data.user || (await this.getCurrentUser());
         if (user) {
-          const normalizedId = toDeterministicUUID(user.id);
+          const normalizedId = normalizeUserId(user.id);
           const normalizedUser = { ...user, id: normalizedId };
           this.setCachedUser(normalizedUser);
 
@@ -254,7 +261,7 @@ export const authService = {
         password: autoPassword,
       });
       if (signInRes.data?.user) {
-        const normalizedId = toDeterministicUUID(signInRes.data.user.id);
+        const normalizedId = normalizeUserId(signInRes.data.user.id);
         const normalizedUser = { ...signInRes.data.user, id: normalizedId };
         this.setCachedUser(normalizedUser);
         let profile = await this.getProfile(normalizedId);
@@ -280,7 +287,7 @@ export const authService = {
           password: autoPassword,
         });
         if (finalSignIn.data?.user) {
-          const normalizedId = toDeterministicUUID(finalSignIn.data.user.id);
+          const normalizedId = normalizeUserId(finalSignIn.data.user.id);
           const normalizedUser = { ...finalSignIn.data.user, id: normalizedId };
           this.setCachedUser(normalizedUser);
           let profile = await this.getProfile(normalizedId);
@@ -351,7 +358,7 @@ export const authService = {
    * Fetch user profile from database
    */
   async getProfile(userId: string): Promise<UserProfile | null> {
-    const normalizedId = toDeterministicUUID(userId);
+    const normalizedId = normalizeUserId(userId);
     try {
       const { data, error } = await insforge.database
         .from('profiles')
@@ -383,7 +390,7 @@ export const authService = {
    * Fetch user profile from database by Firebase UID
    */
   async getProfileByFirebaseUid(firebaseUid: string): Promise<UserProfile | null> {
-    const normalizedId = toDeterministicUUID(firebaseUid);
+    const normalizedId = normalizeUserId(firebaseUid);
     return this.getProfile(normalizedId);
   },
 
@@ -395,7 +402,7 @@ export const authService = {
     phoneNumber: string,
     name?: string
   ): Promise<UserProfile> {
-    const normalizedId = toDeterministicUUID(firebaseUid);
+    const normalizedId = normalizeUserId(firebaseUid);
     const existing = await this.getProfile(normalizedId);
     if (existing) {
       return existing;
@@ -466,7 +473,7 @@ export const authService = {
    * Update or create user profile
    */
   async updateProfile(userId: string, updates: Partial<UserProfile>): Promise<UserProfile> {
-    const normalizedId = toDeterministicUUID(userId);
+    const normalizedId = normalizeUserId(userId);
     const existing = await this.getProfile(normalizedId);
 
     // Database payload conforming strictly to standard public.profiles table columns
@@ -523,7 +530,7 @@ export const authService = {
    * Create initial profile for a new user
    */
   async createInitialProfile(userId: string, name: string, email: string) {
-    const normalizedId = toDeterministicUUID(userId);
+    const normalizedId = normalizeUserId(userId);
     try {
       const profile = {
         id: normalizedId,
@@ -566,7 +573,7 @@ export const authService = {
    * Get user settings
    */
   async getSettings(userId: string): Promise<UserSettings | null> {
-    const normalizedId = toDeterministicUUID(userId);
+    const normalizedId = normalizeUserId(userId);
     try {
       const { data, error } = await insforge.database
         .from('user_settings')
@@ -590,7 +597,7 @@ export const authService = {
    * Upload avatar image to InsForge storage and update profile
    */
   async uploadAvatar(userId: string, file: File): Promise<{ url: string; profile: UserProfile }> {
-    const normalizedId = toDeterministicUUID(userId);
+    const normalizedId = normalizeUserId(userId);
     const fileExt = file.name.split('.').pop() || 'jpg';
     const filePath = `user_${normalizedId}_${Date.now()}.${fileExt}`;
     
@@ -614,7 +621,7 @@ export const authService = {
    * Update user settings
    */
   async updateSettings(userId: string, updates: Partial<UserSettings>): Promise<UserSettings> {
-    const normalizedId = toDeterministicUUID(userId);
+    const normalizedId = normalizeUserId(userId);
     const existing = await this.getSettings(normalizedId);
     const settingsPayload: any = {
       user_id: normalizedId,

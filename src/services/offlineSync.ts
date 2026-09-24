@@ -1,6 +1,7 @@
 import { Workout } from '../types';
 import { syncQueue } from './syncQueue';
 import { workoutService } from './workoutService';
+import { authService } from './authService';
 
 const ACTIVE_BACKUP_KEY = 'runwar_active_workout_backup';
 
@@ -44,6 +45,14 @@ export const offlineSync = {
    */
   async syncPendingWorkouts(): Promise<void> {
     await syncQueue.processAllQueues();
+    try {
+      const user = authService.getCachedUser();
+      if (user?.id && user.id !== 'guest_user') {
+        await workoutService.syncPendingWorkouts(user.id);
+      }
+    } catch (e) {
+      console.warn('Error syncing pending workouts in offlineSync:', e);
+    }
   },
 
   /**

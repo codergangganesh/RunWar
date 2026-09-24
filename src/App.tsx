@@ -282,6 +282,7 @@ export const App: React.FC = () => {
             userProfile = await authService.getProfile(user.id);
           }
           if (userProfile) setProfile(userProfile);
+          workoutService.syncPendingWorkouts(user.id).catch(() => {});
           await loadAppData(user.id, true);
           // If we are currently on splash or welcome, immediately route to main home screen
           setScreen((prev) => (prev === 'splash' || prev === 'welcome' ? 'main' : prev));
@@ -349,6 +350,7 @@ export const App: React.FC = () => {
             setScreen('profile_setup');
           } else {
             setProfile(userProfile);
+            workoutService.syncPendingWorkouts(user.id).catch(() => {});
             await loadAppData(user.id);
             setScreen('main');
           }
@@ -573,8 +575,9 @@ export const App: React.FC = () => {
     if (screen !== 'main') {
       setScreen('main');
     }
-    if ((tab === 'history' || tab === 'home') && currentUser?.id) {
-      loadAppData(currentUser.id, true);
+    const activeId = currentUser?.id || authService.getCachedUser()?.id;
+    if ((tab === 'history' || tab === 'home') && activeId) {
+      loadAppData(activeId, true);
     }
   };
 
@@ -854,7 +857,12 @@ export const App: React.FC = () => {
                 profile={profile}
                 isLoading={isDataLoading}
                 error={dataError}
-                onRefresh={() => currentUser?.id ? loadAppData(currentUser.id) : Promise.resolve()}
+                onRefresh={async () => {
+                  const activeId = currentUser?.id || authService.getCachedUser()?.id;
+                  if (activeId) {
+                    await loadAppData(activeId);
+                  }
+                }}
                 onSelectWorkout={handleSelectWorkout}
                 onStartRun={() => handleStartRun('run')}
               />

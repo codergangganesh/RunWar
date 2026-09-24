@@ -187,15 +187,34 @@ class SyncQueueManager {
     for (const item of queue) {
       try {
         const w = item.workout;
+        let targetUserId = w.user_id;
+        if (!targetUserId || targetUserId === 'guest_user' || targetUserId === 'usr_guest_demo') {
+          try {
+            const { data: authData } = await insforge.auth.getCurrentUser();
+            const authUser = (authData as any)?.user || authData;
+            if (authUser?.id) {
+              targetUserId = authUser.id;
+            }
+          } catch {}
+        }
+
+        if (!targetUserId || targetUserId === 'guest_user' || targetUserId === 'usr_guest_demo') {
+          // User is currently a guest or offline without session - preserve in queue
+          remaining.push(item);
+          continue;
+        }
+
         const dbPayload = {
           id: w.id,
-          user_id: w.user_id,
+          user_id: targetUserId,
           type: w.type,
           title: w.title,
           notes: w.notes || null,
           started_at: w.started_at,
           ended_at: w.ended_at,
           duration_seconds: w.duration_seconds,
+          moving_duration_seconds: w.moving_duration_seconds || w.duration_seconds,
+          paused_duration_seconds: w.paused_duration_seconds || 0,
           distance_meters: w.distance_meters,
           average_pace: w.average_pace,
           average_speed: w.average_speed,
@@ -214,11 +233,30 @@ class SyncQueueManager {
 
         if (error) throw error;
 
+        // Sync splits if present
+        if (Array.isArray(w.splits) && w.splits.length > 0) {
+          const splitsPayload = w.splits.map((s: any) => ({
+            workout_id: w.id,
+            user_id: targetUserId,
+            split_number: s.split_number,
+            distance_meters: s.distance_meters,
+            duration_seconds: s.duration_seconds,
+            pace: s.pace,
+          }));
+          try {
+            await insforge.database.from('workout_splits').insert(splitsPayload);
+          } catch {}
+        }
+
+        // Flush queued point batches for this confirmed workout
+        await this.flushWorkoutPoints(w.id);
+
         syncedAny = true;
         workoutLogger.log('SYNC_SUCCESS', 'info', {
           type: 'completed_workout',
           title: item.workout.title,
-        });
+          workoutId: w.id,
+        }, w.id);
       } catch (err) {
         item.status = 'FAILED';
         item.retryCount += 1;

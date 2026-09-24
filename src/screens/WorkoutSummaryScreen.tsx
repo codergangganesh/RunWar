@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { LiveWorkoutState, UserProfile, Workout, Achievement } from '../types';
 import { workoutService } from '../services/workoutService';
+import { authService } from '../services/authService';
 import { formatDistance, formatDuration, formatPace } from '../utils/formatters';
 import { StaticRouteMap } from '../components/map/StaticRouteMap';
 import { WorkoutShareModal } from '../components/workout/WorkoutShareModal';
@@ -124,9 +125,25 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
     setSaving(true);
 
     try {
+      // Robustly resolve the authentic user ID so mobile workouts always match cloud auth
+      let targetUserId = profile?.user_id;
+      if (!targetUserId || targetUserId === 'guest_user') {
+        const cachedUser = authService.getCachedUser();
+        if (cachedUser?.id && cachedUser.id !== 'guest_user') {
+          targetUserId = cachedUser.id;
+        } else {
+          try {
+            const current = await authService.getCurrentUser();
+            if (current?.id && current.id !== 'guest_user') {
+              targetUserId = current.id;
+            }
+          } catch {}
+        }
+      }
+
       const payload: Omit<Workout, 'id' | 'created_at'> & { id?: string } = {
         id: workoutState.workoutId,
-        user_id: profile?.user_id || 'guest_user',
+        user_id: targetUserId || 'guest_user',
         type: wType,
         title: `${wType.charAt(0).toUpperCase() + wType.slice(1)} Session`,
         notes: '',

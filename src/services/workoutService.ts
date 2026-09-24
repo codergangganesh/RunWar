@@ -192,14 +192,29 @@ export const workoutService = {
       splits: normalized.splits,
     };
 
+    // Re-verify if active user is authenticated in InsForge before deciding guest status
+    let activeUserId = normalized.user_id;
+    if (!activeUserId || activeUserId === 'guest_user' || activeUserId === 'usr_guest_demo') {
+      try {
+        const { data: authData } = await insforge.auth.getCurrentUser();
+        const authUser = (authData as any)?.user || authData;
+        if (authUser?.id) {
+          activeUserId = authUser.id;
+          normalized.user_id = activeUserId;
+          newWorkoutPayload.user_id = activeUserId;
+          dbWorkoutPayload.user_id = activeUserId;
+        }
+      } catch {}
+    }
+
     // Guest users skip cloud sync entirely — local cache only
-    const isGuestUser = normalized.user_id === 'guest_user' || normalized.user_id === 'usr_guest_demo';
+    const isGuestUser = activeUserId === 'guest_user' || activeUserId === 'usr_guest_demo';
     if (isGuestUser) {
       const localWorkout: Workout = {
         ...normalized,
         created_at: new Date().toISOString(),
       };
-      this.addWorkoutToCache(localWorkout);
+      this.addWorkoutToCache(localWorkout, 'guest_user');
       return {
         workout: localWorkout,
         isCloudSynced: false,
@@ -211,10 +226,14 @@ export const workoutService = {
       // Local-first: immediately cache and queue for background sync
       const localWorkout: Workout = {
         ...normalized,
+        user_id: activeUserId,
         created_at: new Date().toISOString(),
       };
-      this.addWorkoutToCache(localWorkout);
-      syncQueue.queueCompletedWorkout(newWorkoutPayload);
+      this.addWorkoutToCache(localWorkout, activeUserId);
+      syncQueue.queueCompletedWorkout({
+        ...newWorkoutPayload,
+        user_id: activeUserId,
+      });
       workoutLogger.log(
         'SYNC_BATCH_QUEUED',
         'info',
@@ -234,7 +253,7 @@ export const workoutService = {
         .from('workouts')
         .upsert([dbWorkoutPayload], { onConflict: 'id' })
         .select()
-        .single();
+        .maybeSingle();
 
       if (workoutError) throw workoutError;
       const savedWorkout = normalizeWorkout(insertedWorkout || {
@@ -334,13 +353,17 @@ export const workoutService = {
       console.error('Failed to save workout to cloud DB, falling back to local queue:', error);
       const fallbackWorkout: Workout = {
         ...normalized,
+        user_id: activeUserId,
         created_at: new Date().toISOString(),
       };
-      this.addWorkoutToCache(fallbackWorkout);
-      syncQueue.queueCompletedWorkout(newWorkoutPayload);
+      this.addWorkoutToCache(fallbackWorkout, activeUserId);
+      syncQueue.queueCompletedWorkout({
+        ...newWorkoutPayload,
+        user_id: activeUserId,
+      });
 
       // Attribute local gear distance
-      gearService.addDistanceToActiveGear(fallbackWorkout.user_id, fallbackWorkout.distance_meters).catch(() => {});
+      gearService.addDistanceToActiveGear(activeUserId, fallbackWorkout.distance_meters).catch(() => {});
 
       return {
         workout: fallbackWorkout,
@@ -485,7 +508,19 @@ export const workoutService = {
     limit: number = 100
   ): Promise<Workout[]> {
     let cloudWorkouts: Workout[] | null = null;
-    const isCloudUser = Boolean(userId && userId !== 'guest_user' && userId !== 'usr_guest_demo');
+    let canonicalUserId = userId;
+
+    if (!canonicalUserId || canonicalUserId === 'guest_user' || canonicalUserId === 'usr_guest_demo') {
+      try {
+        const { data: authData } = await insforge.auth.getCurrentUser();
+        const authUser = (authData as any)?.user || authData;
+        if (authUser?.id) {
+          canonicalUserId = authUser.id;
+        }
+      } catch {}
+    }
+
+    const isCloudUser = Boolean(canonicalUserId && canonicalUserId !== 'guest_user' && canonicalUserId !== 'usr_guest_demo');
 
     // 1. Authoritative Cloud Fetch for Authenticated Users
     if (isCloudUser && navigator.onLine) {
@@ -493,12 +528,14 @@ export const workoutService = {
         const { data, error } = await insforge.database
           .from('workouts')
           .select('*')
-          .eq('user_id', userId)
+          .eq('user_id', canonicalUserId)
           .order('started_at', { ascending: false })
           .limit(limit);
 
         if (!error && Array.isArray(data)) {
           cloudWorkouts = data.map(normalizeWorkout);
+        } else if (error) {
+          console.warn('Cloud fetch workouts error from InsForge:', error);
         }
       } catch (err) {
         console.warn('Cloud fetch workouts warning, falling back to cache:', err);
@@ -506,8 +543,8 @@ export const workoutService = {
     }
 
     // 2. Read User-Scoped Cache
-    const userCachedWorkouts = this.getCachedWorkouts(userId).filter(
-      (w) => !isCloudUser || w.user_id === userId
+    const userCachedWorkouts = this.getCachedWorkouts(canonicalUserId).filter(
+      (w) => !isCloudUser || w.user_id === canonicalUserId
     );
 
     let rawMerged: Workout[];
@@ -517,9 +554,14 @@ export const workoutService = {
       // Only merge any un-synced offline workouts for this user that are not in cloud yet
       const cloudIds = new Set(cloudWorkouts.map((w) => w.id));
       const pendingOfflineWorkouts = userCachedWorkouts.filter((w) => !cloudIds.has(w.id));
+
+      if (pendingOfflineWorkouts.length > 0 && isCloudUser && navigator.onLine) {
+        this.syncPendingWorkouts(canonicalUserId).catch(() => {});
+      }
+
       rawMerged = [...cloudWorkouts, ...pendingOfflineWorkouts];
       // Update user-scoped cache to perfectly match authoritative DB
-      this.saveWorkoutsCache(rawMerged, userId);
+      this.saveWorkoutsCache(rawMerged, canonicalUserId);
     } else {
       // Offline or network fallback: Use user-scoped cache
       rawMerged = userCachedWorkouts;
@@ -545,9 +587,9 @@ export const workoutService = {
         seenExternalKeys.add(extKey);
       }
 
-      // 3. Check start time overlap (within 120 seconds of any existing session)
+      // 3. Check start time overlap (only for external provider imports to prevent external duplicate sync)
       const wTime = new Date(w.started_at).getTime();
-      if (!isNaN(wTime)) {
+      if (!isNaN(wTime) && w.source_provider && w.source_provider !== 'runwar_gps') {
         const hasTimeMatch = seenTimestamps.some((t) => Math.abs(t - wTime) < 120 * 1000);
         if (hasTimeMatch) continue;
         seenTimestamps.push(wTime);
@@ -970,5 +1012,97 @@ export const workoutService = {
       console.warn('Failed to subscribe to realtime workouts channel:', e);
       return () => {};
     }
+  },
+  /**
+   * Scan local cache and offline queue for any workouts not yet in InsForge and upload them.
+   * Also migrates any guest workouts recorded locally if the user is now authenticated.
+   */
+  async syncPendingWorkouts(userId: string): Promise<number> {
+    if (!userId || userId === 'guest_user' || userId === 'usr_guest_demo' || !navigator.onLine) return 0;
+
+    let syncedCount = 0;
+    try {
+      // 1. Check all local cache pools: user cache and base/guest cache
+      const userCached = this.getCachedWorkouts(userId);
+      const guestCached = this.getCachedWorkouts('guest_user');
+      const allLocal = [...userCached, ...guestCached];
+
+      const seenIds = new Set<string>();
+      const candidateWorkouts: Workout[] = [];
+      for (const w of allLocal) {
+        if (!seenIds.has(w.id) && (w.status === 'completed' || !w.status)) {
+          seenIds.add(w.id);
+          candidateWorkouts.push(w);
+        }
+      }
+
+      if (candidateWorkouts.length === 0) return 0;
+
+      // 2. Fetch existing cloud IDs to know what is missing
+      const { data: cloudList } = await insforge.database
+        .from('workouts')
+        .select('id')
+        .eq('user_id', userId);
+
+      const existingCloudIds = new Set((cloudList || []).map((r: any) => r.id));
+      const missingWorkouts = candidateWorkouts.filter((w) => !existingCloudIds.has(w.id));
+
+      for (const w of missingWorkouts) {
+        const payload = {
+          id: w.id,
+          user_id: userId,
+          type: w.type,
+          title: w.title,
+          notes: w.notes || null,
+          started_at: w.started_at,
+          ended_at: w.ended_at,
+          duration_seconds: w.duration_seconds,
+          moving_duration_seconds: w.moving_duration_seconds || w.duration_seconds,
+          paused_duration_seconds: w.paused_duration_seconds || 0,
+          distance_meters: w.distance_meters,
+          average_pace: w.average_pace,
+          average_speed: w.average_speed,
+          max_speed: w.max_speed || 0,
+          calories: w.calories || 0,
+          elevation_gain: w.elevation_gain || 0,
+          elevation_loss: w.elevation_loss || 0,
+          status: 'completed',
+          route_coordinates: w.route_coordinates,
+          splits: w.splits,
+        };
+
+        const { error } = await insforge.database
+          .from('workouts')
+          .upsert([payload], { onConflict: 'id' });
+
+        if (!error) {
+          syncedCount++;
+          // Batch splits
+          if (w.splits && w.splits.length > 0) {
+            const splitsPayload = w.splits.map((s) => ({
+              workout_id: w.id,
+              user_id: userId,
+              split_number: s.split_number,
+              distance_meters: s.distance_meters,
+              duration_seconds: s.duration_seconds,
+              pace: s.pace,
+            }));
+            try {
+              await insforge.database.from('workout_splits').insert(splitsPayload);
+            } catch {}
+          }
+        }
+      }
+
+      // Also process the syncQueue
+      await syncQueue.processWorkoutQueue();
+
+      if (syncedCount > 0 && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('runwar:sync_completed'));
+      }
+    } catch (err) {
+      console.warn('Error during pending workouts sync:', err);
+    }
+    return syncedCount;
   },
 };
