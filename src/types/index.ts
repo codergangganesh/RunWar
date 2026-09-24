@@ -5,6 +5,7 @@ export type PaceUnit = 'min_km' | 'min_mi';
 export type WeightUnit = 'kg' | 'lb';
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type AudioFrequency = '0.5km' | '1km' | '5min' | 'off';
+export type PocketUnlockMode = 'both' | 'hold' | 'swipe';
 
 export type WorkoutEngineState =
   | 'IDLE'
@@ -71,6 +72,7 @@ export interface UserSettings {
   gps_accuracy_mode: 'high' | 'balanced' | 'power_save';
   notifications_enabled: boolean;
   haptics_enabled: boolean;
+  pocket_unlock_mode?: PocketUnlockMode;
   updated_at: string;
 }
 

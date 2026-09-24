@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { UserProfile, UserSettings, Workout, GearItem, PersonalRecord } from '../types';
+import { UserProfile, UserSettings, Workout, GearItem, PersonalRecord, PocketUnlockMode } from '../types';
 import { authService } from '../services/authService';
 import { gearService } from '../services/gearService';
 import { DEFAULT_ACHIEVEMENTS } from '../services/achievementsService';
@@ -27,6 +27,7 @@ import {
   Check,
   Camera,
   Loader2,
+  Lock,
   Image as ImageIcon,
   X,
   Activity,
@@ -75,6 +76,77 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   const [autoPause, setAutoPause] = useState(settings?.auto_pause ?? true);
   const [audioCoaching, setAudioCoaching] = useState(settings?.audio_coaching ?? true);
   const [audioFrequency, setAudioFrequency] = useState(settings?.audio_frequency || '1km');
+  const [pocketUnlockMode, setPocketUnlockMode] = useState<PocketUnlockMode>(() => {
+    const cached = localStorage.getItem('runwar_pocket_unlock_mode') as PocketUnlockMode;
+    if (cached === 'hold' || cached === 'swipe' || cached === 'both') return cached;
+    return settings?.pocket_unlock_mode || 'both';
+  });
+
+  useEffect(() => {
+    if (settings?.pocket_unlock_mode) {
+      setPocketUnlockMode(settings.pocket_unlock_mode);
+    }
+  }, [settings?.pocket_unlock_mode]);
+
+  const handleToggleHold = async (enable: boolean) => {
+    let next: PocketUnlockMode;
+    if (enable) {
+      next = pocketUnlockMode === 'swipe' ? 'both' : 'hold';
+    } else {
+      next = 'swipe';
+    }
+    setPocketUnlockMode(next);
+    try {
+      localStorage.setItem('runwar_pocket_unlock_mode', next);
+      if ('vibrate' in navigator) navigator.vibrate(25);
+    } catch {}
+
+    if (profile?.user_id) {
+      try {
+        const updated = await authService.updateSettings(profile.user_id, {
+          pocket_unlock_mode: next,
+        });
+        onUpdateSettings(updated);
+      } catch (err) {
+        console.warn('Failed to update pocket unlock mode in cloud:', err);
+        if (settings) {
+          onUpdateSettings({ ...settings, pocket_unlock_mode: next });
+        }
+      }
+    } else if (settings) {
+      onUpdateSettings({ ...settings, pocket_unlock_mode: next });
+    }
+  };
+
+  const handleToggleSwipe = async (enable: boolean) => {
+    let next: PocketUnlockMode;
+    if (enable) {
+      next = pocketUnlockMode === 'hold' ? 'both' : 'swipe';
+    } else {
+      next = 'hold';
+    }
+    setPocketUnlockMode(next);
+    try {
+      localStorage.setItem('runwar_pocket_unlock_mode', next);
+      if ('vibrate' in navigator) navigator.vibrate(25);
+    } catch {}
+
+    if (profile?.user_id) {
+      try {
+        const updated = await authService.updateSettings(profile.user_id, {
+          pocket_unlock_mode: next,
+        });
+        onUpdateSettings(updated);
+      } catch (err) {
+        console.warn('Failed to update pocket unlock mode in cloud:', err);
+        if (settings) {
+          onUpdateSettings({ ...settings, pocket_unlock_mode: next });
+        }
+      }
+    } else if (settings) {
+      onUpdateSettings({ ...settings, pocket_unlock_mode: next });
+    }
+  };
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
@@ -293,7 +365,12 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
         distance_unit: distUnit,
         pace_unit: paceUnit,
         weight_unit: weightUnit,
+        pocket_unlock_mode: pocketUnlockMode,
       });
+
+      try {
+        localStorage.setItem('runwar_pocket_unlock_mode', pocketUnlockMode);
+      } catch {}
 
       onUpdateProfile(updatedProf);
       onUpdateSettings(updatedSet);
@@ -563,6 +640,38 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
             )}
           </div>
 
+          {/* Pocket Safe Hold to Unlock Toggle */}
+          <div className="flex items-center justify-between py-2 border-t border-emerald-100 dark:border-slate-800/80">
+            <div>
+              <div className="text-xs font-bold text-emerald-950 dark:text-white">Hold to Unlock (Pocket Safe)</div>
+              <div className="text-[11px] text-emerald-700/80 dark:text-slate-400">
+                Circular 1-second hold button to unlock screen
+              </div>
+            </div>
+            <input
+              type="checkbox"
+              checked={pocketUnlockMode === 'hold' || pocketUnlockMode === 'both'}
+              onChange={(e) => handleToggleHold(e.target.checked)}
+              className="w-5 h-5 accent-emerald-500 rounded cursor-pointer"
+            />
+          </div>
+
+          {/* Pocket Safe Swipe to Unlock Toggle */}
+          <div className="flex items-center justify-between py-2 border-t border-emerald-100 dark:border-slate-800/80">
+            <div>
+              <div className="text-xs font-bold text-emerald-950 dark:text-white">Swipe to Unlock (Pocket Safe)</div>
+              <div className="text-[11px] text-emerald-700/80 dark:text-slate-400">
+                Horizontal slide slider to unlock screen
+              </div>
+            </div>
+            <input
+              type="checkbox"
+              checked={pocketUnlockMode === 'swipe' || pocketUnlockMode === 'both'}
+              onChange={(e) => handleToggleSwipe(e.target.checked)}
+              className="w-5 h-5 accent-emerald-500 rounded cursor-pointer"
+            />
+          </div>
+
           <button
             type="submit"
             className="w-full py-3.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white dark:text-slate-950 font-bold text-xs shadow-md shadow-emerald-500/30 dark:shadow-glow-brand"
@@ -602,7 +711,6 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           </div>
         </div>
       )}
-
       {/* Running Shoes & Gear Tracker */}
       <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 sm:p-5 space-y-3.5 shadow-sm">
         <div className="flex items-center justify-between gap-2">

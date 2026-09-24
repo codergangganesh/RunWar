@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { LiveWorkoutState, SplitToastInfo, UserProfile, UserSettings, WorkoutType } from '../types';
+import { LiveWorkoutState, PocketUnlockMode, SplitToastInfo, UserProfile, UserSettings, WorkoutType } from '../types';
 import { gpsEngine } from '../services/gpsEngine';
 import { audioCoach } from '../services/audioCoach';
 import { offlineSync } from '../services/offlineSync';
@@ -25,6 +25,7 @@ import {
   Unlock,
   Smartphone,
   X,
+  ChevronRight,
 } from 'lucide-react';
 import { formatDistance, formatDuration, formatPace, formatPaceRaw } from '../utils/formatters';
 
@@ -60,11 +61,18 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
     }
   });
   const [unlockProgress, setUnlockProgress] = useState(0);
+  const unlockProgressRef = useRef<number>(0);
   const unlockTimerRef = useRef<NodeJS.Timeout | null>(null);
   const unlockStartRef = useRef<number | null>(null);
-  const [tapCount, setTapCount] = useState(0);
-  const tapTimesRef = useRef<number[]>([]);
-  const tapResetTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [sliderX, setSliderX] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const sliderTrackRef = useRef<HTMLDivElement | null>(null);
+  const dragStartXRef = useRef<number | null>(null);
+
+  const pocketUnlockMode: PocketUnlockMode =
+    settings?.pocket_unlock_mode ||
+    (localStorage.getItem('runwar_pocket_unlock_mode') as PocketUnlockMode) ||
+    'both';
 
   const handleDismissBanner = () => {
     setBannerDismissed(true);
@@ -76,6 +84,7 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
   const handleUnlockTouchStart = () => {
     unlockStartRef.current = Date.now();
     setUnlockProgress(0);
+    unlockProgressRef.current = 0;
 
     if (unlockTimerRef.current) clearInterval(unlockTimerRef.current);
 
@@ -84,6 +93,7 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
       const elapsed = Date.now() - unlockStartRef.current;
       const progress = Math.min(100, Math.round((elapsed / 1000) * 100));
       setUnlockProgress(progress);
+      unlockProgressRef.current = progress;
 
       if (progress >= 100) {
         if (unlockTimerRef.current) {
@@ -96,6 +106,7 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
         } catch {}
         setTimeout(() => {
           setUnlockProgress(0);
+          unlockProgressRef.current = 0;
           setIsPocketMode(false);
         }, 150);
       }
@@ -103,50 +114,62 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
   };
 
   const handleUnlockTouchEnd = () => {
-    if (unlockProgress < 100) {
+    if (unlockProgressRef.current < 100) {
       if (unlockTimerRef.current) {
         clearInterval(unlockTimerRef.current);
         unlockTimerRef.current = null;
       }
       unlockStartRef.current = null;
       setUnlockProgress(0);
+      unlockProgressRef.current = 0;
     }
   };
 
-  const handlePointerTap = (e: React.PointerEvent) => {
-    // If tapping inside the Hold to Unlock button, let the button handle it
-    if ((e.target as HTMLElement)?.closest('button')) return;
+  const handleSliderPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {}
+    setIsDragging(true);
+    dragStartXRef.current = e.clientX;
+  };
 
-    const now = Date.now();
-    // Keep taps from the last 1500ms
-    const recent = tapTimesRef.current.filter((t) => now - t < 1500);
-    recent.push(now);
-    tapTimesRef.current = recent;
+  const handleSliderPointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (!isDragging || dragStartXRef.current === null || !sliderTrackRef.current) return;
+    const deltaX = e.clientX - dragStartXRef.current;
+    const trackWidth = sliderTrackRef.current.clientWidth;
+    const thumbWidth = 40;
+    const maxSlide = Math.max(1, trackWidth - thumbWidth - 8);
+    const currentX = Math.max(0, Math.min(maxSlide, deltaX));
+    setSliderX(currentX);
 
-    const count = recent.length;
-    setTapCount(count);
-
-    if (tapResetTimerRef.current) clearTimeout(tapResetTimerRef.current);
-    tapResetTimerRef.current = setTimeout(() => {
-      tapTimesRef.current = [];
-      setTapCount(0);
-    }, 1500);
-
-    if (count >= 3) {
-      if (tapResetTimerRef.current) clearTimeout(tapResetTimerRef.current);
-      tapTimesRef.current = [];
-      setTapCount(0);
-      setIsPocketMode(false);
+    // If dragged >= 80% across track: unlock!
+    if (currentX >= maxSlide * 0.8) {
+      setIsDragging(false);
+      dragStartXRef.current = null;
+      setSliderX(maxSlide);
       try {
         if ('vibrate' in navigator) navigator.vibrate([40, 40]);
       } catch {}
+      setTimeout(() => {
+        setSliderX(0);
+        setIsPocketMode(false);
+      }, 150);
     }
+  };
+
+  const handleSliderPointerUp = (e: React.PointerEvent<HTMLButtonElement>) => {
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {}
+    setIsDragging(false);
+    dragStartXRef.current = null;
+    setSliderX(0);
   };
 
   useEffect(() => {
     return () => {
       if (unlockTimerRef.current) clearInterval(unlockTimerRef.current);
-      if (tapResetTimerRef.current) clearTimeout(tapResetTimerRef.current);
     };
   }, []);
 
@@ -710,53 +733,52 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
         )}
       </div>
 
-      {/* Pocket Mode: AMOLED Low Power & Anti-Ghost-Touch Screen */}
+      {/* Pocket Mode: Dual Light Mode & Dark Mode Screen */}
       {isPocketMode && (
         <div
-          className="fixed inset-0 z-50 bg-black text-white flex flex-col justify-between items-center p-6 select-none animate-fade-in touch-none cursor-pointer"
-          onPointerDown={handlePointerTap}
+          className="fixed inset-0 z-50 bg-slate-50 dark:bg-black text-slate-900 dark:text-white flex flex-col justify-between items-center p-6 select-none animate-fade-in touch-none transition-colors duration-200"
         >
           {/* Header: Mode Badge */}
           <div className="w-full flex items-center justify-between pt-2">
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900 border border-slate-800 text-xs font-semibold text-emerald-400">
-              <Lock size={13} className="text-emerald-400" />
-              <span>Pocket Mode Active</span>
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse ml-0.5" />
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-emerald-600 dark:text-emerald-400 shadow-xs">
+              <Lock size={13} className="text-emerald-600 dark:text-emerald-400" />
+              <span>Pocket Safe Active</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse ml-0.5" />
             </div>
 
-            <div className="text-[11px] font-medium text-slate-400">
+            <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
               Screen Locked
             </div>
           </div>
 
-          {/* Center: Large High-Contrast AMOLED Stats */}
+          {/* Center: Large High-Contrast Stats */}
           <div className="w-full flex flex-col items-center justify-center my-auto space-y-6">
             {/* Distance */}
             <div className="flex flex-col items-center">
-              <div className="text-5xl sm:text-6xl font-black font-mono tracking-tight text-white">
+              <div className="text-5xl sm:text-6xl font-black font-mono tracking-tight text-slate-950 dark:text-white">
                 {formatDistance(workoutState.distanceMeters, distanceUnit, 2)}
               </div>
-              <span className="text-xs uppercase font-bold tracking-widest text-emerald-400 mt-1">
+              <span className="text-xs uppercase font-bold tracking-widest text-emerald-600 dark:text-emerald-400 mt-1">
                 {distanceUnit === 'mi' ? 'Miles' : 'Kilometers'}
               </span>
             </div>
 
             {/* Time & Pace in 2 columns */}
-            <div className="grid grid-cols-2 gap-8 text-center w-full max-w-xs pt-2">
-              <div>
-                <div className="text-2xl sm:text-3xl font-bold font-mono text-slate-200">
+            <div className="grid grid-cols-2 gap-4 text-center w-full max-w-xs pt-2">
+              <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900/70 border border-slate-200/90 dark:border-slate-800 shadow-xs dark:shadow-none">
+                <div className="text-2xl sm:text-3xl font-bold font-mono text-slate-900 dark:text-slate-200">
                   {formatDuration(workoutState.movingTime > 0 ? workoutState.movingTime : workoutState.elapsedTime)}
                 </div>
-                <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400 mt-0.5">
+                <div className="text-[10px] uppercase font-bold tracking-wider text-slate-500 dark:text-slate-400 mt-0.5">
                   Duration
                 </div>
               </div>
 
-              <div>
-                <div className="text-2xl sm:text-3xl font-bold font-mono text-emerald-400">
+              <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900/70 border border-slate-200/90 dark:border-slate-800 shadow-xs dark:shadow-none">
+                <div className="text-2xl sm:text-3xl font-bold font-mono text-emerald-600 dark:text-emerald-400">
                   {workoutState.currentPace > 0 ? formatPaceRaw(workoutState.currentPace, paceUnit) : '--:--'}
                 </div>
-                <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400 mt-0.5">
+                <div className="text-[10px] uppercase font-bold tracking-wider text-slate-500 dark:text-slate-400 mt-0.5">
                   Pace ({paceUnit === 'min_mi' ? '/mi' : '/km'})
                 </div>
               </div>
@@ -764,90 +786,142 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
 
             {/* Status Notice */}
             <div className="text-center px-4">
-              <p className="text-[11px] text-slate-400 max-w-xs leading-relaxed">
-                Screen stays awake to track your GPS continuously while preventing accidental pocket touches.
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-xs leading-relaxed">
+                Screen stays awake to record your route continuously while preventing accidental pocket touches.
               </p>
             </div>
           </div>
 
-          {/* Bottom: Round Hold & Triple-Tap to Unlock */}
+          {/* Bottom: Unlock Controls according to User Preference (Hold, Swipe, or Both) */}
           <div className="w-full max-w-xs flex flex-col items-center gap-3 pb-4">
-            {/* Circular Hold-to-Unlock Button */}
-            <div className="relative flex items-center justify-center">
-              <button
-                type="button"
-                onPointerDown={(e) => {
-                  e.stopPropagation();
-                  handleUnlockTouchStart();
-                }}
-                onPointerUp={(e) => {
-                  e.stopPropagation();
-                  handleUnlockTouchEnd();
-                }}
-                onPointerLeave={handleUnlockTouchEnd}
-                onPointerCancel={handleUnlockTouchEnd}
-                className="relative w-20 h-20 sm:w-22 sm:h-22 rounded-full bg-slate-900 border border-slate-800 text-white flex flex-col items-center justify-center shadow-2xl active:scale-95 transition-transform group"
-                aria-label="Hold circle to unlock"
-              >
-                {/* Circular Progress Ring SVG */}
-                <svg
-                  className="absolute -inset-1.5 w-[calc(100%+12px)] h-[calc(100%+12px)] -rotate-90 pointer-events-none"
-                  viewBox="0 0 92 92"
+            {/* 1. Circular Hold-to-Unlock Button (Shown if mode is 'hold' or 'both') */}
+            {(pocketUnlockMode === 'hold' || pocketUnlockMode === 'both') && (
+              <div className="flex flex-col items-center gap-2">
+                <div className="relative flex items-center justify-center">
+                  <button
+                    type="button"
+                    onPointerDown={(e) => {
+                      e.stopPropagation();
+                      handleUnlockTouchStart();
+                    }}
+                    onPointerUp={(e) => {
+                      e.stopPropagation();
+                      handleUnlockTouchEnd();
+                    }}
+                    onPointerLeave={handleUnlockTouchEnd}
+                    onPointerCancel={handleUnlockTouchEnd}
+                    className="relative w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white flex flex-col items-center justify-center shadow-xl shadow-slate-200/60 dark:shadow-2xl dark:shadow-black active:scale-95 transition-transform group cursor-pointer"
+                    aria-label="Hold circle to unlock"
+                  >
+                    {/* Circular Progress Ring SVG */}
+                    <svg
+                      className="absolute -inset-2 w-[calc(100%+16px)] h-[calc(100%+16px)] -rotate-90 pointer-events-none"
+                      viewBox="0 0 120 120"
+                    >
+                      {/* Track Ring */}
+                      <circle
+                        cx="60"
+                        cy="60"
+                        r="52"
+                        className="stroke-slate-200 dark:stroke-slate-800/90"
+                        strokeWidth="4"
+                        fill="transparent"
+                      />
+                      {/* Progress Fill Ring */}
+                      <circle
+                        cx="60"
+                        cy="60"
+                        r="52"
+                        className="stroke-emerald-500 dark:stroke-emerald-400 transition-all duration-75 ease-linear"
+                        strokeWidth="4.5"
+                        strokeDasharray={326.73}
+                        strokeDashoffset={326.73 - (unlockProgress / 100) * 326.73}
+                        strokeLinecap="round"
+                        fill="transparent"
+                      />
+                    </svg>
+
+                    {/* Inner Icon: Lock -> Unlock when 100% */}
+                    {unlockProgress >= 100 ? (
+                      <Unlock size={34} className="text-emerald-500 dark:text-emerald-400 scale-110 transition-transform animate-scale-in" />
+                    ) : (
+                      <Lock size={30} className="text-slate-700 dark:text-slate-200 group-active:scale-105 transition-transform" />
+                    )}
+
+                    {/* Live % text if holding */}
+                    {unlockProgress > 0 && unlockProgress < 100 && (
+                      <span className="text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400 leading-none mt-1">
+                        {unlockProgress}%
+                      </span>
+                    )}
+                  </button>
+                </div>
+
+                <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                  {unlockProgress > 0 ? 'Keep holding to unlock...' : 'Hold circle for 1s'}
+                </span>
+              </div>
+            )}
+
+            {/* Subtle "or" divider - shown only when BOTH options are active */}
+            {pocketUnlockMode === 'both' && (
+              <div className="flex items-center gap-2.5 w-full max-w-[200px] my-0.5">
+                <div className="flex-1 h-px bg-slate-200 dark:bg-slate-800/80" />
+                <span className="text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500 tracking-wider">or</span>
+                <div className="flex-1 h-px bg-slate-200 dark:bg-slate-800/80" />
+              </div>
+            )}
+
+            {/* 2. Swipe to Unlock Slider (Shown if mode is 'swipe' or 'both') */}
+            {(pocketUnlockMode === 'swipe' || pocketUnlockMode === 'both') && (
+              <div className="flex flex-col items-center gap-2 w-full max-w-[260px]">
+                <div
+                  ref={sliderTrackRef}
+                  className="relative w-full h-12 rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-1 flex items-center overflow-hidden shadow-md dark:shadow-lg select-none"
                 >
-                  {/* Track Ring */}
-                  <circle
-                    cx="46"
-                    cy="46"
-                    r="40"
-                    className="stroke-slate-800"
-                    strokeWidth="3.5"
-                    fill="transparent"
+                  {/* Highlight trail behind thumb */}
+                  <div
+                    className="absolute left-0 top-0 bottom-0 bg-emerald-500/15 dark:bg-emerald-500/20 rounded-full pointer-events-none transition-all duration-75"
+                    style={{ width: `${sliderX + 40}px` }}
                   />
-                  {/* Progress Fill Ring */}
-                  <circle
-                    cx="46"
-                    cy="46"
-                    r="40"
-                    className="stroke-emerald-400 transition-all duration-75 ease-linear"
-                    strokeWidth="3.5"
-                    strokeDasharray={251.33}
-                    strokeDashoffset={251.33 - (unlockProgress / 100) * 251.33}
-                    strokeLinecap="round"
-                    fill="transparent"
-                  />
-                </svg>
 
-                {/* Inner Icon: Lock -> Unlock when unlocked */}
-                {unlockProgress >= 100 ? (
-                  <Unlock size={28} className="text-emerald-400 scale-110 transition-transform animate-scale-in" />
-                ) : (
-                  <Lock size={26} className="text-slate-200 group-active:scale-105 transition-transform" />
-                )}
+                  {/* Shimmer prompt */}
+                  <div
+                    className="absolute inset-0 flex items-center justify-center pointer-events-none text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 gap-1 transition-opacity duration-200"
+                    style={{ opacity: isDragging ? Math.max(0, 1 - sliderX / 60) : 1 }}
+                  >
+                    <span>Swipe to unlock</span>
+                    <ChevronRight size={14} className="text-emerald-500 dark:text-emerald-400 animate-pulse" />
+                  </div>
 
-                {/* Live % text if holding */}
-                {unlockProgress > 0 && unlockProgress < 100 && (
-                  <span className="text-[10px] font-mono font-bold text-emerald-400 leading-none mt-1">
-                    {unlockProgress}%
+                  {/* Slider thumb */}
+                  <button
+                    type="button"
+                    onPointerDown={handleSliderPointerDown}
+                    onPointerMove={handleSliderPointerMove}
+                    onPointerUp={handleSliderPointerUp}
+                    onPointerCancel={handleSliderPointerUp}
+                    style={{
+                      transform: `translateX(${sliderX}px)`,
+                      transition: isDragging ? 'none' : 'transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1)',
+                    }}
+                    className="relative w-10 h-10 rounded-full bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-slate-950 flex items-center justify-center shadow-md active:scale-95 cursor-grab active:cursor-grabbing z-10 shrink-0"
+                    aria-label="Swipe to unlock"
+                  >
+                    {sliderX > 140 ? (
+                      <Unlock size={18} className="text-slate-950 scale-110 transition-transform" />
+                    ) : (
+                      <ChevronRight size={18} className="text-slate-950" strokeWidth={2.5} />
+                    )}
+                  </button>
+                </div>
+                {pocketUnlockMode === 'swipe' && (
+                  <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                    Slide right to unlock
                   </span>
                 )}
-              </button>
-            </div>
-
-            {/* Labels & Triple-Tap Feedback */}
-            <div className="flex flex-col items-center gap-1.5">
-              <span className="text-xs font-semibold text-slate-300">
-                {unlockProgress > 0 ? 'Keep holding to unlock...' : 'Hold circle to unlock'}
-              </span>
-              <span className="text-[10px] text-slate-400">
-                or triple-tap anywhere
-              </span>
-              {/* Visual tap dots indicator */}
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <span className={`w-1.5 h-1.5 rounded-full transition-all duration-200 ${tapCount >= 1 ? 'bg-emerald-400 scale-125' : 'bg-slate-700'}`} />
-                <span className={`w-1.5 h-1.5 rounded-full transition-all duration-200 ${tapCount >= 2 ? 'bg-emerald-400 scale-125' : 'bg-slate-700'}`} />
-                <span className={`w-1.5 h-1.5 rounded-full transition-all duration-200 ${tapCount >= 3 ? 'bg-emerald-400 scale-125' : 'bg-slate-700'}`} />
               </div>
-            </div>
+            )}
           </div>
         </div>
       )}
