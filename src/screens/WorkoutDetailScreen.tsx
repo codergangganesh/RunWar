@@ -306,7 +306,7 @@ export const WorkoutDetailScreen: React.FC<WorkoutDetailScreenProps> = ({
           className="w-full py-3 px-4 rounded-xl bg-[#00d09c] hover:bg-[#00ba8b] text-slate-950 font-black text-xs shadow-sm shadow-[#00d09c]/20 flex items-center justify-center gap-2 active:scale-95 transition-all"
         >
           <Share2 size={14} strokeWidth={2.5} />
-          <span>Generate Story Share Card</span>
+          <span>Generate Story</span>
         </button>
 
         {/* Minimal Compact Export Toolbar */}
@@ -319,9 +319,7 @@ export const WorkoutDetailScreen: React.FC<WorkoutDetailScreenProps> = ({
           >
             <Download size={12} className="text-[#fc5200] shrink-0" />
             <span>GPX</span>
-            <span className="text-[8px] font-bold px-1.5 py-0.2 rounded bg-[#fc5200]/10 dark:bg-[#fc5200]/20 text-[#fc5200] dark:text-[#ff7438]">
-              Strava
-            </span>
+
           </button>
 
           {/* TCX (Garmin) */}
@@ -332,18 +330,16 @@ export const WorkoutDetailScreen: React.FC<WorkoutDetailScreenProps> = ({
           >
             <Download size={12} className="text-sky-500 shrink-0" />
             <span>TCX</span>
-            <span className="text-[8px] font-bold px-1.5 py-0.2 rounded bg-sky-500/10 dark:bg-sky-500/20 text-sky-600 dark:text-sky-400">
-              Garmin
-            </span>
+
           </button>
 
           {/* CSV */}
           <button
             onClick={handleExportCSV}
-            className="py-2 px-3 rounded-xl bg-slate-50 dark:bg-slate-800/70 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/70 dark:border-slate-700/60 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 text-[11px] font-bold flex items-center justify-center gap-1 active:scale-95 transition-all"
+            className="flex-1 py-2 px-2 rounded-xl bg-slate-50 dark:bg-slate-800/70 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/70 dark:border-slate-700/60 text-slate-700 dark:text-slate-200 text-[11px] font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-all"
             title="Download CSV spreadsheet"
           >
-            <Download size={12} className="shrink-0" />
+            <Download size={12} className="text-slate-500 shrink-0" />
             <span>CSV</span>
           </button>
         </div>
