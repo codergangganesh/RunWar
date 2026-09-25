@@ -28,11 +28,14 @@ import {
   ChevronRight,
   Sliders,
   Zap,
+  Navigation,
+  Route,
 } from 'lucide-react';
 import { formatDistance, formatDuration, formatPace, formatPaceRaw } from '../utils/formatters';
 import { WakeLockIndicator } from '../components/workout/WakeLockIndicator';
 import { WeatherBadge } from '../components/workout/WeatherBadge';
 import { AudioCoachModal } from '../components/workout/AudioCoachModal';
+import { CourseModal } from '../components/workout/CourseModal';
 import { BottomSheet } from '../components/ui/BottomSheet';
 import { AudioFrequency } from '../types';
 
@@ -58,6 +61,7 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
   const [viewMode, setViewMode] = useState<'split' | 'map'>('split');
   const [audioMuted, setAudioMuted] = useState(!audioCoach.getIsEnabled());
   const [showAudioSettings, setShowAudioSettings] = useState(false);
+  const [showCourseModal, setShowCourseModal] = useState(false);
   const [coachFrequency, setCoachFrequency] = useState<AudioFrequency>(settings?.audio_frequency || '1km');
   const [simMode, setSimMode] = useState(gpsEngine.isSimulationMode);
   const [activeToast, setActiveToast] = useState<SplitToastInfo | null>(null);
@@ -87,7 +91,7 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
     setBannerDismissed(true);
     try {
       localStorage.setItem('runwar_keep_screen_banner_dismissed', 'true');
-    } catch {}
+    } catch { }
   };
 
   const handleUnlockTouchStart = () => {
@@ -112,7 +116,7 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
         unlockStartRef.current = null;
         try {
           if ('vibrate' in navigator) navigator.vibrate([40, 40]);
-        } catch {}
+        } catch { }
         setTimeout(() => {
           setUnlockProgress(0);
           unlockProgressRef.current = 0;
@@ -138,7 +142,7 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
     e.stopPropagation();
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {}
+    } catch { }
     setIsDragging(true);
     dragStartXRef.current = e.clientX;
   };
@@ -159,7 +163,7 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
       setSliderX(maxSlide);
       try {
         if ('vibrate' in navigator) navigator.vibrate([40, 40]);
-      } catch {}
+      } catch { }
       setTimeout(() => {
         setSliderX(0);
         setIsPocketMode(false);
@@ -170,7 +174,7 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
   const handleSliderPointerUp = (e: React.PointerEvent<HTMLButtonElement>) => {
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
-    } catch {}
+    } catch { }
     setIsDragging(false);
     dragStartXRef.current = null;
     setSliderX(0);
@@ -367,8 +371,8 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
               <button
                 onClick={() => setShowSplitsDrawer(!showSplitsDrawer)}
                 className={`p-2 rounded-xl border transition-all active:scale-95 ${showSplitsDrawer
-                    ? 'bg-emerald-500 text-white dark:text-slate-950 border-emerald-500'
-                    : 'bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-emerald-800 dark:text-slate-400'
+                  ? 'bg-emerald-500 text-white dark:text-slate-950 border-emerald-500'
+                  : 'bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-emerald-800 dark:text-slate-400'
                   }`}
                 title="View kilometer splits"
               >
@@ -383,8 +387,8 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
                 setAudioMuted(nextMuted);
               }}
               className={`p-2 rounded-xl border transition-all active:scale-95 ${audioMuted
-                  ? 'bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-slate-400'
-                  : 'bg-emerald-500 text-white dark:text-slate-950 border-emerald-500 shadow-sm shadow-emerald-500/20'
+                ? 'bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-slate-400'
+                : 'bg-emerald-500 text-white dark:text-slate-950 border-emerald-500 shadow-sm shadow-emerald-500/20'
                 }`}
               title={audioMuted ? 'Voice coach: Muted (tap to unmute)' : 'Voice coach: Active'}
             >
@@ -401,6 +405,19 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
               <Sliders size={15} />
             </button>
 
+            {/* Course / Route Navigation Trigger */}
+            <button
+              onClick={() => setShowCourseModal(true)}
+              className={`p-2 rounded-xl border transition-all active:scale-95 flex items-center gap-1 cursor-pointer ${workoutState.activeCourse
+                ? 'bg-cyan-500 text-white dark:text-slate-950 border-cyan-500 shadow-sm shadow-cyan-500/25 font-bold'
+                : 'bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-slate-500 hover:text-cyan-600 dark:hover:text-cyan-400'
+                }`}
+              title={workoutState.activeCourse ? `Course: ${workoutState.activeCourse.name} (Tap to change)` : 'Select or upload GPX course to follow'}
+              aria-label="Course navigation"
+            >
+              <Navigation size={15} className={workoutState.activeCourse ? 'animate-pulse' : ''} />
+            </button>
+
             {/* Pocket Mode Toggle */}
             <button
               onClick={() => setIsPocketMode(true)}
@@ -415,8 +432,8 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
             <button
               onClick={handleToggleViewMode}
               className={`p-2 rounded-xl border transition-all active:scale-95 flex items-center gap-1 text-xs font-bold ${viewMode === 'map'
-                  ? 'bg-emerald-500 text-white dark:text-slate-950 border-emerald-500 shadow-md'
-                  : 'bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-emerald-800 dark:text-slate-300 hover:text-emerald-950 dark:hover:text-white'
+                ? 'bg-emerald-500 text-white dark:text-slate-950 border-emerald-500 shadow-md'
+                : 'bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-emerald-800 dark:text-slate-300 hover:text-emerald-950 dark:hover:text-white'
                 }`}
               title={viewMode === 'split' ? 'Expand to Full Map View' : 'Switch to Split View (Map + Stats)'}
               aria-label={viewMode === 'split' ? 'Expand to Full Map View' : 'Switch to Split View'}
@@ -425,6 +442,50 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Course Breadcrumb Navigation HUD Card */}
+        {workoutState.activeCourse && (
+          <div className="shrink-0 w-full p-2.5 sm:p-3 rounded-2xl bg-cyan-50/90 dark:bg-cyan-950/40 border border-cyan-200 dark:border-cyan-500/40 shadow-sm animate-fade-in space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <div className="w-6 h-6 rounded-lg bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 flex items-center justify-center shrink-0">
+                  <Navigation size={13} className="text-cyan-500" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <span className="text-[10px] font-black uppercase text-cyan-700 dark:text-cyan-400 tracking-wider">
+                    COURSE GUIDE
+                  </span>
+                  <h4 className="text-xs font-bold text-slate-950 dark:text-white truncate">
+                    {workoutState.activeCourse.name}
+                  </h4>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className="text-xs font-mono font-black text-cyan-600 dark:text-cyan-400">
+                  {workoutState.courseProgress
+                    ? `${formatDistance(workoutState.courseProgress.distanceRemainingMeters, distanceUnit)} left`
+                    : `${formatDistance(workoutState.activeCourse.totalDistanceMeters, distanceUnit)}`}
+                </span>
+                <button
+                  onClick={() => setShowCourseModal(true)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-cyan-600 dark:hover:text-cyan-400"
+                  title="Change course"
+                >
+                  <Route size={13} />
+                </button>
+              </div>
+            </div>
+
+            {/* Course Progress Bar */}
+            <div className="w-full h-1.5 rounded-full bg-slate-200/80 dark:bg-slate-800 overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-cyan-500 to-teal-400 transition-all duration-500 rounded-full"
+                style={{ width: `${workoutState.courseProgress?.percentCompleted || 0}%` }}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Live Weather Snapshot Pill (if acquired) */}
         {workoutState.weather && (
@@ -504,11 +565,10 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
                     {formatPace(activeToast.splitPace, paceUnit)}
                   </span>
                   {activeToast.diffPaceSeconds !== 0 && (
-                    <span className={`text-[11px] font-medium ${
-                      activeToast.diffPaceSeconds < 0
-                        ? 'text-emerald-600 dark:text-emerald-400'
-                        : 'text-amber-600 dark:text-amber-400'
-                    }`}>
+                    <span className={`text-[11px] font-medium ${activeToast.diffPaceSeconds < 0
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : 'text-amber-600 dark:text-amber-400'
+                      }`}>
                       {activeToast.diffPaceSeconds < 0
                         ? `(-${Math.abs(activeToast.diffPaceSeconds)}s)`
                         : `(+${activeToast.diffPaceSeconds}s)`}
@@ -553,6 +613,9 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
                 currentLocation={workoutState.currentLocation}
                 isTracking={workoutState.status === 'tracking'}
                 gpsAccuracy={workoutState.gpsAccuracy}
+                course={workoutState.activeCourse}
+                courseProgress={workoutState.courseProgress}
+                distanceUnit={distanceUnit}
                 className="h-full w-full"
               >
                 {viewMode === 'map' && (
@@ -987,6 +1050,15 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
           setAudioMuted(nextMuted);
         }}
       />
+
+      {/* Course Route Selector & GPX Importer Modal */}
+      <CourseModal
+        isOpen={showCourseModal}
+        onClose={() => setShowCourseModal(false)}
+        profile={profile}
+        onSelectCourse={(course) => gpsEngine.setActiveCourse(course)}
+      />
     </div>
   );
 };
+

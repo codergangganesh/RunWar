@@ -20,6 +20,8 @@ import { workoutLogger } from '../utils/workoutLogger';
 import { wakeLockService } from './wakeLockService';
 import { weatherService } from './weatherService';
 import { hapticsService } from './hapticsService';
+import { courseService } from './courseService';
+import { CourseRoute } from '../types';
 
 type StateListener = (state: LiveWorkoutState) => void;
 
@@ -44,6 +46,7 @@ export class WorkoutEngine {
   private distanceUnit: 'km' | 'mi' = 'km';
   private gpsSmoother = new GPSSmoother();
   private distanceAnchor: GPSCoordinate | null = null;
+  private courseBaselineDistanceMeters: number = 0;
 
   // Batched points buffer for syncQueue
   private pointBuffer: WorkoutPointRecord[] = [];
@@ -93,6 +96,8 @@ export class WorkoutEngine {
       pointSequence: 0,
       pendingSyncPoints: 0,
       weather: null,
+      activeCourse: courseService.getActiveCourse(),
+      courseProgress: null,
     };
   }
 
@@ -195,6 +200,7 @@ export class WorkoutEngine {
     if (!this.transitionTo('STARTING')) return false;
 
     // Reset clean session
+    const activeCourse = courseService.getActiveCourse();
     this.state = {
       ...this.createInitialState(),
       workoutId: crypto.randomUUID(),
@@ -202,12 +208,23 @@ export class WorkoutEngine {
       startTime: Date.now(),
       engineState: 'ACTIVE',
       status: 'tracking',
+      activeCourse,
     };
 
     this.stationaryCounterSec = 0;
     this.lastRecordedKm = 0;
+    this.courseBaselineDistanceMeters = 0;
     this.pointBuffer = [];
     this.resetGPSProcessing();
+
+    if (activeCourse) {
+      const fallbackCoord = this.state.currentLocation || {
+        latitude: activeCourse.points[0]?.latitude || 0,
+        longitude: activeCourse.points[0]?.longitude || 0,
+        timestamp: Date.now(),
+      };
+      this.state.courseProgress = courseService.calculateProgress(activeCourse, fallbackCoord, 0);
+    }
 
     workoutLogger.log('WORKOUT_STARTED', 'info', {
       workoutId: this.state.workoutId,
@@ -237,6 +254,25 @@ export class WorkoutEngine {
 
     this.notify();
     return true;
+  }
+
+  /** Set or clear active navigation course */
+  public setActiveCourse(course: CourseRoute | null): void {
+    courseService.setActiveCourse(course);
+    this.state.activeCourse = course;
+    this.courseBaselineDistanceMeters = this.state.distanceMeters;
+    if (!course) {
+      this.state.courseProgress = null;
+    } else {
+      const distanceRunOnCourse = Math.max(0, this.state.distanceMeters - this.courseBaselineDistanceMeters);
+      const coord = this.state.currentLocation || {
+        latitude: course.points[0]?.latitude || 0,
+        longitude: course.points[0]?.longitude || 0,
+        timestamp: Date.now(),
+      };
+      this.state.courseProgress = courseService.calculateProgress(course, coord, distanceRunOnCourse);
+    }
+    this.notify();
   }
 
   /** Switch the active location source without resetting the current workout. */
@@ -478,6 +514,12 @@ export class WorkoutEngine {
         // Accept the coordinate as baseline without adding distance
       } else {
         this.state.distanceMeters += coord.distanceFromPrevious;
+      }
+
+      // Compute Course Breadcrumb Progress as user jogs/runs along the course
+      if (this.state.activeCourse && coord.latitude && coord.longitude) {
+        const distanceRunOnCourse = Math.max(0, this.state.distanceMeters - this.courseBaselineDistanceMeters);
+        this.state.courseProgress = courseService.calculateProgress(this.state.activeCourse, coord, distanceRunOnCourse);
       }
 
       // 3. Speed & Pace Calculation with Noise Smoothing
@@ -791,16 +833,38 @@ export class WorkoutEngine {
     let currentLat = this.simBaseLat;
     let currentLng = this.simBaseLng;
     let currentAlt = 30;
+    let coursePointIdx = 0;
+    let courseSubStep = 0;
 
     this.simInterval = setInterval(() => {
       if (this.state.engineState === 'ACTIVE') {
-        this.simAngle += 0.035;
-        const radius = 0.003 + Math.sin(this.simAngle * 3) * 0.001;
-        currentLat = this.simBaseLat + radius * Math.cos(this.simAngle);
-        currentLng = this.simBaseLng + (radius * 1.25) * Math.sin(this.simAngle);
-        currentAlt += (Math.random() - 0.49) * 0.6;
+        const activeCourse = this.state.activeCourse;
+        let simSpeedMs = 2.8 + (Math.random() - 0.5) * 0.5; // ~10 km/h
 
-        const simSpeedMs = 2.8 + (Math.random() - 0.5) * 0.5; // ~10 km/h
+        if (activeCourse && activeCourse.points.length > 1) {
+          const pts = activeCourse.points;
+          const currentP = pts[coursePointIdx];
+          const nextIdx = (coursePointIdx + 1) % pts.length;
+          const nextP = pts[nextIdx];
+
+          // Interpolate 5 sub-steps between course waypoints for realistic runner movement
+          const ratio = courseSubStep / 5;
+          currentLat = currentP.latitude + (nextP.latitude - currentP.latitude) * ratio;
+          currentLng = currentP.longitude + (nextP.longitude - currentP.longitude) * ratio;
+          currentAlt = (currentP.altitude || 20) + ((nextP.altitude || 20) - (currentP.altitude || 20)) * ratio;
+
+          courseSubStep += 1;
+          if (courseSubStep > 5) {
+            courseSubStep = 0;
+            coursePointIdx = nextIdx;
+          }
+        } else {
+          this.simAngle += 0.035;
+          const radius = 0.003 + Math.sin(this.simAngle * 3) * 0.001;
+          currentLat = this.simBaseLat + radius * Math.cos(this.simAngle);
+          currentLng = this.simBaseLng + (radius * 1.25) * Math.sin(this.simAngle);
+          currentAlt += (Math.random() - 0.49) * 0.6;
+        }
 
         const simCoord: GPSCoordinate = {
           latitude: currentLat,

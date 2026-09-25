@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { UserProfile, Workout, WorkoutType, Goal } from '../types';
+import { CourseRoute, Goal, UserProfile, Workout, WorkoutType } from '../types';
 import { formatDistance, formatDuration, formatPace } from '../utils/formatters';
 import { formatLocalTime } from '../utils/dateUtils';
 import { WeeklyBarChart } from '../components/charts/WeeklyBarChart';
-import { Play, Zap, Footprints, Target, ArrowRight, Clock } from 'lucide-react';
+import { Play, Zap, Footprints, Target, ArrowRight, Clock, Navigation, Route } from 'lucide-react';
+import { courseService } from '../services/courseService';
+import { CourseModal } from '../components/workout/CourseModal';
 
 interface HomeScreenProps {
   profile: UserProfile | null;
@@ -50,6 +52,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [selectedActivity, setSelectedActivity] = useState<WorkoutType>(
     profile?.typical_workout_type || 'run'
   );
+  const [activeCourse, setActiveCourse] = useState<CourseRoute | null>(() => courseService.getActiveCourse());
+  const [showCourseModal, setShowCourseModal] = useState(false);
+
+  useEffect(() => {
+    return courseService.subscribe(setActiveCourse);
+  }, []);
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -186,10 +194,37 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </div>
         </div>
 
+        {/* Course / Route Selector Pill */}
+        <div className="flex items-center justify-between pt-0.5 px-0.5">
+          <button
+            type="button"
+            onClick={() => setShowCourseModal(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-950/80 hover:bg-cyan-50 dark:hover:bg-cyan-950/30 border border-slate-200/80 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 transition-all cursor-pointer group max-w-[80%]"
+          >
+            <Navigation size={13} className={activeCourse ? "text-cyan-500 animate-pulse shrink-0" : "text-slate-400 group-hover:text-cyan-500 shrink-0"} />
+            <span className="truncate">
+              {activeCourse ? activeCourse.name : 'Course: Free Run'}
+            </span>
+          </button>
+
+          {activeCourse ? (
+            <span className="text-[11px] font-mono font-bold text-cyan-600 dark:text-cyan-400">
+              {formatDistance(activeCourse.totalDistanceMeters, distanceUnit)}
+            </span>
+          ) : (
+            <button
+              onClick={() => setShowCourseModal(true)}
+              className="text-[10px] font-bold text-cyan-600 dark:text-cyan-400 hover:underline cursor-pointer"
+            >
+              Pick Route
+            </button>
+          )}
+        </div>
+
         {/* Sleek Action Start Button */}
         <button
           onClick={() => onStartRun(selectedActivity)}
-          className="w-full py-3 px-5 rounded-xl bg-gradient-to-r from-emerald-500 via-emerald-600 to-emerald-500 hover:from-emerald-600 hover:to-emerald-500 text-white font-black text-sm shadow-md shadow-emerald-500/30 active:scale-98 flex items-center justify-center gap-2.5 transition-all"
+          className="w-full py-3 px-5 rounded-xl bg-gradient-to-r from-emerald-500 via-emerald-600 to-emerald-500 hover:from-emerald-600 hover:to-emerald-500 text-white font-black text-sm shadow-md shadow-emerald-500/30 active:scale-98 flex items-center justify-center gap-2.5 transition-all cursor-pointer"
         >
           <Play size={18} fill="currentColor" />
           <span>START {selectedActivity.toUpperCase()}</span>
@@ -296,6 +331,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           ))}
         </div>
       )}
+
+      {/* Course Route Selector Modal */}
+      <CourseModal
+        isOpen={showCourseModal}
+        onClose={() => setShowCourseModal(false)}
+        profile={profile}
+        onSelectCourse={setActiveCourse}
+      />
     </div>
   );
 };

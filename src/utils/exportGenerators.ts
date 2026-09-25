@@ -1,5 +1,48 @@
-import { Workout } from '../types';
+import { CourseRoute, Workout } from '../types';
 import { formatDuration, formatPace, formatDistance, formatSpeed } from './formatters';
+
+/**
+ * Generate standard GPX 1.1 XML format for a CourseRoute
+ */
+export function generateCourseGPX(course: CourseRoute): string {
+  const dateStr = course.createdAt || new Date().toISOString();
+  const name = course.name || 'RunWar Course';
+
+  const trackPointsXml = (course.points || [])
+    .map((pt) => {
+      const eleXml = pt.altitude != null ? `\n        <ele>${Number(pt.altitude).toFixed(1)}</ele>` : '';
+      return `      <trkpt lat="${pt.latitude}" lon="${pt.longitude}">${eleXml}
+      </trkpt>`;
+    })
+    .join('\n');
+
+  const waypointsXml = (course.waypoints || [])
+    .map((w) => {
+      return `  <wpt lat="${w.latitude}" lon="${w.longitude}">
+    <name>${escapeXml(w.name)}</name>${w.description ? `\n    <desc>${escapeXml(w.description)}</desc>` : ''}
+  </wpt>`;
+    })
+    .join('\n');
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="RunWar Fitness App - https://runwar.app"
+  xmlns="http://www.topografix.com/GPX/1/1"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
+  <metadata>
+    <name>${escapeXml(name)}</name>
+    <time>${dateStr}</time>
+  </metadata>
+${waypointsXml}
+  <trk>
+    <name>${escapeXml(name)}</name>
+    <type>RUN</type>
+    <trkseg>
+${trackPointsXml}
+    </trkseg>
+  </trk>
+</gpx>`;
+}
 
 /**
  * Generate standard GPX 1.1 XML format with Garmin TrackPoint Extensions

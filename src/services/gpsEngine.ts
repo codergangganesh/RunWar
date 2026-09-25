@@ -61,6 +61,10 @@ export class GPSEngineFacade {
     workoutEngine.processCoordinate(coord);
   }
 
+  public setActiveCourse(course: any) {
+    workoutEngine.setActiveCourse(course);
+  }
+
   public startSimulation() {
     workoutEngine.startSimulation();
   }

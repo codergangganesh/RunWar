@@ -27,7 +27,10 @@ import {
   Share2,
   Heart,
   RefreshCw,
+  Navigation,
+  Route,
 } from 'lucide-react';
+import { courseService } from '../services/courseService';
 
 interface WorkoutDetailScreenProps {
   workout: Workout;
@@ -47,6 +50,7 @@ export const WorkoutDetailScreen: React.FC<WorkoutDetailScreenProps> = ({
   const [deleting, setDeleting] = useState(false);
   const [exportedType, setExportedType] = useState<string | null>(null);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [savedAsCourseToast, setSavedAsCourseToast] = useState<string | null>(null);
 
   // Extract cleanNotes and weather defensively to eliminate raw metadata text
   const { cleanNotes, initialWeather } = useMemo(() => {
@@ -192,6 +196,16 @@ export const WorkoutDetailScreen: React.FC<WorkoutDetailScreenProps> = ({
     downloadFile(csvContent, filename, 'text/csv');
     setExportedType('CSV');
     setTimeout(() => setExportedType(null), 3000);
+  };
+
+  const handleSaveAsCourse = () => {
+    try {
+      const course = courseService.createCourseFromWorkout(workout);
+      setSavedAsCourseToast(`Saved "${course.name}" as reusable course!`);
+      setTimeout(() => setSavedAsCourseToast(null), 4000);
+    } catch (err: any) {
+      alert(err.message || 'Could not save course from this workout.');
+    }
   };
 
   const distanceUnit = profile?.distance_unit || 'km';
@@ -404,11 +418,29 @@ export const WorkoutDetailScreen: React.FC<WorkoutDetailScreenProps> = ({
         {/* Generate Story Card */}
         <button
           onClick={() => setShowShareModal(true)}
-          className="w-full py-3 px-4 rounded-xl bg-[#00d09c] hover:bg-[#00ba8b] text-slate-950 font-black text-xs shadow-sm shadow-[#00d09c]/20 flex items-center justify-center gap-2 active:scale-95 transition-all"
+          className="w-full py-3 px-4 rounded-xl bg-[#00d09c] hover:bg-[#00ba8b] text-slate-950 font-black text-xs shadow-sm shadow-[#00d09c]/20 flex items-center justify-center gap-2 active:scale-95 transition-all cursor-pointer"
         >
           <Share2 size={14} strokeWidth={2.5} />
           <span>Generate Story</span>
         </button>
+
+        {/* Save Route as Course to Re-Run */}
+        {workout.route_coordinates && workout.route_coordinates.length > 1 && (
+          <button
+            onClick={handleSaveAsCourse}
+            className="w-full py-2.5 px-3 rounded-xl bg-cyan-50 dark:bg-cyan-950/40 hover:bg-cyan-100 dark:hover:bg-cyan-900/40 border border-cyan-200 dark:border-cyan-500/30 text-cyan-800 dark:text-cyan-300 font-bold text-xs flex items-center justify-center gap-2 active:scale-95 transition-all cursor-pointer"
+          >
+            <Navigation size={14} className="text-cyan-500" />
+            <span>Save Route as Course (Re-Run with Breadcrumbs)</span>
+          </button>
+        )}
+
+        {savedAsCourseToast && (
+          <div className="p-2.5 rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-800 dark:text-cyan-300 text-xs font-bold flex items-center gap-2 animate-fade-in">
+            <Check size={14} className="text-cyan-600 dark:text-cyan-400 shrink-0" />
+            <span>{savedAsCourseToast}</span>
+          </div>
+        )}
 
         {/* Minimal Compact Export Toolbar */}
         <div className="flex items-center gap-1.5 pt-0.5">

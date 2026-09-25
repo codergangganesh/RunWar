@@ -29,9 +29,13 @@ import {
   TrendingDown,
   RefreshCw,
   CloudSun,
+  Download,
+  Navigation,
 } from 'lucide-react';
 import { weatherService } from '../services/weatherService';
 import { WeatherSnapshot } from '../types';
+import { downloadFile, generateGPX } from '../utils/exportGenerators';
+import { courseService } from '../services/courseService';
 
 interface WorkoutSummaryScreenProps {
   workoutState: LiveWorkoutState | null;
@@ -68,6 +72,7 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
     workoutState?.weather || null
   );
   const [isFetchingWeather, setIsFetchingWeather] = useState(false);
+  const [exportNotice, setExportNotice] = useState<string | null>(null);
 
   const isSavingRef = useRef(false);
 
@@ -598,6 +603,47 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
           onRefresh={() => fetchWorkoutWeather(true)}
         />
       </div>
+
+      {/* Quick Export & Save Route Bar */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => {
+            const gpx = generateGPX(currentWorkoutObject);
+            const datePart = (currentWorkoutObject.started_at || new Date().toISOString()).slice(0, 10);
+            downloadFile(gpx, `runwar_${currentWorkoutObject.type}_${datePart}.gpx`, 'application/gpx+xml');
+            setExportNotice('Exported GPX track!');
+            setTimeout(() => setExportNotice(null), 3500);
+          }}
+          className="flex-1 py-2.5 px-3 rounded-xl bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+        >
+          <Download size={13} className="text-[#fc5200]" />
+          <span>Export GPX</span>
+        </button>
+
+        {currentWorkoutObject.route_coordinates && currentWorkoutObject.route_coordinates.length > 1 && (
+          <button
+            onClick={() => {
+              try {
+                const c = courseService.createCourseFromWorkout(currentWorkoutObject);
+                setExportNotice(`Saved "${c.name}" as course!`);
+                setTimeout(() => setExportNotice(null), 3500);
+              } catch (e: any) {
+                alert(e.message || 'Could not save course.');
+              }
+            }}
+            className="flex-1 py-2.5 px-3 rounded-xl bg-cyan-50 dark:bg-cyan-950/40 hover:bg-cyan-100 dark:hover:bg-cyan-900/40 border border-cyan-200 dark:border-cyan-500/30 text-cyan-800 dark:text-cyan-300 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+          >
+            <Navigation size={13} className="text-cyan-500" />
+            <span>Save as Course</span>
+          </button>
+        )}
+      </div>
+
+      {exportNotice && (
+        <div className="p-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300 text-xs font-bold text-center animate-fade-in">
+          ✓ {exportNotice}
+        </div>
+      )}
 
       {/* 8. Bottom Action Buttons (Side-by-Side) */}
       <div className="pt-2 pb-4 flex items-center gap-3">

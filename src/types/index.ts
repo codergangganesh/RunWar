@@ -250,6 +250,48 @@ export interface SplitToastInfo {
   timestamp: number;
 }
 
+export interface CoursePoint {
+  latitude: number;
+  longitude: number;
+  altitude?: number | null;
+  distanceFromStartMeters: number;
+}
+
+export interface CourseWaypoint {
+  name: string;
+  latitude: number;
+  longitude: number;
+  type?: string;
+  description?: string;
+}
+
+export interface CourseRoute {
+  id: string;
+  name: string;
+  description?: string;
+  totalDistanceMeters: number;
+  elevationGainMeters: number;
+  elevationLossMeters: number;
+  points: CoursePoint[];
+  waypoints?: CourseWaypoint[];
+  createdAt: string;
+  source: 'imported_gpx' | 'saved_workout' | 'preset';
+  originalFileName?: string;
+}
+
+export interface CourseNavProgress {
+  courseId: string;
+  courseName: string;
+  totalDistanceMeters: number;
+  distanceRemainingMeters: number;
+  percentCompleted: number;
+  offCourseDistanceMeters: number;
+  isOffCourse: boolean;
+  closestPointIndex: number;
+  nearestCoursePoint: CoursePoint;
+  bearingToCourseDegrees?: number;
+}
+
 export interface LiveWorkoutState {
   workoutId: string;
   engineState: WorkoutEngineState;
@@ -280,4 +322,7 @@ export interface LiveWorkoutState {
   pendingSyncPoints: number;
   currentLocation?: GPSCoordinate | null;
   weather?: WeatherSnapshot | null;
+  activeCourse?: CourseRoute | null;
+  courseProgress?: CourseNavProgress | null;
 }
+
