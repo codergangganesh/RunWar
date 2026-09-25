@@ -415,27 +415,7 @@ export const StravaConnectionCard: React.FC<StravaConnectionCardProps> = ({
           </div>
 
           {/* Auto-Upload Completed Runs Box */}
-          <div className="bg-slate-50/80 dark:bg-slate-800/40 rounded-2xl p-4 flex items-center justify-between gap-3 border border-slate-100 dark:border-slate-800/60">
-            <div className="min-w-0">
-              <h4 className="font-bold text-sm text-slate-900 dark:text-white">
-                Auto-Upload Completed Runs
-              </h4>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
-                Automatically post runs recorded in RunWar to your Strava feed
-              </p>
-            </div>
-            <button
-              onClick={toggleAutoUpload}
-              type="button"
-              className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out focus:outline-none ${autoUpload ? 'bg-[#fc5200]' : 'bg-slate-300 dark:bg-slate-700'
-                }`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition duration-200 ease-in-out mt-1 ${autoUpload ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-              />
-            </button>
-          </div>
+
 
           {/* Stacked Action Buttons matching screenshot */}
           <div className="space-y-3 pt-1">
