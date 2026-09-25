@@ -6,6 +6,7 @@ import { formatDistance, formatDuration, formatPace } from '../utils/formatters'
 import { StaticRouteMap } from '../components/map/StaticRouteMap';
 import { WorkoutShareModal } from '../components/workout/WorkoutShareModal';
 import { AchievementCelebrationModal } from '../components/achievements/AchievementCelebrationModal';
+import { WeatherBadge } from '../components/workout/WeatherBadge';
 import confetti from 'canvas-confetti';
 import {
   Trophy,
@@ -105,6 +106,7 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
     status: 'completed',
     route_coordinates: coords,
     splits: splitsList,
+    weather: workoutState?.weather || null,
     created_at: new Date().toISOString(),
   };
 
@@ -166,6 +168,7 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
         status: 'completed',
         route_coordinates: coords,
         splits: splitsList,
+        weather: workoutState.weather || null,
       };
 
       const result = await workoutService.saveWorkout(payload);
@@ -412,6 +415,15 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Weather Conditions Card (if recorded during workout) */}
+      {(currentWorkoutObject.weather || savedWorkout?.weather) && (
+        <WeatherBadge
+          weather={savedWorkout?.weather || currentWorkoutObject.weather}
+          distanceUnit={distanceUnit}
+          variant="card"
+        />
+      )}
 
       {/* 6. Secondary 6 Metrics Grid */}
       <div className="space-y-2">

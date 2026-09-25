@@ -127,6 +127,36 @@ export interface HealthConnectionState {
   } | null;
 }
 
+export interface WeatherSnapshot {
+  temperature: number; // in Celsius
+  apparentTemperature?: number; // "feels like" in Celsius
+  conditionText: string; // e.g. "Sunny", "Partly Cloudy", "Light Rain"
+  conditionCode: number; // WMO code
+  icon: string; // 'sun' | 'cloud-sun' | 'cloud' | 'cloud-rain' | 'cloud-lightning' | 'cloud-snow' | 'wind'
+  humidity: number; // percentage
+  windSpeedKmh: number; // km/h
+  windDirectionDegrees?: number;
+  isDay: boolean;
+  timestamp: number;
+}
+
+export interface AudioCoachConfig {
+  isEnabled: boolean;
+  frequency: AudioFrequency;
+  voiceURI?: string | null;
+  rate: number; // 0.8 - 1.5, default 1.05
+  pitch: number; // 0.8 - 1.2, default 1.0
+  volume: number; // 0.0 - 1.0, default 1.0
+  enableSoundEffects: boolean; // audio chimes & bells
+  enableHaptics: boolean; // vibrational cues
+}
+
+export interface WakeLockStatus {
+  isSupported: boolean;
+  isActive: boolean;
+  error?: string | null;
+}
+
 export interface Workout {
   id: string;
   user_id: string;
@@ -148,6 +178,7 @@ export interface Workout {
   status: 'completed' | 'paused' | 'discarded';
   route_coordinates: GPSCoordinate[];
   splits: WorkoutSplit[];
+  weather?: WeatherSnapshot | null;
   source_provider?: HealthProviderType;
   external_record_id?: string | null;
   heart_rate_avg?: number | null;
@@ -248,4 +279,5 @@ export interface LiveWorkoutState {
   pointSequence: number;
   pendingSyncPoints: number;
   currentLocation?: GPSCoordinate | null;
+  weather?: WeatherSnapshot | null;
 }

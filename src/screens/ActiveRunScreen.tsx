@@ -26,8 +26,13 @@ import {
   Smartphone,
   X,
   ChevronRight,
+  Sliders,
 } from 'lucide-react';
 import { formatDistance, formatDuration, formatPace, formatPaceRaw } from '../utils/formatters';
+import { WakeLockIndicator } from '../components/workout/WakeLockIndicator';
+import { WeatherBadge } from '../components/workout/WeatherBadge';
+import { AudioCoachModal } from '../components/workout/AudioCoachModal';
+import { AudioFrequency } from '../types';
 
 interface ActiveRunScreenProps {
   workoutType: WorkoutType;
@@ -50,6 +55,8 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
   const [showSplitsDrawer, setShowSplitsDrawer] = useState(false);
   const [viewMode, setViewMode] = useState<'split' | 'map'>('split');
   const [audioMuted, setAudioMuted] = useState(!audioCoach.getIsEnabled());
+  const [showAudioSettings, setShowAudioSettings] = useState(false);
+  const [coachFrequency, setCoachFrequency] = useState<AudioFrequency>(settings?.audio_frequency || '1km');
   const [simMode, setSimMode] = useState(gpsEngine.isSimulationMode);
   const [activeToast, setActiveToast] = useState<SplitToastInfo | null>(null);
   const [isPocketMode, setIsPocketMode] = useState(false);
@@ -325,6 +332,7 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
           <div className="flex items-center gap-1.5 flex-wrap">
             {getGpsBadge()}
             {getNetworkBadge()}
+            <WakeLockIndicator compact />
 
             <button
               onClick={handleToggleSimulation}
@@ -339,7 +347,7 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
 
           </div>
 
-          {/* Voice Coach, Splits & View Switcher */}
+          {/* Voice Coach, Audio Settings, Splits & View Switcher */}
           <div className="flex items-center gap-1.5">
             {/* Splits Drawer Trigger */}
             {workoutState.splits && workoutState.splits.length > 0 && (
@@ -357,14 +365,27 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
 
             {/* Voice Coach Toggle */}
             <button
-              onClick={() => setAudioMuted(!audioMuted)}
+              onClick={() => {
+                const nextMuted = audioCoach.toggleMute() ? false : true;
+                setAudioMuted(nextMuted);
+              }}
               className={`p-2 rounded-xl border transition-all active:scale-95 ${audioMuted
                   ? 'bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-slate-400'
                   : 'bg-emerald-500 text-white dark:text-slate-950 border-emerald-500 shadow-sm shadow-emerald-500/20'
                 }`}
-              title={audioMuted ? 'Voice coach: Muted' : 'Voice coach: Active'}
+              title={audioMuted ? 'Voice coach: Muted (tap to unmute)' : 'Voice coach: Active'}
             >
               {audioMuted ? <VolumeX size={15} /> : <Volume2 size={15} />}
+            </button>
+
+            {/* Audio Coach Settings Trigger */}
+            <button
+              onClick={() => setShowAudioSettings(true)}
+              className="p-2 rounded-xl border transition-all active:scale-95 bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400"
+              title="Customize Voice Coach, Speed & Chimes"
+              aria-label="Audio Settings"
+            >
+              <Sliders size={15} />
             </button>
 
             {/* Pocket Mode Toggle */}
@@ -391,6 +412,17 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Live Weather Snapshot Pill (if acquired) */}
+        {workoutState.weather && (
+          <div className="shrink-0 flex items-center justify-between w-full animate-fade-in">
+            <WeatherBadge
+              weather={workoutState.weather}
+              distanceUnit={(profile?.distance_unit as 'km' | 'mi') || 'km'}
+              variant="pill"
+            />
+          </div>
+        )}
 
         {/* Keep Screen Active / Web GPS Advisory Banner */}
         {!bannerDismissed && (
@@ -925,6 +957,22 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
           </div>
         </div>
       )}
+
+      {/* Audio & Voice Coach Customization Modal */}
+      <AudioCoachModal
+        isOpen={showAudioSettings}
+        onClose={() => setShowAudioSettings(false)}
+        frequency={coachFrequency}
+        onChangeFrequency={(f) => {
+          setCoachFrequency(f);
+          audioCoach.setConfig(!audioMuted, f);
+        }}
+        isMuted={audioMuted}
+        onToggleMute={() => {
+          const nextMuted = audioCoach.toggleMute() ? false : true;
+          setAudioMuted(nextMuted);
+        }}
+      />
     </div>
   );
 };

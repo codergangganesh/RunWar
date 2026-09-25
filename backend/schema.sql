@@ -308,6 +308,7 @@ CREATE INDEX IF NOT EXISTS idx_profiles_firebase_uid ON public.profiles(firebase
 ALTER TABLE public.workouts ADD COLUMN IF NOT EXISTS source_provider TEXT DEFAULT 'runwar_gps';
 ALTER TABLE public.workouts ADD COLUMN IF NOT EXISTS external_record_id TEXT;
 ALTER TABLE public.workouts ADD COLUMN IF NOT EXISTS heart_rate_avg NUMERIC;
+ALTER TABLE public.workouts ADD COLUMN IF NOT EXISTS weather JSONB;
 CREATE INDEX IF NOT EXISTS idx_workouts_source_provider ON public.workouts(user_id, source_provider);
 
 -- ============================================================

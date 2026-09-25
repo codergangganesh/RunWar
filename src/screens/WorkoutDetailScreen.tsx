@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { UserProfile, Workout } from '../types';
+import { UserProfile, Workout, WeatherSnapshot } from '../types';
 import { workoutService, normalizeWorkout } from '../services/workoutService';
+import { weatherService } from '../services/weatherService';
 import { downloadFile, generateGPX, generateTCX, generateWorkoutsCSV } from '../utils/exportGenerators';
 import { formatDistance, formatDuration, formatPace, formatSpeed } from '../utils/formatters';
 import { formatLocalDateFull, formatLocalTime } from '../utils/dateUtils';
@@ -10,6 +11,7 @@ import { PaceChart } from '../components/charts/PaceChart';
 import { ElevationChart } from '../components/charts/ElevationChart';
 import { SplitsTable } from '../components/workout/SplitsTable';
 import { WorkoutShareModal } from '../components/workout/WorkoutShareModal';
+import { WeatherBadge } from '../components/workout/WeatherBadge';
 import {
   Download,
   Trash2,
@@ -24,6 +26,7 @@ import {
   ArrowUpRight,
   Share2,
   Heart,
+  RefreshCw,
 } from 'lucide-react';
 
 interface WorkoutDetailScreenProps {
@@ -44,6 +47,86 @@ export const WorkoutDetailScreen: React.FC<WorkoutDetailScreenProps> = ({
   const [deleting, setDeleting] = useState(false);
   const [exportedType, setExportedType] = useState<string | null>(null);
   const [showShareModal, setShowShareModal] = useState(false);
+
+  // Extract cleanNotes and weather defensively to eliminate raw metadata text
+  const { cleanNotes, initialWeather } = useMemo(() => {
+    let w = workout.weather || null;
+    let n = workout.notes || null;
+
+    if (typeof n === 'string' && n.toLowerCase().includes('[weather:')) {
+      try {
+        const match = n.match(/\[WEATHER:\s*([\s\S]*?)\]/i);
+        if (match && match[1] && !w) {
+          w = JSON.parse(match[1].trim());
+        }
+      } catch (err) {
+        console.warn('Failed to parse weather in WorkoutDetailScreen:', err);
+      }
+      n = n.replace(/\[WEATHER:\s*[\s\S]*?\]/gi, '').trim();
+      n = n.replace(/^["'`]+|["'`]+$/g, '').trim();
+      if (!n || n.length === 0) n = null;
+    }
+    return { cleanNotes: n, initialWeather: w };
+  }, [workout.notes, workout.weather]);
+
+  const [activeWeather, setActiveWeather] = useState<WeatherSnapshot | null>(() => initialWeather);
+  const [isRefreshingWeather, setIsRefreshingWeather] = useState(false);
+
+  // Keep activeWeather in sync if workout details finish loading
+  useEffect(() => {
+    if (initialWeather && !activeWeather) {
+      setActiveWeather(initialWeather);
+    }
+  }, [initialWeather]);
+
+  // Real-time weather fetcher with live GPS detection & remote persistence
+  const handleRefreshWeather = async (bypassCache: boolean = true) => {
+    setIsRefreshingWeather(true);
+    try {
+      let targetLat: number | null = null;
+      let targetLng: number | null = null;
+
+      // 1. Check GPS route coordinates from workout
+      if (workout.route_coordinates && workout.route_coordinates.length > 0) {
+        const pt = workout.route_coordinates.find(
+          (c) => c.latitude && c.longitude && !isNaN(c.latitude) && !isNaN(c.longitude)
+        );
+        if (pt) {
+          targetLat = pt.latitude;
+          targetLng = pt.longitude;
+        }
+      }
+
+      // 2. If no coordinates on workout (indoor run, demo, etc.), use current device location
+      if (targetLat == null || targetLng == null) {
+        const deviceCoords = await weatherService.getCurrentDeviceCoords();
+        if (deviceCoords) {
+          targetLat = deviceCoords.lat;
+          targetLng = deviceCoords.lng;
+        }
+      }
+
+      if (targetLat != null && targetLng != null) {
+        const fresh = await weatherService.getWeatherForLocation(targetLat, targetLng, bypassCache);
+        if (fresh) {
+          setActiveWeather(fresh);
+          setWorkout((prev) => ({ ...prev, weather: fresh }));
+          await workoutService.updateWorkoutWeather(workout.id, fresh);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to refresh realtime weather:', err);
+    } finally {
+      setIsRefreshingWeather(false);
+    }
+  };
+
+  // Automatically fetch realtime weather if not present
+  useEffect(() => {
+    if (!activeWeather) {
+      handleRefreshWeather(false);
+    }
+  }, []);
 
   // Load detailed GPS points or splits from database if needed
   useEffect(() => {
@@ -68,11 +151,11 @@ export const WorkoutDetailScreen: React.FC<WorkoutDetailScreenProps> = ({
   const handleDelete = async () => {
     setDeleting(true);
     try {
-      await workoutService.deleteWorkout(workout.id);
+      await workoutService.deleteWorkout(workout.id, workout.user_id);
       onDeleted(workout.id);
     } catch (err) {
       console.error('Failed to delete workout:', err);
-    } finally {
+      alert('Could not delete workout. Please check your network connection and try again.');
       setDeleting(false);
       setShowDeleteConfirm(false);
     }
@@ -159,9 +242,20 @@ export const WorkoutDetailScreen: React.FC<WorkoutDetailScreenProps> = ({
           )}
         </div>
 
-        {workout.notes && (
+        {/* Real-time Ambient Weather Widget */}
+        <WeatherBadge
+          weather={activeWeather}
+          distanceUnit={distanceUnit}
+          variant="embedded"
+          isRealtime={true}
+          isRefreshing={isRefreshingWeather}
+          onRefresh={() => handleRefreshWeather(true)}
+        />
+
+        {/* Clean Runner Notes (rendered only if actual user notes exist) */}
+        {cleanNotes && (
           <p className="text-xs text-slate-700 dark:text-slate-300 bg-emerald-50/40 dark:bg-slate-950/40 p-3 rounded-2xl border border-emerald-100 dark:border-slate-800/80 italic">
-            "{workout.notes}"
+            "{cleanNotes}"
           </p>
         )}
 
@@ -404,10 +498,38 @@ export const WorkoutDetailScreen: React.FC<WorkoutDetailScreenProps> = ({
                 <button
                   onClick={handleDelete}
                   disabled={deleting}
-                  className="flex-1 py-2.5 px-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs active:scale-95 transition-all shadow-md shadow-rose-600/25 disabled:opacity-50"
+                  className="flex-1 py-2.5 px-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs active:scale-95 transition-all shadow-md shadow-rose-600/25 disabled:opacity-50 flex items-center justify-center gap-1.5"
                 >
-                  {deleting ? 'Deleting...' : 'Delete'}
+                  {deleting ? (
+                    <>
+                      <RefreshCw size={13} className="animate-spin" />
+                      <span>Deleting...</span>
+                    </>
+                  ) : (
+                    <span>Delete</span>
+                  )}
                 </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* Full-screen Loading State during Deletion */}
+      {deleting &&
+        createPortal(
+          <div className="fixed inset-0 z-[100000] flex flex-col items-center justify-center p-6 bg-slate-950/80 backdrop-blur-md animate-fade-in select-none">
+            <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl flex flex-col items-center gap-4 max-w-xs w-full text-center">
+              <div className="w-14 h-14 rounded-2xl bg-rose-500/10 text-rose-500 flex items-center justify-center shadow-inner">
+                <RefreshCw size={26} className="animate-spin text-rose-500" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-slate-950 dark:text-white">
+                  Deleting Workout...
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Permanently deleting from database and updating history
+                </p>
               </div>
             </div>
           </div>,

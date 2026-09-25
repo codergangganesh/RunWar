@@ -17,6 +17,9 @@ import { syncQueue } from './syncQueue';
 import { audioCoach } from './audioCoach';
 import { mediaSessionManager } from './mediaSessionManager';
 import { workoutLogger } from '../utils/workoutLogger';
+import { wakeLockService } from './wakeLockService';
+import { weatherService } from './weatherService';
+import { hapticsService } from './hapticsService';
 
 type StateListener = (state: LiveWorkoutState) => void;
 
@@ -53,6 +56,8 @@ export class WorkoutEngine {
   private simBaseLat: number = 37.7749;
   private simBaseLng: number = -122.4194;
 
+  private weatherFetchAttempted: boolean = false;
+
   constructor() {
     this.initNetworkListeners();
     this.initVisibilityListener();
@@ -87,6 +92,7 @@ export class WorkoutEngine {
       lastPointTime: null,
       pointSequence: 0,
       pendingSyncPoints: 0,
+      weather: null,
     };
   }
 
@@ -221,8 +227,10 @@ export class WorkoutEngine {
     this.acquireWakeLock();
     this.startBackgroundTimer();
 
+    this.weatherFetchAttempted = false;
     if (this.isSimulationMode) {
       this.startSimulation();
+      this.fetchWeatherForWorkout(this.simBaseLat, this.simBaseLng);
     } else {
       this.startGPSWatcher();
     }
@@ -457,6 +465,11 @@ export class WorkoutEngine {
     this.state.currentLocation = coord;
     this.state.pointSequence += 1;
     coord.sequence_number = this.state.pointSequence;
+
+    // Fetch initial weather conditions on first acquired GPS location
+    if (!this.state.weather && !this.weatherFetchAttempted && coord.latitude && coord.longitude) {
+      this.fetchWeatherForWorkout(coord.latitude, coord.longitude);
+    }
 
     if (this.state.engineState === 'ACTIVE') {
       // 2. Aggregate Validated Distance (skip on first point after resume to prevent teleport spike)
@@ -870,39 +883,43 @@ export class WorkoutEngine {
     localStorage.removeItem(BACKUP_STORAGE_KEY);
   }
 
+  private async fetchWeatherForWorkout(lat: number, lng: number) {
+    if (this.weatherFetchAttempted || this.state.weather) return;
+    this.weatherFetchAttempted = true;
+    try {
+      const weather = await weatherService.getWeatherForLocation(lat, lng);
+      if (weather) {
+        this.state.weather = weather;
+        this.notify();
+      }
+    } catch (err) {
+      console.warn('Weather fetch in workout engine:', err);
+    }
+  }
+
   private async acquireWakeLock() {
     try {
-      if ('wakeLock' in navigator) {
-        if (this.wakeLock && !this.wakeLock.released) {
-          return;
-        }
-        this.wakeLock = await (navigator as any).wakeLock.request('screen');
-        this.wakeLock.addEventListener('release', () => {
-          // Re-acquire if screen wake lock was released unexpectedly while workout is still active
-          if (this.state.engineState === 'ACTIVE' && typeof document !== 'undefined' && document.visibilityState === 'visible') {
-            this.acquireWakeLock();
-          }
-        });
-      }
+      await wakeLockService.requestLock();
     } catch (e) {
-      // Ignore
+      // Handled by wakeLockService
     }
   }
 
   private releaseWakeLock() {
     try {
-      if (this.wakeLock) {
-        this.wakeLock.release();
-        this.wakeLock = null;
-      }
+      wakeLockService.releaseLock();
     } catch (e) {
-      // Ignore
+      // Handled by wakeLockService
     }
   }
 
   private vibrate(pattern: number[]) {
     try {
-      if ('vibrate' in navigator) {
+      if (pattern.length === 1 && pattern[0] >= 200) {
+        hapticsService.vibratePause();
+      } else if (pattern.length >= 3) {
+        hapticsService.vibrateMilestone();
+      } else if ('vibrate' in navigator) {
         navigator.vibrate(pattern);
       }
     } catch (e) {

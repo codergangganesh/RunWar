@@ -163,12 +163,33 @@ export function normalizeWorkout(raw: any): Workout {
     elevation_loss = Math.round(elevation_loss);
   }
 
+  // Parse weather if available or embedded in notes, and strip metadata from notes
+  let weather = raw.weather || null;
+  let cleanNotes = raw.notes || null;
+  if (typeof cleanNotes === 'string' && cleanNotes.toLowerCase().includes('[weather:')) {
+    try {
+      const match = cleanNotes.match(/\[WEATHER:\s*([\s\S]*?)\]/i);
+      if (match && match[1] && !weather) {
+        weather = JSON.parse(match[1].trim());
+      }
+    } catch (e) {
+      console.warn('Failed to parse weather from notes:', e);
+    }
+    // Strip [WEATHER:...] metadata from runner notes
+    cleanNotes = cleanNotes.replace(/\[WEATHER:\s*[\s\S]*?\]/gi, '').trim();
+    // Also remove leftover outer quotes if notes was only quotes wrapping metadata
+    cleanNotes = cleanNotes.replace(/^["'`]+|["'`]+$/g, '').trim();
+    if (cleanNotes.length === 0) {
+      cleanNotes = null;
+    }
+  }
+
   return {
     id: raw.id || crypto.randomUUID(),
     user_id: raw.user_id || 'guest_user',
     type,
     title: raw.title || `${type.charAt(0).toUpperCase() + type.slice(1)} Session`,
-    notes: raw.notes || null,
+    notes: cleanNotes,
     started_at: raw.started_at || new Date().toISOString(),
     ended_at: raw.ended_at || new Date().toISOString(),
     duration_seconds,
@@ -184,6 +205,7 @@ export function normalizeWorkout(raw: any): Workout {
     status,
     route_coordinates,
     splits,
+    weather,
     source_provider: raw.source_provider || 'runwar_gps',
     external_record_id: raw.external_record_id || null,
     heart_rate_avg: raw.heart_rate_avg ?? null,
@@ -233,13 +255,24 @@ export const workoutService = {
       splits: normalized.splits,
     };
 
+    // If weather is present, encode it into notes as backward-compatible fallback
+    let encodedNotes = normalized.notes || null;
+    if (normalized.weather) {
+      const weatherJson = JSON.stringify(normalized.weather);
+      if (!encodedNotes) {
+        encodedNotes = `[WEATHER:${weatherJson}]`;
+      } else if (!encodedNotes.includes('[WEATHER:')) {
+        encodedNotes = `${encodedNotes} [WEATHER:${weatherJson}]`;
+      }
+    }
+
     // Clean payload matching PostgreSQL workouts table schema
-    const dbWorkoutPayload = {
+    const dbWorkoutPayload: any = {
       id: normalized.id,
       user_id: normalized.user_id,
       type: normalized.type,
       title: normalized.title,
-      notes: normalized.notes || null,
+      notes: encodedNotes,
       started_at: normalized.started_at,
       ended_at: normalized.ended_at,
       duration_seconds: normalized.duration_seconds,
@@ -255,6 +288,7 @@ export const workoutService = {
       status: normalized.status,
       route_coordinates: normalized.route_coordinates,
       splits: normalized.splits,
+      weather: normalized.weather || null,
     };
 
     // Re-verify if active user is authenticated in InsForge before deciding guest status
@@ -313,16 +347,31 @@ export const workoutService = {
     }
 
     try {
-      // 1. Insert or upsert into workouts table (idempotent)
-      const { data: insertedWorkout, error: workoutError } = await insforge.database
+      // 1. Insert or upsert into workouts table (idempotent with column fallback)
+      let insertedWorkout: any = null;
+      let { data, error: workoutError } = await insforge.database
         .from('workouts')
         .upsert([dbWorkoutPayload], { onConflict: 'id' })
         .select()
         .maybeSingle();
 
+      if (workoutError && (workoutError.message?.includes('column "weather"') || workoutError.message?.includes("'weather'"))) {
+        const { weather: _drop, ...fallbackPayload } = dbWorkoutPayload;
+        const retryRes = await insforge.database
+          .from('workouts')
+          .upsert([fallbackPayload], { onConflict: 'id' })
+          .select()
+          .maybeSingle();
+        data = retryRes.data;
+        workoutError = retryRes.error;
+      }
+
       if (workoutError) throw workoutError;
-      const savedWorkout = normalizeWorkout(insertedWorkout || {
-        ...newWorkoutPayload,
+      insertedWorkout = data;
+
+      const savedWorkout = normalizeWorkout({
+        ...(insertedWorkout || newWorkoutPayload),
+        weather: normalized.weather || (insertedWorkout?.weather ?? null),
         created_at: new Date().toISOString(),
       });
 
@@ -598,7 +647,8 @@ export const workoutService = {
           .limit(limit);
 
         if (!error && Array.isArray(data)) {
-          cloudWorkouts = data.map(normalizeWorkout);
+          const deletedIds = this.getDeletedWorkoutIds();
+          cloudWorkouts = data.map(normalizeWorkout).filter((w) => !deletedIds.has(w.id));
         } else if (error) {
           console.warn('Cloud fetch workouts error from InsForge:', error);
         }
@@ -608,8 +658,9 @@ export const workoutService = {
     }
 
     // 2. Read User-Scoped Cache
+    const deletedIds = this.getDeletedWorkoutIds();
     const userCachedWorkouts = this.getCachedWorkouts(canonicalUserId).filter(
-      (w) => !isCloudUser || w.user_id === canonicalUserId
+      (w) => (!isCloudUser || w.user_id === canonicalUserId) && !deletedIds.has(w.id)
     );
 
     let rawMerged: Workout[];
@@ -618,7 +669,9 @@ export const workoutService = {
       // Cloud is authoritative source of truth!
       // Only merge any un-synced offline workouts for this user that are not in cloud yet
       const cloudIds = new Set(cloudWorkouts.map((w) => w.id));
-      const pendingOfflineWorkouts = userCachedWorkouts.filter((w) => !cloudIds.has(w.id));
+      const pendingOfflineWorkouts = userCachedWorkouts.filter(
+        (w) => !cloudIds.has(w.id) && !deletedIds.has(w.id)
+      );
 
       if (pendingOfflineWorkouts.length > 0 && isCloudUser && navigator.onLine) {
         this.syncPendingWorkouts(canonicalUserId).catch(() => {});
@@ -735,6 +788,9 @@ export const workoutService = {
    * Fetch full workout details including points and splits from DB if needed
    */
   async getWorkoutDetails(workoutId: string): Promise<Workout | null> {
+    if (this.getDeletedWorkoutIds().has(workoutId)) {
+      return null;
+    }
     try {
       const { data, error } = await insforge.database
         .from('workouts')
@@ -814,33 +870,155 @@ export const workoutService = {
   },
 
   /**
-   * Update workout title or notes
+   * Update workout weather snapshot in cache and cloud
    */
-  async updateWorkout(workoutId: string, updates: { title?: string; notes?: string }): Promise<Workout> {
-    const { data, error } = await insforge.database
-      .from('workouts')
-      .update(updates)
-      .eq('id', workoutId)
-      .select()
-      .single();
+  async updateWorkoutWeather(workoutId: string, weather: any): Promise<void> {
+    try {
+      const cached = this.getCachedWorkouts().find((w) => w.id === workoutId);
+      if (cached) {
+        cached.weather = weather;
+        this.updateCachedWorkout(cached);
+      }
 
-    if (error) throw error;
-    const normalized = normalizeWorkout(data);
-    this.updateCachedWorkout(normalized);
-    return normalized;
+      try {
+        await insforge.database
+          .from('workouts')
+          .update({ weather })
+          .eq('id', workoutId);
+      } catch {
+        // Fallback: encode into notes if weather column not present on remote DB
+        if (cached) {
+          const rawNotes = cached.notes || '';
+          const clean = rawNotes.replace(/\[WEATHER:\s*[\s\S]*?\]/gi, '').replace(/^["'`]+|["'`]+$/g, '').trim();
+          const updatedNotes = clean ? `${clean} [WEATHER:${JSON.stringify(weather)}]` : `[WEATHER:${JSON.stringify(weather)}]`;
+          await insforge.database
+            .from('workouts')
+            .update({ notes: updatedNotes })
+            .eq('id', workoutId);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to update workout weather:', e);
+    }
   },
 
   /**
-   * Delete workout
+   * Set of deleted workout IDs to prevent resurrection from sync queues or legacy caches
    */
-  async deleteWorkout(workoutId: string): Promise<void> {
-    const { error } = await insforge.database
-      .from('workouts')
-      .delete()
-      .eq('id', workoutId);
+  getDeletedWorkoutIds(): Set<string> {
+    try {
+      const raw = localStorage.getItem('runwar_deleted_workout_ids');
+      if (raw) {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) return new Set(arr);
+      }
+    } catch {}
+    return new Set();
+  },
 
-    if (error) throw error;
+  markWorkoutAsDeleted(workoutId: string) {
+    if (!workoutId) return;
+    try {
+      const set = this.getDeletedWorkoutIds();
+      set.add(workoutId);
+      const arr = Array.from(set).slice(-300);
+      localStorage.setItem('runwar_deleted_workout_ids', JSON.stringify(arr));
+    } catch {}
+  },
+
+  purgeWorkoutFromAllCaches(workoutId: string, userId?: string) {
+    if (!workoutId) return;
+    this.removeCachedWorkout(workoutId, userId);
     this.removeCachedWorkout(workoutId);
+    this.removeCachedWorkout(workoutId, 'guest_user');
+
+    // Thoroughly scan all localStorage keys for any arrays containing this workout or batch
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith('runwar_') || key === WORKOUTS_CACHE_KEY)) {
+          const raw = localStorage.getItem(key);
+          if (raw && (raw.startsWith('[') || raw.startsWith('{'))) {
+            try {
+              const parsed = JSON.parse(raw);
+              if (Array.isArray(parsed)) {
+                const filtered = parsed.filter(
+                  (item: any) =>
+                    item?.id !== workoutId &&
+                    item?.workoutId !== workoutId &&
+                    item?.workout_id !== workoutId
+                );
+                if (filtered.length !== parsed.length) {
+                  localStorage.setItem(key, JSON.stringify(filtered));
+                }
+              }
+            } catch {}
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Error purging workout from localStorage:', e);
+    }
+  },
+
+  /**
+   * Delete workout instantly from database and purge from all local storage pools
+   */
+  async deleteWorkout(workoutId: string, userId?: string): Promise<void> {
+    if (!workoutId) return;
+
+    // 1. Mark as permanently deleted to stop any background sync reactivation
+    this.markWorkoutAsDeleted(workoutId);
+
+    // 2. Resolve canonical user ID
+    let canonicalUserId = userId;
+    if (!canonicalUserId || canonicalUserId === 'guest_user') {
+      try {
+        const { data: authData } = await insforge.auth.getCurrentUser();
+        const authUser = (authData as any)?.user || authData;
+        if (authUser?.id) canonicalUserId = authUser.id;
+      } catch {}
+    }
+
+    // 3. Purge from local storage caches immediately (0ms instant UI reflection)
+    this.purgeWorkoutFromAllCaches(workoutId, canonicalUserId);
+
+    // 4. Delete from PostgreSQL database tables
+    if (navigator.onLine) {
+      try {
+        await insforge.database
+          .from('workout_points')
+          .delete()
+          .eq('workout_id', workoutId);
+      } catch {}
+
+      try {
+        await insforge.database
+          .from('workout_splits')
+          .delete()
+          .eq('workout_id', workoutId);
+      } catch {}
+
+      try {
+        const { error } = await insforge.database
+          .from('workouts')
+          .delete()
+          .eq('id', workoutId);
+        if (error) {
+          console.warn('InsForge database delete warning:', error);
+        }
+      } catch (err) {
+        console.warn('Error during cloud workout deletion:', err);
+      }
+    }
+
+    // 5. Broadcast global events so all active screens and components update immediately
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('runwar:workout_deleted', { detail: { workoutId } })
+      );
+      window.dispatchEvent(new CustomEvent('runwar:sync_completed'));
+    }
   },
 
   /**
@@ -1397,7 +1575,17 @@ export const workoutService = {
         .eq('user_id', userId);
 
       const existingCloudIds = new Set((cloudList || []).map((r: any) => r.id));
-      const missingWorkouts = candidateWorkouts.filter((w) => !existingCloudIds.has(w.id));
+      const deletedIds = this.getDeletedWorkoutIds();
+      const missingWorkouts = candidateWorkouts.filter(
+        (w) => !existingCloudIds.has(w.id) && !deletedIds.has(w.id)
+      );
+
+      // Immediately purge any deleted workouts that lingered in candidateWorkouts
+      for (const w of candidateWorkouts) {
+        if (deletedIds.has(w.id)) {
+          this.purgeWorkoutFromAllCaches(w.id, userId);
+        }
+      }
 
       for (const w of missingWorkouts) {
         const payload = {

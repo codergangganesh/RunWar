@@ -275,9 +275,16 @@ export const App: React.FC = () => {
       });
     };
 
+    const handleWorkoutDeletedEvent = (event: any) => {
+      const deletedId = event?.detail?.workoutId;
+      if (!deletedId) return;
+      setWorkouts((prev) => prev.filter((w) => w.id !== deletedId));
+    };
+
     window.addEventListener('runwar:sync_completed', handleSyncCompleted);
     window.addEventListener('runwar:workouts_purged', handleWorkoutsPurged);
     window.addEventListener('runwar:workout_synced', handleWorkoutSynced);
+    window.addEventListener('runwar:workout_deleted', handleWorkoutDeletedEvent);
 
     const initAuth = async () => {
       try {
@@ -414,6 +421,7 @@ export const App: React.FC = () => {
       window.removeEventListener('runwar:sync_completed', handleSyncCompleted);
       window.removeEventListener('runwar:workouts_purged', handleWorkoutsPurged);
       window.removeEventListener('runwar:workout_synced', handleWorkoutSynced);
+      window.removeEventListener('runwar:workout_deleted', handleWorkoutDeletedEvent);
     };
   }, [loadAppData]);
 
@@ -598,12 +606,19 @@ export const App: React.FC = () => {
 
   // Workout deleted
   const handleWorkoutDeleted = async (workoutId: string) => {
-    if (currentUser?.id) {
-      await loadAppData(currentUser.id, true);
-    }
+    // 1. Immediately reflect in memory and UI (0ms delay, no page refresh needed)
+    setWorkouts((prev) => prev.filter((w) => w.id !== workoutId));
     setSelectedWorkout(null);
     setScreen('main');
     setActiveTab('history');
+
+    // 2. Silently update statistics in the background
+    const activeId = currentUser?.id || authService.getCachedUser()?.id;
+    if (activeId) {
+      workoutService.getTodayStats(activeId).then(setTodayStats).catch(() => {});
+      workoutService.getWeeklyStats(activeId).then(setWeeklyStats).catch(() => {});
+      recordsService.getPersonalRecords(activeId).then(setRecords).catch(() => {});
+    }
   };
 
   // Sign out
@@ -907,6 +922,7 @@ export const App: React.FC = () => {
                 }}
                 onSelectWorkout={handleSelectWorkout}
                 onStartRun={() => handleStartRun('run')}
+                onDeleteWorkout={handleWorkoutDeleted}
               />
             )}
 

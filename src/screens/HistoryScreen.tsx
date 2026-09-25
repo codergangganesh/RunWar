@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { UserProfile, Workout, WorkoutType } from '../types';
 import { formatDistance, formatDuration, formatPace, formatWorkoutDate } from '../utils/formatters';
-import { isStravaWorkout, isDemoWorkout } from '../services/workoutService';
+import { isStravaWorkout, isDemoWorkout, workoutService } from '../services/workoutService';
 import { RouteThumbnail } from '../components/map/RouteThumbnail';
 import { BottomSheet } from '../components/ui/BottomSheet';
 import {
@@ -14,6 +15,7 @@ import {
   RefreshCw,
   AlertCircle,
   Heart,
+  Trash2,
 } from 'lucide-react';
 
 interface HistoryScreenProps {
@@ -24,6 +26,7 @@ interface HistoryScreenProps {
   onRefresh?: () => Promise<void>;
   onSelectWorkout: (workout: Workout) => void;
   onStartRun: () => void;
+  onDeleteWorkout?: (workoutId: string) => Promise<void> | void;
 }
 
 export const HistoryScreen: React.FC<HistoryScreenProps> = ({
@@ -34,12 +37,32 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
   onRefresh,
   onSelectWorkout,
   onStartRun,
+  onDeleteWorkout,
 }) => {
   const [filterType, setFilterType] = useState<WorkoutType | 'all'>('all');
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'longest' | 'fastest' | 'calories'>('newest');
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
   const [displayCount, setDisplayCount] = useState(10);
+  const [workoutToDelete, setWorkoutToDelete] = useState<Workout | null>(null);
+  const [isDeletingWorkout, setIsDeletingWorkout] = useState(false);
+
+  const handleConfirmDelete = async () => {
+    if (!workoutToDelete) return;
+    setIsDeletingWorkout(true);
+    try {
+      await workoutService.deleteWorkout(workoutToDelete.id, workoutToDelete.user_id);
+      if (onDeleteWorkout) {
+        await onDeleteWorkout(workoutToDelete.id);
+      }
+      setWorkoutToDelete(null);
+    } catch (err) {
+      console.error('Failed to delete workout from history:', err);
+      alert('Could not delete workout. Please try again.');
+    } finally {
+      setIsDeletingWorkout(false);
+    }
+  };
 
   useEffect(() => {
     setDisplayCount(10);
@@ -48,11 +71,11 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
   // Always refresh latest workouts from InsForge on mount & on sync/purge events
   useEffect(() => {
     if (onRefresh) {
-      onRefresh().catch(() => {});
+      onRefresh().catch(() => { });
     }
 
     const handleSync = () => {
-      if (onRefresh) onRefresh().catch(() => {});
+      if (onRefresh) onRefresh().catch(() => { });
     };
 
     window.addEventListener('runwar:sync_completed', handleSync);
@@ -90,7 +113,7 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
         }
       }
     }
-  } catch {}
+  } catch { }
 
   // Deduplicate workouts strictly by ID and external record key, and omit disconnected/demo workouts
   const seenIds = new Set<string>();
@@ -198,8 +221,8 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
           <button
             onClick={() => setShowFilterModal(true)}
             className={`py-1.5 px-3 rounded-xl border text-xs font-bold flex items-center gap-1.5 shadow-sm active:scale-95 transition-all ${filterType !== 'all' || sortBy !== 'newest'
-                ? 'bg-emerald-500/20 border-emerald-500 text-emerald-700 dark:text-emerald-400 shadow-sm shadow-emerald-500/20'
-                : 'bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-emerald-900 dark:text-slate-300 hover:text-emerald-700 dark:hover:text-white'
+              ? 'bg-emerald-500/20 border-emerald-500 text-emerald-700 dark:text-emerald-400 shadow-sm shadow-emerald-500/20'
+              : 'bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-emerald-900 dark:text-slate-300 hover:text-emerald-700 dark:hover:text-white'
               }`}
           >
             <SlidersHorizontal size={13} className="text-emerald-600 dark:text-emerald-400" />
@@ -241,16 +264,16 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
             key={item.id}
             onClick={() => setFilterType(item.id as any)}
             className={`flex-1 py-1.5 px-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all active:scale-95 ${filterType === item.id
-                ? 'bg-emerald-500 text-white dark:text-slate-950 shadow-md shadow-emerald-500/25 font-black'
-                : 'text-emerald-800/80 dark:text-slate-400 hover:text-emerald-950 dark:hover:text-white'
+              ? 'bg-emerald-500 text-white dark:text-slate-950 shadow-md shadow-emerald-500/25 font-black'
+              : 'text-emerald-800/80 dark:text-slate-400 hover:text-emerald-950 dark:hover:text-white'
               }`}
           >
             <span className="text-xs">{item.icon}</span>
             <span className="capitalize text-[11px] sm:text-xs">{item.label}</span>
             <span
               className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${filterType === item.id
-                  ? 'bg-white/25 dark:bg-slate-950/30 text-white dark:text-slate-950 font-black'
-                  : 'bg-emerald-100/70 dark:bg-slate-800 text-emerald-700 dark:text-slate-400'
+                ? 'bg-white/25 dark:bg-slate-950/30 text-white dark:text-slate-950 font-black'
+                : 'bg-emerald-100/70 dark:bg-slate-800 text-emerald-700 dark:text-slate-400'
                 }`}
             >
               {item.count}
@@ -343,26 +366,24 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
                     </span>
                     {workout.source_provider && workout.source_provider !== 'runwar_gps' && (
                       <span
-                        className={`inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.2 rounded-md border ${
-                          workout.source_provider === 'strava'
+                        className={`inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.2 rounded-md border ${workout.source_provider === 'strava'
                             ? 'bg-[#fc5200]/10 text-[#fc5200] border-[#fc5200]/25'
                             : 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20'
-                        }`}
+                          }`}
                       >
                         <span
-                          className={`w-1.5 h-1.5 rounded-full ${
-                            workout.source_provider === 'strava' ? 'bg-[#fc5200]' : 'bg-blue-500'
-                          }`}
+                          className={`w-1.5 h-1.5 rounded-full ${workout.source_provider === 'strava' ? 'bg-[#fc5200]' : 'bg-blue-500'
+                            }`}
                         />
                         {workout.source_provider === 'strava'
                           ? 'Strava'
                           : workout.source_provider === 'google_health'
-                          ? 'Google Health'
-                          : workout.source_provider === 'health_connect'
-                          ? 'Health Connect'
-                          : workout.source_provider === 'manual_import'
-                          ? 'File Import'
-                          : workout.source_provider}
+                            ? 'Google Health'
+                            : workout.source_provider === 'health_connect'
+                              ? 'Health Connect'
+                              : workout.source_provider === 'manual_import'
+                                ? 'File Import'
+                                : workout.source_provider}
                       </span>
                     )}
                     {workout.heart_rate_avg && workout.heart_rate_avg > 0 && (
@@ -375,9 +396,22 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
                 </div>
               </div>
 
-              <div className="flex items-center gap-1 text-emerald-700 dark:text-slate-400 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
-                <span className="text-[10px] font-bold uppercase tracking-wider">Details</span>
-                <ChevronRight size={14} />
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setWorkoutToDelete(workout);
+                  }}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors opacity-70 group-hover:opacity-100 active:scale-95"
+                  title="Delete workout"
+                >
+                  <Trash2 size={13} />
+                </button>
+                <div className="flex items-center gap-1 text-emerald-700 dark:text-slate-400 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
+                  <span className="text-[10px] font-bold uppercase tracking-wider">Details</span>
+                  <ChevronRight size={14} />
+                </div>
               </div>
             </div>
 
@@ -453,8 +487,8 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
                 key={item.id}
                 onClick={() => setFilterType(item.id as any)}
                 className={`py-3 px-3 rounded-2xl text-xs font-bold flex items-center justify-between border transition-all active:scale-95 ${filterType === item.id
-                    ? 'bg-emerald-500 text-white dark:text-slate-950 border-emerald-500 shadow-md shadow-emerald-500/25 font-black'
-                    : 'bg-slate-50 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-emerald-400'
+                  ? 'bg-emerald-500 text-white dark:text-slate-950 border-emerald-500 shadow-md shadow-emerald-500/25 font-black'
+                  : 'bg-slate-50 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-emerald-400'
                   }`}
               >
                 <span className="flex items-center gap-2">
@@ -464,8 +498,8 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
                 <div className="flex items-center gap-1.5">
                   <span
                     className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${filterType === item.id
-                        ? 'bg-white/25 dark:bg-slate-950/30 text-white dark:text-slate-950'
-                        : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                      ? 'bg-white/25 dark:bg-slate-950/30 text-white dark:text-slate-950'
+                      : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
                       }`}
                   >
                     {item.count}
@@ -494,8 +528,8 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
                 key={sortOption.id}
                 onClick={() => setSortBy(sortOption.id as any)}
                 className={`w-full py-3 px-4 rounded-2xl text-xs font-bold flex items-center justify-between border transition-all active:scale-98 ${sortBy === sortOption.id
-                    ? 'bg-emerald-500 text-white dark:text-slate-950 border-emerald-500 shadow-md shadow-emerald-500/25 font-black'
-                    : 'bg-slate-50 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-emerald-400'
+                  ? 'bg-emerald-500 text-white dark:text-slate-950 border-emerald-500 shadow-md shadow-emerald-500/25 font-black'
+                  : 'bg-slate-50 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-emerald-400'
                   }`}
               >
                 <span>{sortOption.label}</span>
@@ -526,6 +560,87 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
           </button>
         </div>
       </BottomSheet>
+
+      {/* Delete Confirmation Modal for History Card */}
+      {workoutToDelete &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in select-none"
+            onClick={() => !isDeletingWorkout && setWorkoutToDelete(null)}
+          >
+            <div
+              className="w-full max-w-xs rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-4 text-center mx-auto my-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="w-12 h-12 rounded-full bg-rose-100 dark:bg-rose-500/20 text-rose-600 dark:text-rose-400 flex items-center justify-center mx-auto shadow-sm">
+                <Trash2 size={22} />
+              </div>
+
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Delete this workout?
+                </h3>
+                <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 font-semibold truncate">
+                  {workoutToDelete.title || `${workoutToDelete.type} Session`}
+                </p>
+                <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
+                  {formatWorkoutDate(workoutToDelete.started_at)} · {formatDistance(workoutToDelete.distance_meters, distanceUnit)} {distanceUnit}
+                </p>
+                <p className="text-[11px] text-rose-500 dark:text-rose-400 mt-2 font-medium">
+                  This will permanently delete the workout.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2.5 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setWorkoutToDelete(null)}
+                  disabled={isDeletingWorkout}
+                  className="flex-1 py-2.5 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-95 transition-all disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDelete}
+                  disabled={isDeletingWorkout}
+                  className="flex-1 py-2.5 px-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs active:scale-95 transition-all shadow-md shadow-rose-600/25 disabled:opacity-50 flex items-center justify-center gap-1.5"
+                >
+                  {isDeletingWorkout ? (
+                    <>
+                      <RefreshCw size={13} className="animate-spin" />
+                      <span>Deleting...</span>
+                    </>
+                  ) : (
+                    <span>Delete</span>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* Full-screen Loading State during Deletion */}
+      {isDeletingWorkout &&
+        createPortal(
+          <div className="fixed inset-0 z-[100000] flex flex-col items-center justify-center p-6 bg-slate-950/80 backdrop-blur-md animate-fade-in select-none">
+            <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl flex flex-col items-center gap-4 max-w-xs w-full text-center">
+              <div className="w-14 h-14 rounded-2xl bg-rose-500/10 text-rose-500 flex items-center justify-center shadow-inner">
+                <RefreshCw size={26} className="animate-spin text-rose-500" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-slate-950 dark:text-white">
+                  Deleting Workout...
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Permanently deleting from database and updating history
+                </p>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 };

@@ -37,8 +37,12 @@ import {
   CheckCircle2,
   Mountain,
   Zap,
+  Sliders,
+  RefreshCw,
 } from 'lucide-react';
 import { healthService } from '../services/health/healthService';
+import { AudioCoachModal } from '../components/workout/AudioCoachModal';
+import { audioCoach } from '../services/audioCoach';
 
 interface ProfileScreenProps {
   profile: UserProfile | null;
@@ -76,6 +80,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   const [autoPause, setAutoPause] = useState(settings?.auto_pause ?? true);
   const [audioCoaching, setAudioCoaching] = useState(settings?.audio_coaching ?? true);
   const [audioFrequency, setAudioFrequency] = useState(settings?.audio_frequency || '1km');
+  const [showAudioModal, setShowAudioModal] = useState(false);
   const [pocketUnlockMode, setPocketUnlockMode] = useState<PocketUnlockMode>(() => {
     const cached = localStorage.getItem('runwar_pocket_unlock_mode') as PocketUnlockMode;
     if (cached === 'hold' || cached === 'swipe' || cached === 'both') return cached;
@@ -178,6 +183,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   const [gearList, setGearList] = useState<GearItem[]>(() => {
     return profile?.user_id ? gearService.getCachedGear(profile.user_id) : [];
   });
+  const [refreshingGearId, setRefreshingGearId] = useState<string | null>(null);
   const [showAddShoeModal, setShowAddShoeModal] = useState(false);
   const [newShoeBrand, setNewShoeBrand] = useState('Nike');
   const [newShoeModel, setNewShoeModel] = useState('');
@@ -299,6 +305,52 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   const lifetimeDurationSec = workouts.reduce((sum, w) => sum + (w.duration_seconds || 0), 0);
   const lifetimeWorkouts = workouts.length;
   const longestRunMeters = workouts.reduce((max, w) => Math.max(max, w.distance_meters || 0), 0);
+
+  const handleRefreshShoeDistance = async (gearId: string) => {
+    if (!profile) return;
+    setRefreshingGearId(gearId);
+    try {
+      if ('vibrate' in navigator) navigator.vibrate(25);
+
+      // 1. Refresh global workouts data if callback available
+      if (onRefreshWorkouts) {
+        try {
+          await onRefreshWorkouts();
+        } catch {}
+      }
+
+      // 2. Fetch latest gear list from server/cache
+      const latestGear = await gearService.getGear(profile.user_id);
+      const target = latestGear.find((g) => g.id === gearId) || gearList.find((g) => g.id === gearId);
+      if (!target) return;
+
+      // 3. Compute real-time distance from user's workouts
+      const shoeCreatedAt = target.created_at ? new Date(target.created_at).getTime() : 0;
+      const workoutsSinceCreation = workouts.filter(
+        (w) => !shoeCreatedAt || new Date(w.started_at).getTime() >= shoeCreatedAt - 60000
+      );
+      const distanceSinceCreation = workoutsSinceCreation.reduce((sum, w) => sum + (w.distance_meters || 0), 0);
+
+      // Real distance is the maximum of:
+      // - current stored distance on shoe
+      // - workouts completed since shoe was created
+      // - if active shoe or single shoe, total lifetime workout distance
+      let realDistanceMeters = target.current_distance_meters || 0;
+      if (latestGear.length === 1 || target.is_active) {
+        realDistanceMeters = Math.max(realDistanceMeters, lifetimeDistanceMeters, distanceSinceCreation);
+      } else {
+        realDistanceMeters = Math.max(realDistanceMeters, distanceSinceCreation);
+      }
+
+      // 4. Update in database and local cache
+      const updated = await gearService.setGearDistance(profile.user_id, gearId, realDistanceMeters);
+      setGearList(updated);
+    } catch (err) {
+      console.warn('Failed to refresh shoe distance:', err);
+    } finally {
+      setTimeout(() => setRefreshingGearId(null), 450);
+    }
+  };
 
   // Pinned Trophy Case Badges
   const pinnedIds = profile?.pinned_achievements || ['first_run', '5k_club', 'speed_demon'];
@@ -650,15 +702,26 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
             </div>
 
             {audioCoaching && (
-              <select
-                value={audioFrequency}
-                onChange={(e: any) => setAudioFrequency(e.target.value)}
-                className="w-full px-3.5 py-2 rounded-xl bg-emerald-50/50 dark:bg-slate-950 border border-emerald-200 dark:border-slate-800 text-emerald-950 dark:text-white text-xs font-medium focus:outline-none focus:border-emerald-500"
-              >
-                <option value="1km">Announce Every 1 km / 1 mi</option>
-                <option value="0.5km">Announce Every 0.5 km</option>
-                <option value="5min">Announce Every 5 Minutes</option>
-              </select>
+              <div className="space-y-2 mt-2">
+                <select
+                  value={audioFrequency}
+                  onChange={(e: any) => setAudioFrequency(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-xl bg-emerald-50/50 dark:bg-slate-950 border border-emerald-200 dark:border-slate-800 text-emerald-950 dark:text-white text-xs font-medium focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="1km">Announce Every 1 km / 1 mi</option>
+                  <option value="0.5km">Announce Every 0.5 km</option>
+                  <option value="5min">Announce Every 5 Minutes</option>
+                </select>
+
+                <button
+                  type="button"
+                  onClick={() => setShowAudioModal(true)}
+                  className="w-full py-2 px-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 font-bold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-98"
+                >
+                  <Sliders size={13} />
+                  <span>Customize Voice, Speed & Chimes</span>
+                </button>
+              </div>
             )}
           </div>
 
@@ -860,9 +923,23 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                             </button>
                           )}
                           <button
+                            type="button"
+                            onClick={() => handleRefreshShoeDistance(gear.id)}
+                            disabled={refreshingGearId === gear.id}
+                            className="text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 p-1 rounded-lg transition-colors active:scale-95 disabled:opacity-50 cursor-pointer"
+                            title="Recalculate real-time distance from workouts"
+                            aria-label="Refresh real-time distance"
+                          >
+                            <RefreshCw
+                              size={13}
+                              className={refreshingGearId === gear.id ? 'animate-spin text-emerald-500' : ''}
+                            />
+                          </button>
+                          <button
                             onClick={() => handleDeleteShoe(gear.id)}
-                            className="text-slate-400 hover:text-rose-500 p-1"
+                            className="text-slate-400 hover:text-rose-500 p-1 transition-colors active:scale-95 cursor-pointer"
                             title="Delete shoe"
+                            aria-label="Delete shoe"
                           >
                             <Trash2 size={13} />
                           </button>
@@ -876,7 +953,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                       {/* Mileage progress */}
                       <div className="space-y-1.5 mt-2.5">
                         <div className="flex items-center justify-between text-xs">
-                          <span className="font-bold text-slate-900 dark:text-white">
+                          <span className={`font-bold text-slate-900 dark:text-white transition-opacity ${refreshingGearId === gear.id ? 'opacity-50 animate-pulse' : 'opacity-100'}`}>
                             {currentFormatted} <span className="text-slate-500 dark:text-slate-400 font-normal">/ {maxFormatted} {distanceUnit}</span>
                           </span>
                           <span className="font-mono font-black text-[11px] text-emerald-800 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-500/20 px-2 py-0.5 rounded-md border border-emerald-300/80 dark:border-emerald-500/30">
@@ -888,7 +965,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                         <div className="h-3.5 w-full rounded-full bg-slate-200 dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-700/80 overflow-hidden shadow-inner p-0.5">
                           <div
                             style={{ width: `${pct > 0 ? Math.max(pct, 2.5) : 0}%` }}
-                            className={`h-full rounded-full transition-all duration-300 shadow-sm ${isNearRetirement
+                            className={`h-full rounded-full transition-all duration-500 ease-out shadow-sm ${isNearRetirement
                               ? 'bg-gradient-to-r from-amber-500 to-rose-500'
                               : 'bg-gradient-to-r from-emerald-500 via-emerald-400 to-teal-400'
                               }`}
@@ -1222,6 +1299,23 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           </form>
         </BottomSheet>
       )}
+
+      {/* Audio & Voice Coach Customization Modal */}
+      <AudioCoachModal
+        isOpen={showAudioModal}
+        onClose={() => setShowAudioModal(false)}
+        frequency={audioFrequency}
+        onChangeFrequency={(f) => {
+          setAudioFrequency(f);
+          audioCoach.setConfig(audioCoaching, f);
+        }}
+        isMuted={!audioCoaching}
+        onToggleMute={() => {
+          const next = !audioCoaching;
+          setAudioCoaching(next);
+          audioCoach.setConfig(next, audioFrequency);
+        }}
+      />
     </div>
   );
 };
