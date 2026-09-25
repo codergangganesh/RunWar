@@ -13,6 +13,8 @@ import {
   ChevronUp,
   UploadCloud,
   FileUp,
+  ArrowLeft,
+  Check,
 } from 'lucide-react';
 
 interface ConnectedHealthScreenProps {
@@ -24,8 +26,33 @@ interface ConnectedHealthScreenProps {
 export const ConnectedHealthScreen: React.FC<ConnectedHealthScreenProps> = ({
   profile,
   onRefreshWorkouts,
+  onBack,
 }) => {
-  const [activeProviderTab, setActiveProviderTab] = useState<'all' | 'strava' | 'google' | 'files'>('all');
+  const [activeProviderTab, setActiveProviderTab] = useState<'all' | 'strava' | 'google' | 'files'>('strava');
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+
+  const providerOptions = [
+    {
+      id: 'strava',
+      label: 'Strava',
+      badgeColor: '#fc5200',
+    },
+    {
+      id: 'google',
+      label: 'Google Health',
+      badgeColor: '#10b981',
+    },
+    {
+      id: 'all',
+      label: 'All Services',
+      badgeColor: '#94a3b8',
+    },
+    {
+      id: 'files',
+      label: 'File Upload',
+      badgeColor: '#0ea5e9',
+    },
+  ] as const;
   const [healthState, setHealthState] = useState<HealthConnectionState>(() =>
     healthService.getPrimaryConnectionState()
   );
@@ -287,52 +314,108 @@ export const ConnectedHealthScreen: React.FC<ConnectedHealthScreenProps> = ({
         </div>
       )}
 
-      {/* Provider Selection Filter Tabs */}
-      <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-800 text-xs font-bold overflow-x-auto scrollbar-none">
-        <button
-          onClick={() => setActiveProviderTab('all')}
-          className={`px-3.5 py-2 rounded-xl transition-all cursor-pointer whitespace-nowrap ${activeProviderTab === 'all'
-            ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
-            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-            }`}
-        >
-          All Services
-        </button>
-        <button
-          onClick={() => setActiveProviderTab('strava')}
-          className={`px-3.5 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${activeProviderTab === 'strava'
-            ? 'bg-[#fc5200] text-white shadow-xs'
-            : 'text-slate-600 dark:text-slate-400 hover:text-[#fc5200]'
-            }`}
-        >
-          <span className="w-2 h-2 rounded-full bg-[#fc5200]" />
-          Strava
-        </button>
-        <button
-          onClick={() => setActiveProviderTab('google')}
-          className={`px-3.5 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${activeProviderTab === 'google'
-            ? 'bg-emerald-600 text-white shadow-xs'
-            : 'text-slate-600 dark:text-slate-400 hover:text-emerald-500'
-            }`}
-        >
-          <span className="w-2 h-2 rounded-full bg-emerald-500" />
-          Google Health
-        </button>
-        <button
-          onClick={() => setActiveProviderTab('files')}
-          className={`px-3.5 py-2 rounded-xl transition-all cursor-pointer whitespace-nowrap ${activeProviderTab === 'files'
-            ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
-            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-            }`}
-        >
-          File Upload
-        </button>
+      {/* Top Navigation Bar with Back Button & Provider Dropdown */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="w-10 h-10 -ml-1 rounded-full flex items-center justify-center text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              title="Go Back"
+            >
+              <ArrowLeft size={22} />
+            </button>
+          )}
+          <h1 className="font-display text-xl sm:text-2xl font-black text-slate-900 dark:text-white leading-tight">
+            {activeProviderTab === 'strava'
+              ? 'Strava'
+              : activeProviderTab === 'google'
+              ? 'Google Health'
+              : activeProviderTab === 'files'
+              ? 'File Upload'
+              : 'Services'}
+          </h1>
+        </div>
+
+        {/* Dropdown Selector */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200/80 dark:hover:bg-slate-700/80 text-slate-900 dark:text-white text-xs font-bold border border-slate-200 dark:border-slate-700 transition-all cursor-pointer shadow-xs select-none"
+          >
+            {activeProviderTab === 'strava' && (
+              <span className="w-2.5 h-2.5 rounded-full bg-[#fc5200] shrink-0" />
+            )}
+            {activeProviderTab === 'google' && (
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
+            )}
+            {activeProviderTab === 'files' && (
+              <span className="w-2.5 h-2.5 rounded-full bg-sky-500 shrink-0" />
+            )}
+            {activeProviderTab === 'all' && (
+              <span className="w-2.5 h-2.5 rounded-full bg-slate-400 shrink-0" />
+            )}
+            <span>
+              {providerOptions.find((p) => p.id === activeProviderTab)?.label || 'Services'}
+            </span>
+            <ChevronDown
+              size={14}
+              className={`text-slate-500 transition-transform duration-200 ${
+                isDropdownOpen ? 'rotate-180' : ''
+              }`}
+            />
+          </button>
+
+          {isDropdownOpen && (
+            <>
+              {/* Dismiss backdrop */}
+              <div
+                className="fixed inset-0 z-40"
+                onClick={() => setIsDropdownOpen(false)}
+              />
+              <div className="absolute right-0 mt-2 w-52 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl shadow-black/10 dark:shadow-black/40 z-50 p-1.5 animate-scale-in space-y-1">
+                <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                  Select Service
+                </div>
+                {providerOptions.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => {
+                      setActiveProviderTab(opt.id);
+                      setIsDropdownOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between p-2.5 rounded-xl text-left transition-colors cursor-pointer ${
+                      activeProviderTab === opt.id
+                        ? 'bg-slate-100 dark:bg-slate-800 text-slate-950 dark:text-white font-bold'
+                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 font-medium'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span
+                        className="w-2.5 h-2.5 rounded-full shrink-0"
+                        style={{ backgroundColor: opt.badgeColor }}
+                      />
+                      <span className="text-xs truncate">{opt.label}</span>
+                    </div>
+                    {activeProviderTab === opt.id && (
+                      <Check size={14} className="text-[#fc5200] shrink-0" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* 1. Strava Integration Card */}
       {(activeProviderTab === 'all' || activeProviderTab === 'strava') && (
         <StravaConnectionCard
           userId={profile?.user_id}
+          profile={profile}
           onRefreshWorkouts={onRefreshWorkouts}
         />
       )}

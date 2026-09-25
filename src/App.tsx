@@ -809,9 +809,7 @@ export const App: React.FC = () => {
             activeTab={activeTab}
             setActiveTab={handleTabChange}
             profile={profile}
-            headerTitle="Connected Health"
-            showBack={true}
-            onBack={() => setScreen('main')}
+            hideTopHeader={true}
             streakCount={todayStats.streak.currentStreak}
             theme={theme}
             onToggleTheme={handleToggleTheme}

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { stravaProvider } from '../../services/health/stravaProvider';
 import { StravaConnectionState } from '../../types/strava';
+import { UserProfile } from '../../types';
 import {
   CheckCircle2,
   RefreshCw,
@@ -12,15 +13,18 @@ import {
   Upload,
   ArrowRight,
   Sparkles,
+  Info,
 } from 'lucide-react';
 
 interface StravaConnectionCardProps {
   userId?: string;
+  profile?: UserProfile | null;
   onRefreshWorkouts?: () => Promise<void>;
 }
 
 export const StravaConnectionCard: React.FC<StravaConnectionCardProps> = ({
   userId = 'guest_user',
+  profile,
   onRefreshWorkouts,
 }) => {
   const [state, setState] = useState<StravaConnectionState>(() =>
@@ -266,15 +270,25 @@ export const StravaConnectionCard: React.FC<StravaConnectionCardProps> = ({
     });
   };
 
-  return (
-    <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200/80 dark:border-slate-800 shadow-sm relative overflow-hidden transition-all duration-300">
-      {/* Top Brand Accent Line */}
-      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-[#fc5200] via-[#ff7332] to-[#fc5200]" />
+  // Resolve athlete display name and avatar
+  const athleteName =
+    [state.athlete?.firstname, state.athlete?.lastname].filter(Boolean).join(' ') ||
+    state.accountEmail ||
+    profile?.display_name ||
+    profile?.username ||
+    'Mannam Ganeshbabu';
 
+  const athleteAvatar =
+    state.athlete?.profile ||
+    state.athlete?.profile_medium ||
+    profile?.avatar_url;
+
+  return (
+    <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-100 dark:border-slate-800 shadow-sm relative overflow-hidden transition-all duration-300 space-y-5">
       {/* Sync / Action Notification Toast */}
       {feedback && (
         <div
-          className={`mb-4 p-3 rounded-2xl text-xs font-semibold flex items-center justify-between gap-2 border transition-all animate-fade-in ${feedback.type === 'success'
+          className={`p-3.5 rounded-2xl text-xs font-semibold flex items-center justify-between gap-2 border transition-all animate-fade-in ${feedback.type === 'success'
             ? 'bg-emerald-50/80 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/40'
             : 'bg-rose-50/80 dark:bg-rose-950/30 text-rose-800 dark:text-rose-300 border-rose-200 dark:border-rose-800/40'
             }`}
@@ -296,15 +310,15 @@ export const StravaConnectionCard: React.FC<StravaConnectionCardProps> = ({
         </div>
       )}
 
-      {/* 1. Header & Identity */}
-      <div className="flex items-center justify-between gap-3 mb-4">
-        <div className="flex items-center gap-3">
+      {/* 1. Header & Identity matching screenshot */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3.5">
           {/* Strava Official Logo Badge */}
-          <div className="w-12 h-12 rounded-2xl bg-[#fc5200] flex items-center justify-center shadow-md shadow-[#fc5200]/20 shrink-0">
+          <div className="w-14 h-14 rounded-2xl bg-[#fc5200] flex items-center justify-center shadow-md shadow-[#fc5200]/25 shrink-0">
             <svg
               viewBox="0 0 24 24"
-              width="24"
-              height="24"
+              width="28"
+              height="28"
               fill="white"
               xmlns="http://www.w3.org/2000/svg"
             >
@@ -313,94 +327,76 @@ export const StravaConnectionCard: React.FC<StravaConnectionCardProps> = ({
           </div>
 
           <div className="flex flex-col min-w-0">
-            <h2 className="font-display text-lg sm:text-xl font-black text-slate-950 dark:text-white leading-tight">
+            <h2 className="font-display text-xl sm:text-2xl font-black text-slate-900 dark:text-white leading-tight">
               Strava
             </h2>
-            {state.isConnected ? (
-              <span
-                className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 font-medium pt-0.5 truncate"
-                title={state.lastSyncAt ? new Date(state.lastSyncAt).toLocaleString() : 'Not synchronized yet'}
-              >
-                Last synchronized:{' '}
-                <span className="font-semibold text-slate-700 dark:text-slate-300">
-                  {isSyncing || state.status === 'syncing'
-                    ? 'Syncing...'
-                    : formatLastSync(state.lastSyncAt)}
-                </span>
-              </span>
-            ) : (
-              <span className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 font-medium pt-0.5 truncate">
-                Sync activities & GPS routes
-              </span>
-            )}
+            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 font-normal mt-0.5">
+              Connect your Strava account
+            </p>
           </div>
         </div>
 
-        {/* Status Badge */}
-        <span
-          className={`text-[10px] font-bold px-2.5 py-1 rounded-full shrink-0 flex items-center gap-1 ${state.status === 'syncing' || isSyncing
-            ? 'bg-[#fc5200]/15 text-[#fc5200] border border-[#fc5200]/30 animate-pulse'
-            : state.status === 'error'
-              ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/20'
-              : state.isConnected
-                ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
-                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
-            }`}
-        >
-          {state.status === 'syncing' || isSyncing ? (
-            <>
-              <RefreshCw size={11} className="animate-spin" />
-              <span>Syncing...</span>
-            </>
-          ) : state.status === 'error' ? (
-            <>
-              <AlertCircle size={11} />
-              <span>Needs Re-auth</span>
-            </>
-          ) : state.isConnected ? (
-            <>
-              <CheckCircle2 size={11} />
-              <span>Connected</span>
-            </>
-          ) : (
+        {/* Status Badge Pill */}
+        {state.isConnected ? (
+          <div className="bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/40 rounded-full px-3.5 py-1 text-xs font-semibold flex items-center gap-2 shrink-0">
+            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+            <span>Connected</span>
+          </div>
+        ) : isSyncing || state.status === 'syncing' ? (
+          <div className="bg-orange-50 dark:bg-orange-950/40 text-[#fc5200] border border-orange-200/60 dark:border-orange-800/40 rounded-full px-3.5 py-1 text-xs font-semibold flex items-center gap-1.5 shrink-0 animate-pulse">
+            <RefreshCw size={11} className="animate-spin text-[#fc5200]" />
+            <span>Syncing...</span>
+          </div>
+        ) : (
+          <div className="bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700 rounded-full px-3.5 py-1 text-xs font-semibold flex items-center gap-1.5 shrink-0">
+            <span className="w-2 h-2 rounded-full bg-slate-400" />
             <span>Not Connected</span>
-          )}
-        </span>
+          </div>
+        )}
       </div>
 
       {/* 2. Main Content Body */}
       {state.isConnected ? (
-        <div className="space-y-4">
-          {/* Athlete Profile & Workout Count Strip */}
-          <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-800 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5 min-w-0">
-              {state.athlete?.profile ? (
-                <img
-                  src={state.athlete.profile}
-                  alt={state.accountEmail || 'Strava Athlete'}
-                  className="w-10 h-10 rounded-full object-cover border-2 border-[#fc5200] shrink-0"
-                />
-              ) : (
-                <div className="w-10 h-10 rounded-full bg-[#fc5200]/20 text-[#fc5200] font-black flex items-center justify-center text-sm shrink-0 border border-[#fc5200]/30">
-                  {state.accountEmail ? state.accountEmail[0].toUpperCase() : 'S'}
-                </div>
-              )}
-              <div className="min-w-0">
-                <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500 dark:text-slate-400 block">
-                  Strava Athlete
-                </span>
-                <span className="font-extrabold text-xs sm:text-sm text-slate-900 dark:text-white truncate block">
-                  {state.accountEmail || 'Connected Athlete'}
-                </span>
+        <div className="space-y-4 sm:space-y-5">
+          {/* Athlete Profile Row */}
+          <div className="flex items-center gap-3.5 pt-1">
+            {athleteAvatar ? (
+              <img
+                src={athleteAvatar}
+                alt={athleteName}
+                className="w-12 h-12 rounded-full object-cover border border-slate-200 dark:border-slate-700 shrink-0"
+              />
+            ) : (
+              <div className="w-12 h-12 rounded-full bg-[#fc5200]/15 text-[#fc5200] font-black flex items-center justify-center text-base shrink-0 border border-[#fc5200]/25">
+                {athleteName.charAt(0).toUpperCase()}
               </div>
-            </div>
-
-            <div className="text-right shrink-0">
-              <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500 dark:text-slate-400 block">
-                Workouts Synced
+            )}
+            <div className="min-w-0">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 block">
+                STRAVA ATHLETE
               </span>
-              <span className="font-display font-black text-[#fc5200] text-sm sm:text-base">
-                {state.syncedCount} runs
+              <span className="font-bold text-base sm:text-lg text-slate-900 dark:text-white truncate block">
+                {athleteName}
+              </span>
+            </div>
+          </div>
+
+          {/* 2-Column Stats Box (WORKOUTS SYNCED | LAST SYNCHRONIZED) */}
+          <div className="bg-slate-50/80 dark:bg-slate-800/40 rounded-2xl p-4 grid grid-cols-2 gap-4 border border-slate-100 dark:border-slate-800/60">
+            <div>
+              <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 block mb-1">
+                WORKOUTS SYNCED
+              </span>
+              <span className="font-black text-lg sm:text-xl text-[#fc5200]">
+                {state.syncedCount ?? 0} runs
+              </span>
+            </div>
+            <div className="border-l border-slate-200/80 dark:border-slate-700/60 pl-4">
+              <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 block mb-1">
+                LAST SYNCHRONIZED
+              </span>
+              <span className="font-medium text-xs sm:text-sm text-slate-800 dark:text-slate-200 block truncate">
+                {state.lastSyncAt ? new Date(state.lastSyncAt).toLocaleString() : 'Never'}
               </span>
             </div>
           </div>
@@ -410,7 +406,7 @@ export const StravaConnectionCard: React.FC<StravaConnectionCardProps> = ({
             <div className="p-3 rounded-2xl bg-[#fc5200]/10 border border-[#fc5200]/20 space-y-2 animate-fade-in">
               <div className="flex items-center justify-between text-xs">
                 <div className="flex items-center gap-2 min-w-0">
-                  <RefreshCw size={13} className="animate-spin text-[#fc5200] shrink-0" />
+                  <RefreshCw size={13} className="animate-spin text-[#fc5200]" />
                   <span className="font-bold text-slate-900 dark:text-white truncate">
                     {state.syncProgress?.currentTitle || 'Importing Strava activities...'}
                   </span>
@@ -424,92 +420,111 @@ export const StravaConnectionCard: React.FC<StravaConnectionCardProps> = ({
             </div>
           )}
 
-          {/* Two-Way Sync Feature Toggle */}
-          <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-800 flex items-center justify-between gap-3">
+          {/* Auto-Upload Completed Runs Box */}
+          <div className="bg-slate-50/80 dark:bg-slate-800/40 rounded-2xl p-4 flex items-center justify-between gap-3 border border-slate-100 dark:border-slate-800/60">
             <div className="min-w-0">
-              <div className="flex items-center gap-1.5 font-bold text-xs text-slate-900 dark:text-white">
-                <Upload size={14} className="text-[#fc5200]" />
-                <span>Auto-Upload Completed Runs</span>
-              </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+              <h4 className="font-bold text-sm text-slate-900 dark:text-white">
+                Auto-Upload Completed Runs
+              </h4>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
                 Automatically post runs recorded in RunWar to your Strava feed
               </p>
             </div>
             <button
               onClick={toggleAutoUpload}
               type="button"
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${autoUpload ? 'bg-[#fc5200]' : 'bg-slate-300 dark:bg-slate-700'
+              className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out focus:outline-none ${autoUpload ? 'bg-[#fc5200]' : 'bg-slate-300 dark:bg-slate-700'
                 }`}
             >
               <span
-                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${autoUpload ? 'translate-x-5' : 'translate-x-0'
+                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition duration-200 ease-in-out mt-1 ${autoUpload ? 'translate-x-6' : 'translate-x-1'
                   }`}
               />
             </button>
           </div>
 
-          {/* Action Buttons (Sync & Disconnect) */}
-          <div className="flex items-center gap-2 pt-1">
+          {/* Stacked Action Buttons matching screenshot */}
+          <div className="space-y-3 pt-1">
             <button
               onClick={handleSync}
               disabled={isSyncing || isConnecting}
-              className="flex-1 py-3 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-900 dark:text-white font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-98 cursor-pointer disabled:opacity-50"
+              className="w-full py-4 rounded-2xl bg-[#fc5200] hover:bg-[#e04900] text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md shadow-[#fc5200]/25 transition-all active:scale-[0.99] cursor-pointer disabled:opacity-60"
             >
-              <RefreshCw
-                size={14}
-                className={isSyncing ? 'animate-spin text-[#fc5200]' : 'text-slate-600 dark:text-slate-400'}
-              />
-              <span>{isSyncing ? 'Syncing...' : 'Sync Activities Now'}</span>
+              {isSyncing ? (
+                <>
+                  <RefreshCw size={16} className="animate-spin text-white" />
+                  <span>Syncing Activities...</span>
+                </>
+              ) : (
+                <span>Sync Activities Now</span>
+              )}
             </button>
 
             <button
               onClick={() => setShowDisconnectModal(true)}
-              className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/20 text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 transition-all cursor-pointer"
-              title="Disconnect Strava"
+              disabled={isSyncing || isConnecting}
+              className="w-full py-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 font-bold text-sm transition-all active:scale-[0.99] cursor-pointer disabled:opacity-50 text-center"
             >
-              <Unlink size={16} />
+              Disconnect Strava
             </button>
           </div>
+
+          {/* Note Callout Box matching screenshot */}
+
+          <div className="flex items-center gap-2 text-[#fc5200] font-bold text-sm">
+            <AlertCircle size={18} className="shrink-0 text-[#fc5200]" />
+            <span>Note</span>
+          </div>
+          <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed pl-6.5">
+            Only your running, walking and cycling activities will be synced from Strava.
+          </p>
+
         </div>
       ) : (
         /* Disconnected State / Connect Call to Action */
-        <div className="space-y-4">
-
-
-
-
+        <div className="space-y-4 pt-1">
           <button
             onClick={handleConnect}
             disabled={isConnecting}
-            className="w-full py-3.5 px-4 rounded-xl bg-[#fc5200] hover:bg-[#e04900] text-white font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2.5 shadow-md shadow-[#fc5200]/25 transition-all active:scale-98 cursor-pointer disabled:opacity-60"
+            className="w-full py-4 rounded-2xl bg-[#fc5200] hover:bg-[#e04900] text-white font-extrabold text-sm flex items-center justify-center gap-2.5 shadow-md shadow-[#fc5200]/25 transition-all active:scale-[0.99] cursor-pointer disabled:opacity-60"
           >
             {isConnecting ? (
               <>
-                <RefreshCw size={16} className="animate-spin" />
+                <RefreshCw size={16} className="animate-spin text-white" />
                 <span>Connecting with Strava...</span>
               </>
             ) : (
               <>
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="white">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="white">
                   <path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-6.926 13.827h4.172" />
                 </svg>
                 <span>Connect with Strava</span>
-                <ArrowRight size={15} />
+                <ArrowRight size={16} />
               </>
             )}
           </button>
 
-          {/* Quick Demo Sandbox Button for testing without an API key */}
-          <div className="pt-1 text-center">
+          {/* Quick Demo Sandbox Button */}
+          <div className="text-center">
             <button
               type="button"
               onClick={handleSimulateDemo}
               disabled={isConnecting}
-              className="text-[11px] font-bold text-slate-500 hover:text-[#fc5200] dark:text-slate-400 dark:hover:text-[#fc5200] inline-flex items-center gap-1.5 transition-colors cursor-pointer py-1.5 px-3 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-95"
+              className="w-full py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold text-xs transition-colors cursor-pointer"
             >
-
-              <span>No API key yet? Test with Instant Demo Sandbox</span>
+              No API key yet? Test with Instant Demo Sandbox
             </button>
+          </div>
+
+          {/* Note Callout Box matching screenshot */}
+          <div className="bg-[#fff7f2] dark:bg-[#fc5200]/10 border border-[#fed7c3] dark:border-[#fc5200]/20 rounded-2xl p-4 space-y-1.5 mt-2">
+            <div className="flex items-center gap-2 text-[#fc5200] font-bold text-sm">
+              <AlertCircle size={18} className="shrink-0 text-[#fc5200]" />
+              <span>Note</span>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed pl-6.5">
+              Only your running, walking and cycling activities will be synced from Strava.
+            </p>
           </div>
         </div>
       )}
