@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { UserProfile, HealthConnectionState, Workout } from '../types';
 import { healthService } from '../services/health/healthService';
 import { takeoutImporter } from '../services/health/takeoutImporter';
@@ -80,6 +81,16 @@ export const ConnectedHealthScreen: React.FC<ConnectedHealthScreenProps> = ({
       unsubscribe();
     };
   }, []);
+
+  // Auto-dismiss feedback toast message after 2 seconds
+  useEffect(() => {
+    if (!syncFeedback) return;
+    const timer = setTimeout(() => {
+      setSyncFeedback(null);
+    }, 2000);
+
+    return () => clearTimeout(timer);
+  }, [syncFeedback]);
 
   const handleConnectGoogle = async () => {
     setIsConnecting(true);
@@ -289,30 +300,35 @@ export const ConnectedHealthScreen: React.FC<ConnectedHealthScreenProps> = ({
 
   return (
     <div className="p-4 sm:p-5 space-y-6 animate-fade-in max-w-xl md:max-w-2xl mx-auto select-none">
-      {/* Feedback Toast */}
-      {syncFeedback && (
-        <div
-          className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 text-xs animate-scale-in ${syncFeedback.type === 'success'
-            ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30 text-emerald-900 dark:text-emerald-300'
-            : 'bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-900 dark:text-rose-300'
-            }`}
-        >
-          <div className="flex items-center gap-2">
-            {syncFeedback.type === 'success' ? (
-              <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
-            ) : (
-              <AlertCircle size={16} className="text-rose-600 dark:text-rose-400 shrink-0" />
-            )}
-            <span>{syncFeedback.message}</span>
-          </div>
-          <button
-            onClick={() => setSyncFeedback(null)}
-            className="text-[11px] font-bold underline shrink-0 cursor-pointer"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
+      {/* Floating Toast Feedback */}
+      {syncFeedback && typeof document !== 'undefined' &&
+        createPortal(
+          <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[99999] w-[90%] max-w-sm pointer-events-auto animate-in fade-in slide-in-from-top-4 duration-300">
+            <div
+              className={`p-3.5 rounded-2xl shadow-xl backdrop-blur-xl border flex items-center justify-between gap-3 text-xs font-semibold ${
+                syncFeedback.type === 'success'
+                  ? 'bg-slate-900/95 dark:bg-slate-800/95 text-white border-emerald-500/40 shadow-emerald-950/20'
+                  : 'bg-slate-900/95 dark:bg-slate-800/95 text-white border-rose-500/40 shadow-rose-950/20'
+              }`}
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                {syncFeedback.type === 'success' ? (
+                  <CheckCircle2 size={18} className="text-emerald-400 shrink-0" />
+                ) : (
+                  <AlertCircle size={18} className="text-rose-400 shrink-0" />
+                )}
+                <span className="truncate">{syncFeedback.message}</span>
+              </div>
+              <button
+                onClick={() => setSyncFeedback(null)}
+                className="text-[11px] font-bold text-slate-400 hover:text-white shrink-0 cursor-pointer transition-colors px-1"
+              >
+                ✕
+              </button>
+            </div>
+          </div>,
+          document.body
+        )}
 
       {/* Top Navigation Bar with Back Button & Provider Dropdown */}
       <div className="flex items-center justify-between gap-3">

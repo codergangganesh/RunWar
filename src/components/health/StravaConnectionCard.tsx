@@ -66,6 +66,16 @@ export const StravaConnectionCard: React.FC<StravaConnectionCardProps> = ({
     };
   }, [userId]);
 
+  // Auto-dismiss toast feedback message after 2 seconds
+  useEffect(() => {
+    if (!feedback) return;
+    const timer = setTimeout(() => {
+      setFeedback(null);
+    }, 2000);
+
+    return () => clearTimeout(timer);
+  }, [feedback]);
+
   const handleConnect = async () => {
     setIsConnecting(true);
     setFeedback(null);
@@ -274,8 +284,7 @@ export const StravaConnectionCard: React.FC<StravaConnectionCardProps> = ({
   const athleteName =
     [state.athlete?.firstname, state.athlete?.lastname].filter(Boolean).join(' ') ||
     state.accountEmail ||
-    profile?.display_name ||
-    profile?.username ||
+    profile?.name ||
     'Mannam Ganeshbabu';
 
   const athleteAvatar =
@@ -285,30 +294,34 @@ export const StravaConnectionCard: React.FC<StravaConnectionCardProps> = ({
 
   return (
     <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-100 dark:border-slate-800 shadow-sm relative overflow-hidden transition-all duration-300 space-y-5">
-      {/* Sync / Action Notification Toast */}
-      {feedback && (
-        <div
-          className={`p-3.5 rounded-2xl text-xs font-semibold flex items-center justify-between gap-2 border transition-all animate-fade-in ${feedback.type === 'success'
-            ? 'bg-emerald-50/80 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/40'
-            : 'bg-rose-50/80 dark:bg-rose-950/30 text-rose-800 dark:text-rose-300 border-rose-200 dark:border-rose-800/40'
-            }`}
-        >
-          <div className="flex items-center gap-2 min-w-0">
-            {feedback.type === 'success' ? (
-              <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
-            ) : (
-              <AlertCircle size={16} className="text-rose-600 dark:text-rose-400 shrink-0" />
-            )}
-            <span className="truncate">{feedback.message}</span>
-          </div>
-          <button
-            onClick={() => setFeedback(null)}
-            className="text-[11px] font-bold underline shrink-0 cursor-pointer hover:opacity-80"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
+      {/* Floating Toast Notification (Portal to body so it never distorts card layout) */}
+      {feedback && typeof document !== 'undefined' &&
+        createPortal(
+          <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[99999] w-[90%] max-w-sm pointer-events-auto animate-in fade-in slide-in-from-top-4 duration-300">
+            <div
+              className={`p-3.5 rounded-2xl shadow-xl backdrop-blur-xl border flex items-center justify-between gap-3 text-xs font-semibold ${feedback.type === 'success'
+                ? 'bg-slate-900/95 dark:bg-slate-800/95 text-white border-emerald-500/40 shadow-emerald-950/20'
+                : 'bg-slate-900/95 dark:bg-slate-800/95 text-white border-rose-500/40 shadow-rose-950/20'
+                }`}
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                {feedback.type === 'success' ? (
+                  <CheckCircle2 size={18} className="text-emerald-400 shrink-0" />
+                ) : (
+                  <AlertCircle size={18} className="text-rose-400 shrink-0" />
+                )}
+                <span className="truncate">{feedback.message}</span>
+              </div>
+              <button
+                onClick={() => setFeedback(null)}
+                className="text-[11px] font-bold text-slate-400 hover:text-white shrink-0 cursor-pointer transition-colors px-1"
+              >
+                ✕
+              </button>
+            </div>
+          </div>,
+          document.body
+        )}
 
       {/* 1. Header & Identity matching screenshot */}
       <div className="flex items-center justify-between gap-3">
@@ -330,7 +343,7 @@ export const StravaConnectionCard: React.FC<StravaConnectionCardProps> = ({
             <h2 className="font-display text-xl sm:text-2xl font-black text-slate-900 dark:text-white leading-tight">
               Strava
             </h2>
-            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 font-normal mt-0.5">
+            <p className="text-[10px] sm:text-[10px] text-slate-500 dark:text-slate-400 font-normal mt-0.5">
               Connect your Strava account
             </p>
           </div>
@@ -338,8 +351,8 @@ export const StravaConnectionCard: React.FC<StravaConnectionCardProps> = ({
 
         {/* Status Badge Pill */}
         {state.isConnected ? (
-          <div className="bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/40 rounded-full px-3.5 py-1 text-xs font-semibold flex items-center gap-2 shrink-0">
-            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+          <div className="bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/40 rounded-full px-2 py-0.5 text-[10px] font-medium flex items-center gap-1 shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
             <span>Connected</span>
           </div>
         ) : isSyncing || state.status === 'syncing' ? (
@@ -401,25 +414,6 @@ export const StravaConnectionCard: React.FC<StravaConnectionCardProps> = ({
             </div>
           </div>
 
-          {/* Sync Progress Indicator if active */}
-          {(isSyncing || state.status === 'syncing') && (
-            <div className="p-3 rounded-2xl bg-[#fc5200]/10 border border-[#fc5200]/20 space-y-2 animate-fade-in">
-              <div className="flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2 min-w-0">
-                  <RefreshCw size={13} className="animate-spin text-[#fc5200]" />
-                  <span className="font-bold text-slate-900 dark:text-white truncate">
-                    {state.syncProgress?.currentTitle || 'Importing Strava activities...'}
-                  </span>
-                </div>
-                {state.syncProgress && state.syncProgress.total > 0 && (
-                  <span className="font-mono font-bold text-[#fc5200] text-[11px] shrink-0 ml-2">
-                    {Math.round((state.syncProgress.current / state.syncProgress.total) * 100)}%
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-
           {/* Auto-Upload Completed Runs Box */}
           <div className="bg-slate-50/80 dark:bg-slate-800/40 rounded-2xl p-4 flex items-center justify-between gap-3 border border-slate-100 dark:border-slate-800/60">
             <div className="min-w-0">
@@ -447,13 +441,17 @@ export const StravaConnectionCard: React.FC<StravaConnectionCardProps> = ({
           <div className="space-y-3 pt-1">
             <button
               onClick={handleSync}
-              disabled={isSyncing || isConnecting}
-              className="w-full py-4 rounded-2xl bg-[#fc5200] hover:bg-[#e04900] text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md shadow-[#fc5200]/25 transition-all active:scale-[0.99] cursor-pointer disabled:opacity-60"
+              disabled={isSyncing || isConnecting || state.status === 'syncing'}
+              className="w-full py-4 rounded-2xl bg-[#fc5200] hover:bg-[#e04900] text-white font-bold text-sm flex items-center justify-center gap-2.5 shadow-md shadow-[#fc5200]/25 transition-all active:scale-[0.99] cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed"
             >
-              {isSyncing ? (
+              {isSyncing || state.status === 'syncing' ? (
                 <>
-                  <RefreshCw size={16} className="animate-spin text-white" />
-                  <span>Syncing Activities...</span>
+                  <RefreshCw size={16} className="animate-spin text-white shrink-0" />
+                  <span>
+                    {state.syncProgress && state.syncProgress.total > 0
+                      ? `Syncing (${state.syncProgress.current}/${state.syncProgress.total})...`
+                      : 'Syncing Activities...'}
+                  </span>
                 </>
               ) : (
                 <span>Sync Activities Now</span>
@@ -470,14 +468,15 @@ export const StravaConnectionCard: React.FC<StravaConnectionCardProps> = ({
           </div>
 
           {/* Note Callout Box matching screenshot */}
-
-          <div className="flex items-center gap-2 text-[#fc5200] font-bold text-sm">
-            <AlertCircle size={18} className="shrink-0 text-[#fc5200]" />
-            <span>Note</span>
+          <div className="bg-[#fff7f2] dark:bg-[#fc5200]/10 border border-[#fed7c3] dark:border-[#fc5200]/20 rounded-2xl p-4 space-y-1.5">
+            <div className="flex items-center gap-2 text-[#fc5200] font-bold text-sm">
+              <AlertCircle size={18} className="shrink-0 text-[#fc5200]" />
+              <span>Note</span>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed pl-6.5">
+              Only your running, walking and cycling activities will be synced from Strava.
+            </p>
           </div>
-          <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed pl-6.5">
-            Only your running, walking and cycling activities will be synced from Strava.
-          </p>
 
         </div>
       ) : (
