@@ -28,6 +28,7 @@ export interface UserProfile {
   firebase_uid?: string | null;
   phone_number?: string | null;
   name: string;
+  username?: string | null;
   email: string | null;
   age: number | null;
   gender: string | null;
@@ -354,3 +355,120 @@ export interface GhostRivalProgress {
   percentCompleted?: number; // if targetDistanceMeters is set
 }
 
+
+// =============================================================
+// RUN GOAL CHALLENGE TYPES
+// =============================================================
+
+export type ChallengeType = 'distance_race' | 'distance_goal' | 'time_challenge';
+export type ChallengeStatus = 'pending' | 'accepted' | 'active' | 'completed' | 'rejected' | 'expired' | 'cancelled';
+export type ParticipantRole = 'creator' | 'invitee';
+export type ParticipantStatus = 'pending' | 'accepted' | 'rejected' | 'active' | 'completed' | 'abandoned';
+
+export interface Challenge {
+  id: string;
+  creator_id: string;
+  title: string;
+  challenge_type: ChallengeType;
+  target_distance_meters: number;
+  target_duration_seconds?: number | null;
+  status: ChallengeStatus;
+  start_window_start: string;
+  start_window_end: string;
+  winner_user_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at?: string | null;
+  creator_profile?: Partial<UserProfile> | null;
+  opponent_profile?: Partial<UserProfile> | null;
+  my_participation?: ChallengeParticipant | null;
+  opponent_participation?: ChallengeParticipant | null;
+  all_participations?: ChallengeParticipant[];
+  all_profiles?: Record<string, Partial<UserProfile>>;
+}
+
+export interface ChallengeParticipant {
+  id: string;
+  challenge_id: string;
+  user_id: string;
+  role: ParticipantRole;
+  status: ParticipantStatus;
+  joined_at?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  current_distance_meters: number;
+  current_duration_seconds: number;
+  current_pace: number;
+  completion_distance_meters?: number | null;
+  completion_duration_seconds?: number | null;
+  completion_position?: number | null;
+  associated_workout_id?: string | null;
+  last_ping_at?: string | null;
+  updated_at?: string;
+  profile?: Partial<UserProfile> | null;
+}
+
+export interface ChallengeInvitation {
+  id: string;
+  challenge_id: string;
+  sender_id: string;
+  recipient_id?: string | null;
+  recipient_username?: string | null;
+  invite_token: string;
+  status: 'pending' | 'accepted' | 'rejected' | 'expired' | 'cancelled';
+  expires_at: string;
+  created_at: string;
+  accepted_at?: string | null;
+  challenge?: Challenge | null;
+  sender_profile?: Partial<UserProfile> | null;
+}
+
+export interface ChallengeNotification {
+  id: string;
+  user_id: string;
+  challenge_id?: string | null;
+  type: 'challenge_received' | 'challenge_accepted' | 'challenge_rejected' | 'opponent_started' | 'opponent_completed' | 'challenge_completed' | 'challenge_cancelled' | 'challenge_expired';
+  title: string;
+  message: string;
+  data: Record<string, any>;
+  is_read: boolean;
+  created_at: string;
+}
+
+export interface LiveChallengeProgress {
+  challengeId: string;
+  targetDistanceMeters: number;
+  myDistanceMeters: number;
+  myPaceSecondsPerKm: number;
+  myDurationSeconds: number;
+  opponentDistanceMeters: number;
+  opponentPaceSecondsPerKm: number;
+  opponentDurationSeconds: number;
+  deltaMeters: number;
+  deltaSeconds: number;
+  isUserAhead: boolean;
+  myCompleted: boolean;
+  opponentCompleted: boolean;
+  completionRank?: number;
+  progressPercent: number;
+  opponentProgressPercent: number;
+}
+
+export interface PublicProfile {
+  user_id: string;
+  name: string;
+  username: string | null;
+  avatar_url: string | null;
+  created_at: string;
+}
+
+export interface CreateChallengeParams {
+  title: string;
+  challenge_type: ChallengeType;
+  target_distance_meters: number;
+  target_duration_seconds?: number;
+  recipient_user_id?: string;
+  recipient_username?: string;
+  recipient_user_ids?: string[];
+  recipient_usernames?: string[];
+}

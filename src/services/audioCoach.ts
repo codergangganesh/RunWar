@@ -65,16 +65,14 @@ class AudioCoach {
 
       const savedHaptics = localStorage.getItem('runwar_coach_haptics');
       if (savedHaptics !== null) this.enableHaptics = savedHaptics === 'true';
-    } catch {}
+    } catch { }
   }
-
   private initVoice() {
     if (!this.synth) return;
 
     const loadVoices = () => {
       this.availableVoices = this.synth?.getVoices() || [];
       if (this.availableVoices.length === 0) return;
-
       // 1. Try previously saved voice URI
       if (this.selectedVoiceURI) {
         const matched = this.availableVoices.find((v) => v.voiceURI === this.selectedVoiceURI);
@@ -83,7 +81,6 @@ class AudioCoach {
           return;
         }
       }
-
       // 2. Prefer natural sounding English voices
       const preferred = this.availableVoices.find(
         (v) =>
@@ -99,7 +96,6 @@ class AudioCoach {
 
       this.voice = preferred || this.availableVoices.find((v) => v.lang.startsWith('en')) || this.availableVoices[0] || null;
     };
-
     loadVoices();
     if (this.synth.onvoiceschanged !== undefined) {
       this.synth.onvoiceschanged = loadVoices;
@@ -134,7 +130,7 @@ class AudioCoach {
     this.selectedVoiceURI = voiceURI;
     try {
       localStorage.setItem('runwar_coach_voice_uri', voiceURI);
-    } catch {}
+    } catch { }
 
     const matched = this.availableVoices.find((v) => v.voiceURI === voiceURI);
     if (matched) {
@@ -155,33 +151,33 @@ class AudioCoach {
       this.rate = Math.max(0.7, Math.min(1.5, params.rate));
       try {
         localStorage.setItem('runwar_coach_rate', String(this.rate));
-      } catch {}
+      } catch { }
     }
     if (params.pitch !== undefined) {
       this.pitch = Math.max(0.7, Math.min(1.3, params.pitch));
       try {
         localStorage.setItem('runwar_coach_pitch', String(this.pitch));
-      } catch {}
+      } catch { }
     }
     if (params.volume !== undefined) {
       this.volume = Math.max(0.1, Math.min(1.0, params.volume));
       try {
         localStorage.setItem('runwar_coach_volume', String(this.volume));
-      } catch {}
+      } catch { }
     }
     if (params.enableChimes !== undefined) {
       this.enableChimes = params.enableChimes;
       soundEffects.setEnabled(params.enableChimes);
       try {
         localStorage.setItem('runwar_coach_chimes', String(this.enableChimes));
-      } catch {}
+      } catch { }
     }
     if (params.enableHaptics !== undefined) {
       this.enableHaptics = params.enableHaptics;
       hapticsService.setEnabled(params.enableHaptics);
       try {
         localStorage.setItem('runwar_coach_haptics', String(this.enableHaptics));
-      } catch {}
+      } catch { }
     }
   }
 
@@ -237,7 +233,7 @@ class AudioCoach {
           media.volume = duck ? Math.max(0.15, media.volume * 0.3) : Math.min(1.0, media.volume / 0.3);
         }
       });
-    } catch {}
+    } catch { }
   }
 
   public speak(text: string, options?: { withChime?: boolean; withHaptic?: () => void }) {

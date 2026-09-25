@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Home, History, TrendingUp, User, Play, Calendar, Target } from 'lucide-react';
+import { Home, History, TrendingUp, User, Play, Calendar, Target, Trophy } from 'lucide-react';
 import { TopHeader } from './TopHeader';
 import { UserProfile } from '../../types';
 
@@ -13,7 +13,8 @@ export type ActiveTab =
   | 'goals'
   | 'achievements'
   | 'records'
-  | 'calendar';
+  | 'calendar'
+  | 'challenges';
 
 interface AppShellProps {
   activeTab: ActiveTab;
@@ -167,19 +168,19 @@ export const AppShell: React.FC<AppShellProps> = ({
               </span>
             </div>
 
-            {/* Right Wing (3 items: Goals, History, Profile) */}
+            {/* Right Wing (3 items: Challenges, History, Profile) */}
             <div className="flex-1 flex items-center justify-around pl-7 sm:pl-8">
-              {/* Goals Tab */}
+              {/* Challenges Tab */}
               <button
-                onClick={() => setActiveTab('goals')}
+                onClick={() => setActiveTab('challenges')}
                 className={`flex flex-col items-center gap-0.5 py-1 px-1.5 rounded-xl transition-all ${
-                  activeTab === 'goals'
+                  activeTab === 'challenges'
                     ? 'text-emerald-600 dark:text-emerald-400 font-bold'
                     : 'text-slate-500 dark:text-slate-400 hover:text-emerald-800 dark:hover:text-slate-200 font-medium'
                 }`}
               >
-                <Target size={18} className={activeTab === 'goals' ? 'text-emerald-600 dark:text-emerald-400' : ''} />
-                <span className="text-[9px] sm:text-[10px] tracking-tight">Goals</span>
+                <Trophy size={18} className={activeTab === 'challenges' ? 'text-emerald-600 dark:text-emerald-400' : ''} />
+                <span className="text-[9px] sm:text-[10px] tracking-tight">Races</span>
               </button>
 
               {/* History Tab */}

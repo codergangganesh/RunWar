@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile, DistanceUnit, PaceUnit, WeightUnit, WorkoutType } from '../types';
 import { authService } from '../services/authService';
-import { Check, Flame, Ruler, Weight, Activity, Sparkles, User, Target, ArrowRight, ArrowLeft, Shield } from 'lucide-react';
+import { challengeService } from '../services/challengeService';
+import { useUsernameCheck } from '../hooks/useUsernameCheck';
+import { Check, Flame, Ruler, Weight, Activity, Sparkles, User, Target, ArrowRight, ArrowLeft, Shield, Loader2, X } from 'lucide-react';
 
 interface ProfileSetupScreenProps {
   userId: string;
@@ -27,6 +29,21 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
   const [fitnessGoal, setFitnessGoal] = useState<string>('5k_run');
   const [workoutType, setWorkoutType] = useState<WorkoutType>('run');
   const [loading, setLoading] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const defaultUsername = initialName.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 14);
+  const usernameCheck = useUsernameCheck(defaultUsername, userId);
+  const {
+    usernameInput,
+    setUsernameInput,
+    status: usernameStatus,
+    message: usernameMessage,
+    suggestions: usernameSuggestions,
+    isAvailable: isUsernameAvailable,
+    isChecking: isUsernameChecking,
+    isTaken: isUsernameTaken,
+    isInvalid: isUsernameInvalid,
+  } = usernameCheck;
 
   useEffect(() => {
     if (initialName && (!name || name === 'Runner')) {
@@ -36,6 +53,16 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
+
+    setFormError(null);
+
+    const cleanUser = usernameInput.replace(/^@/, '').toLowerCase().trim();
+    if (cleanUser && !isUsernameAvailable) {
+      setFormError(usernameMessage || 'Please choose an available username.');
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -43,8 +70,21 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
       const paceUnit: PaceUnit = unitSystem === 'imperial' ? 'min_mi' : 'min_km';
       const weightUnit: WeightUnit = unitSystem === 'imperial' ? 'lb' : 'kg';
 
+      let assignedUsername = cleanUser;
+      if (cleanUser) {
+        const usernameRes = await challengeService.setUsername(userId, cleanUser);
+        if (usernameRes.error) {
+          setFormError(usernameRes.error);
+          setLoading(false);
+          return;
+        }
+      } else {
+        assignedUsername = await challengeService.ensureUsername(userId, name);
+      }
+
       const profile = await authService.updateProfile(userId, {
         name: name.trim() || 'Runner',
+        username: assignedUsername,
         email: initialEmail,
         age,
         gender,
@@ -59,8 +99,9 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
 
       localStorage.setItem(`runwar_profile_setup_done_${userId}`, 'true');
       onComplete(profile);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error saving profile setup:', err);
+      setFormError(err?.message || 'Failed to save profile details.');
     } finally {
       setLoading(false);
     }
@@ -219,6 +260,79 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
                 />
               </div>
             </div>
+
+            {/* Unique Username Input Field */}
+            <div className="space-y-1">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                Choose Unique Username
+              </label>
+              <div className="relative flex items-center">
+                <span className="absolute left-4 text-sm font-bold text-emerald-600 select-none">
+                  @
+                </span>
+                <input
+                  type="text"
+                  value={usernameInput}
+                  onChange={(e) => setUsernameInput(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                  placeholder="ganesh_runner"
+                  maxLength={20}
+                  className={`w-full pl-9 pr-10 py-3.5 rounded-2xl bg-slate-50 border text-sm font-bold outline-none transition-all ${
+                    isUsernameTaken || isUsernameInvalid
+                      ? 'border-rose-500 focus:border-rose-500 bg-rose-50/20 text-rose-700'
+                      : usernameStatus === 'available'
+                      ? 'border-emerald-500 focus:border-emerald-500 text-slate-900'
+                      : 'border-slate-200 text-slate-900 focus:border-[#00d09c]'
+                  }`}
+                />
+
+                <div className="absolute right-3.5 flex items-center pointer-events-none">
+                  {isUsernameChecking && <Loader2 size={16} className="animate-spin text-emerald-500" />}
+                  {usernameStatus === 'available' && <Check size={16} className="text-emerald-500 font-bold" />}
+                  {(isUsernameTaken || isUsernameInvalid) && <X size={16} className="text-rose-500 font-bold" />}
+                </div>
+              </div>
+
+              {/* Status Message */}
+              {usernameMessage && (
+                <p className={`text-[11px] font-semibold flex items-center gap-1 mt-0.5 ${
+                  isUsernameTaken || isUsernameInvalid
+                    ? 'text-rose-500'
+                    : usernameStatus === 'available'
+                    ? 'text-emerald-600'
+                    : 'text-slate-400'
+                }`}>
+                  {isUsernameTaken && <span>⚠️ Username already taken</span>}
+                  {usernameStatus === 'available' && <span>✓ Username available</span>}
+                  {isUsernameInvalid && <span>❌ {usernameMessage}</span>}
+                </p>
+              )}
+
+              {/* Suggestions */}
+              {usernameSuggestions && usernameSuggestions.length > 0 && (
+                <div className="mt-1 space-y-1">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">Suggestions:</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {usernameSuggestions.map((sug) => (
+                      <button
+                        key={sug}
+                        type="button"
+                        onClick={() => setUsernameInput(sug)}
+                        className="px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-300 text-emerald-700 text-[11px] font-bold hover:bg-emerald-100 transition-all cursor-pointer"
+                      >
+                        @{sug}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {formError && (
+              <div className="p-3 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-600 text-xs font-semibold flex items-center gap-2">
+                <X size={16} className="shrink-0" />
+                <span>{formError}</span>
+              </div>
+            )}
 
             {/* Unit System Toggle */}
             <div>

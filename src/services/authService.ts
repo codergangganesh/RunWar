@@ -53,11 +53,11 @@ export const authService = {
       localStorage.removeItem(SETTINGS_CACHE_KEY);
       localStorage.removeItem('runwar_google_fit_state');
       localStorage.removeItem('runwar_google_fit_token_transfer');
-      // Clear all cached workouts to prevent account pollution
+      // Clear all cached workouts to prevent account pollution while keeping setup flags intact
       const keysToRemove: string[] = [];
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i);
-        if (k && (k.startsWith('runwar_cached_workouts') || k.startsWith('runwar_profile_setup_done_'))) {
+        if (k && k.startsWith('runwar_cached_workouts')) {
           keysToRemove.push(k);
         }
       }
@@ -65,6 +65,29 @@ export const authService = {
     } catch (e) {
       console.warn('Failed to clear cached user:', e);
     }
+  },
+
+  /**
+   * Check if profile setup has been completed for a user
+   */
+  isProfileSetupComplete(userId: string, profile: UserProfile | null): boolean {
+    if (!userId) return false;
+    try {
+      const localFlag = localStorage.getItem(`runwar_profile_setup_done_${userId}`);
+      if (localFlag === 'true') return true;
+    } catch { }
+
+    if (profile) {
+      const hasUsername = typeof profile.username === 'string' && profile.username.trim().length > 0;
+      if (hasUsername) {
+        try {
+          localStorage.setItem(`runwar_profile_setup_done_${userId}`, 'true');
+        } catch { }
+        return true;
+      }
+    }
+
+    return false;
   },
 
   /**
@@ -102,7 +125,7 @@ export const authService = {
       name,
     });
     if (error) throw error;
-    
+
     // Create initial profile and settings if user was returned
     if (data?.user?.id) {
       const normalizedId = normalizeUserId(data.user.id);
@@ -409,7 +432,7 @@ export const authService = {
     }
 
     const defaultName = name || `Runner ${phoneNumber.slice(-4)}`;
-    
+
     // Database payload strictly matching public.profiles schema
     const dbPayload = {
       id: normalizedId,
@@ -600,7 +623,7 @@ export const authService = {
     const normalizedId = normalizeUserId(userId);
     const fileExt = file.name.split('.').pop() || 'jpg';
     const filePath = `user_${normalizedId}_${Date.now()}.${fileExt}`;
-    
+
     // Upload to InsForge 'avatars' storage bucket
     const { data, error } = await insforge.storage
       .from('avatars')
@@ -631,16 +654,29 @@ export const authService = {
     };
 
     try {
-      const { data, error } = await insforge.database
+      let { data, error } = await insforge.database
         .from('user_settings')
         .upsert([settingsPayload], { onConflict: 'user_id' })
         .select()
         .maybeSingle();
 
+      if (error && (String(error?.message).includes('pocket_unlock_mode') || (error as any)?.code === 'PGRST204')) {
+        console.warn('Cloud DB user_settings missing pocket_unlock_mode column. Retrying without column...');
+        const sanitizedPayload = { ...settingsPayload };
+        delete sanitizedPayload.pocket_unlock_mode;
+        const retry = await insforge.database
+          .from('user_settings')
+          .upsert([sanitizedPayload], { onConflict: 'user_id' })
+          .select()
+          .maybeSingle();
+        data = retry.data;
+        error = retry.error;
+      }
+
       if (error) {
         console.warn('Cloud DB settings upsert notice:', error);
       }
-      const finalSettings = (data || settingsPayload) as UserSettings;
+      const finalSettings = { ...settingsPayload, ...(data || {}) } as UserSettings;
       localStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify(finalSettings));
       return finalSettings;
     } catch (err) {

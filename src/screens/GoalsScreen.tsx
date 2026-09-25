@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Goal, UserProfile } from '../types';
 import { goalsService } from '../services/goalsService';
 import { BottomSheet } from '../components/ui/BottomSheet';
-import { Target, Plus, CheckCircle2, Pause, Play, Trash2, Trophy, Flame } from 'lucide-react';
+import { Target, Plus, CheckCircle2, Pause, Play, Trash2, Trophy, Flame, Pencil } from 'lucide-react';
 
 interface GoalsScreenProps {
   goals: Goal[];
@@ -12,28 +12,46 @@ interface GoalsScreenProps {
 
 export const GoalsScreen: React.FC<GoalsScreenProps> = ({ goals, profile, onRefresh }) => {
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
   const [goalType, setGoalType] = useState<Goal['goal_type']>('weekly_distance');
   const [targetValue, setTargetValue] = useState<number>(20);
   const [period, setPeriod] = useState<Goal['period']>('weekly');
   const [loading, setLoading] = useState(false);
 
-  const handleCreateGoal = async (e: React.FormEvent) => {
+  const handleStartEdit = (goal: Goal) => {
+    setEditingGoal(goal);
+    setGoalType(goal.goal_type);
+    setTargetValue(goal.target_value);
+    setPeriod(goal.period);
+    setShowCreateModal(true);
+  };
+
+  const handleSaveGoal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!profile) return;
     setLoading(true);
 
     try {
-      await goalsService.createGoal({
-        user_id: profile.user_id,
-        goal_type: goalType,
-        target_value: targetValue,
-        period,
-        status: 'active',
-      });
+      if (editingGoal) {
+        await goalsService.updateGoal(editingGoal.id, {
+          goal_type: goalType,
+          target_value: targetValue,
+          period,
+        });
+      } else {
+        await goalsService.createGoal({
+          user_id: profile.user_id,
+          goal_type: goalType,
+          target_value: targetValue,
+          period,
+          status: 'active',
+        });
+      }
       setShowCreateModal(false);
+      setEditingGoal(null);
       onRefresh();
     } catch (err) {
-      console.error('Error creating goal:', err);
+      console.error('Error saving goal:', err);
     } finally {
       setLoading(false);
     }
@@ -129,15 +147,22 @@ export const GoalsScreen: React.FC<GoalsScreenProps> = ({ goals, profile, onRefr
 
                   <div className="flex items-center gap-1">
                     <button
+                      onClick={() => handleStartEdit(goal)}
+                      className="p-2 rounded-xl text-emerald-700 dark:text-slate-400 hover:text-emerald-950 dark:hover:text-white active:scale-90 cursor-pointer"
+                      title="Edit goal"
+                    >
+                      <Pencil size={15} />
+                    </button>
+                    <button
                       onClick={() => handleToggleStatus(goal)}
-                      className="p-2 rounded-xl text-emerald-700 dark:text-slate-400 hover:text-emerald-950 dark:hover:text-white active:scale-90"
+                      className="p-2 rounded-xl text-emerald-700 dark:text-slate-400 hover:text-emerald-950 dark:hover:text-white active:scale-90 cursor-pointer"
                       title={goal.status === 'active' ? 'Pause goal' : 'Resume goal'}
                     >
                       {goal.status === 'active' ? <Pause size={15} /> : <Play size={15} />}
                     </button>
                     <button
                       onClick={() => handleDelete(goal.id)}
-                      className="p-2 rounded-xl text-rose-500 hover:text-rose-600 dark:text-rose-400 dark:hover:text-rose-300 active:scale-90"
+                      className="p-2 rounded-xl text-rose-500 hover:text-rose-600 dark:text-rose-400 dark:hover:text-rose-300 active:scale-90 cursor-pointer"
                       title="Delete goal"
                     >
                       <Trash2 size={15} />
@@ -172,14 +197,17 @@ export const GoalsScreen: React.FC<GoalsScreenProps> = ({ goals, profile, onRefr
         )}
       </div>
 
-      {/* Smooth Bottom Sheet for Creating Goal */}
+      {/* Smooth Bottom Sheet for Creating / Editing Goal */}
       <BottomSheet
         isOpen={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
-        title="Create Fitness Goal"
+        onClose={() => {
+          setShowCreateModal(false);
+          setEditingGoal(null);
+        }}
+        title={editingGoal ? 'Edit Fitness Goal' : 'Create Fitness Goal'}
         icon={<Target size={18} />}
       >
-        <form onSubmit={handleCreateGoal} className="space-y-4">
+        <form onSubmit={handleSaveGoal} className="space-y-4">
           <div>
             <label className="block text-[11px] font-bold uppercase tracking-wider text-emerald-800 dark:text-slate-400 mb-1">
               Goal Type
@@ -231,14 +259,17 @@ export const GoalsScreen: React.FC<GoalsScreenProps> = ({ goals, profile, onRefr
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3.5 px-4 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white dark:text-slate-950 font-bold text-xs shadow-md shadow-emerald-500/30 dark:shadow-glow-brand transition-all active:scale-95"
+              className="w-full py-3.5 px-4 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white dark:text-slate-950 font-bold text-xs shadow-md shadow-emerald-500/30 dark:shadow-glow-brand transition-all active:scale-95 cursor-pointer"
             >
-              {loading ? 'Saving Goal...' : 'Save & Track Goal'}
+              {loading ? (editingGoal ? 'Updating Goal...' : 'Saving Goal...') : (editingGoal ? 'Update Goal' : 'Save & Track Goal')}
             </button>
             <button
               type="button"
-              onClick={() => setShowCreateModal(false)}
-              className="w-full py-2.5 text-emerald-700 dark:text-slate-400 hover:text-emerald-950 dark:hover:text-white text-xs font-semibold"
+              onClick={() => {
+                setShowCreateModal(false);
+                setEditingGoal(null);
+              }}
+              className="w-full py-2.5 text-emerald-700 dark:text-slate-400 hover:text-emerald-950 dark:hover:text-white text-xs font-semibold cursor-pointer"
             >
               Cancel
             </button>

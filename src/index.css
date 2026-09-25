@@ -453,3 +453,16 @@ html.light div[class*="rounded-t-[36px]"] .border-slate-800 {
   border-color: #d1fae5 !important;
 }
 
+@keyframes slide-left {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-left {
+  animation: slide-left 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+

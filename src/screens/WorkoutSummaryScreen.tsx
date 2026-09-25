@@ -32,6 +32,7 @@ import {
   Download,
   Navigation,
   Swords,
+  Medal,
 } from 'lucide-react';
 import { weatherService } from '../services/weatherService';
 import { WeatherSnapshot } from '../types';
@@ -74,6 +75,23 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
   );
   const [isFetchingWeather, setIsFetchingWeather] = useState(false);
   const [exportNotice, setExportNotice] = useState<string | null>(null);
+  const [challengeVerdict, setChallengeVerdict] = useState<{
+    challengeId: string;
+    position: number;
+    title: string;
+    targetDistance: number;
+    opponentName: string;
+  } | null>(null);
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('runwar_last_completed_challenge');
+      if (raw) {
+        setChallengeVerdict(JSON.parse(raw));
+        sessionStorage.removeItem('runwar_last_completed_challenge');
+      }
+    } catch {}
+  }, []);
 
   const isSavingRef = useRef(false);
 
@@ -518,6 +536,53 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
           </div>
         );
       })()}
+
+      {/* 3.1 Run Goal Challenge Verdict Card */}
+      {challengeVerdict && (
+        <div
+          className={`p-4 rounded-3xl border shadow-lg transition-all ${
+            challengeVerdict.position === 1
+              ? 'bg-gradient-to-br from-amber-500/15 via-yellow-500/10 to-emerald-500/15 dark:from-amber-950/40 dark:via-yellow-950/20 dark:to-slate-900 border-amber-300/80 dark:border-amber-500/40 shadow-amber-500/10'
+              : 'bg-gradient-to-br from-indigo-500/15 via-purple-500/10 to-slate-900 border-indigo-300/80 dark:border-indigo-500/40 shadow-indigo-500/10'
+          }`}
+        >
+          <div className="flex items-center justify-between mb-2.5">
+            <div className="flex items-center gap-2.5">
+              <div
+                className={`w-9 h-9 rounded-2xl flex items-center justify-center shadow-xs ${
+                  challengeVerdict.position === 1 ? 'bg-amber-400/20 text-amber-500' : 'bg-indigo-400/20 text-indigo-400'
+                }`}
+              >
+                {challengeVerdict.position === 1 ? <Trophy size={19} /> : <Medal size={19} />}
+              </div>
+              <div>
+                <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-1.5">
+                  <span>{challengeVerdict.position === 1 ? 'Challenge Champion!' : 'Challenge Finisher!'}</span>
+                </h3>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium truncate max-w-[190px]">
+                  {challengeVerdict.title} • vs {challengeVerdict.opponentName}
+                </p>
+              </div>
+            </div>
+
+            <div
+              className={`px-3 py-1 rounded-full text-xs font-black font-mono flex items-center gap-1 ${
+                challengeVerdict.position === 1
+                  ? 'bg-amber-500 text-white shadow-xs shadow-amber-500/30'
+                  : 'bg-indigo-500 text-white shadow-xs shadow-indigo-500/30'
+              }`}
+            >
+              <span>{challengeVerdict.position === 1 ? '1st Place' : '2nd Place'}</span>
+            </div>
+          </div>
+
+          <p className="text-[12px] text-center font-semibold text-slate-700 dark:text-slate-300 bg-white/50 dark:bg-black/20 rounded-xl py-2 px-3">
+            {challengeVerdict.position === 1
+              ? `Outstanding! You conquered the ${(challengeVerdict.targetDistance / 1000).toFixed(0)} KM challenge and crossed the finish line first against ${challengeVerdict.opponentName}!`
+              : `Great effort! You completed the ${(challengeVerdict.targetDistance / 1000).toFixed(0)} KM challenge against ${challengeVerdict.opponentName}. Every race builds grit!`}
+          </p>
+        </div>
+      )}
 
 
       {/* 4. Your Route Map Section */}

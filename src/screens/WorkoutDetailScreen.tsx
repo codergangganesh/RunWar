@@ -431,7 +431,7 @@ export const WorkoutDetailScreen: React.FC<WorkoutDetailScreenProps> = ({
             className="w-full py-2.5 px-3 rounded-xl bg-cyan-50 dark:bg-cyan-950/40 hover:bg-cyan-100 dark:hover:bg-cyan-900/40 border border-cyan-200 dark:border-cyan-500/30 text-cyan-800 dark:text-cyan-300 font-bold text-xs flex items-center justify-center gap-2 active:scale-95 transition-all cursor-pointer"
           >
             <Navigation size={14} className="text-cyan-500" />
-            <span>Save Route as Course (Re-Run with Breadcrumbs)</span>
+            <span>Save Route as Course</span>
           </button>
         )}
 

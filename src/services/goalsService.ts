@@ -112,6 +112,44 @@ export const goalsService = {
   },
 
   /**
+   * Update goal details (target, period, type, status)
+   */
+  async updateGoal(
+    goalId: string,
+    updates: Partial<Pick<Goal, 'goal_type' | 'target_value' | 'period' | 'status'>>
+  ): Promise<Goal | null> {
+    const localGoals = getLocalGoals();
+    let updatedGoal: Goal | null = null;
+    const updated = localGoals.map((g) => {
+      if (g.id === goalId) {
+        updatedGoal = { ...g, ...updates };
+        return updatedGoal;
+      }
+      return g;
+    });
+    saveLocalGoals(updated);
+
+    try {
+      const { data, error } = await insforge.database
+        .from('goals')
+        .update(updates)
+        .eq('id', goalId)
+        .select()
+        .single();
+      if (!error && data) {
+        updatedGoal = data as Goal;
+      }
+    } catch (err) {
+      // Non-blocking for offline or guest
+    }
+
+    if (updatedGoal && (updatedGoal as Goal).user_id) {
+      await this.updateProgress((updatedGoal as Goal).user_id);
+    }
+    return updatedGoal;
+  },
+
+  /**
    * Delete goal
    */
   async deleteGoal(goalId: string): Promise<void> {

@@ -3,6 +3,8 @@ import { LiveWorkoutState, PocketUnlockMode, SplitToastInfo, UserProfile, UserSe
 import { gpsEngine } from '../services/gpsEngine';
 import { audioCoach } from '../services/audioCoach';
 import { offlineSync } from '../services/offlineSync';
+import { challengeService } from '../services/challengeService';
+import { Challenge, LiveChallengeProgress } from '../types';
 import { GlanceableHUD } from '../components/workout/GlanceableHUD';
 import { LiveWorkoutMap } from '../components/map/LiveWorkoutMap';
 import {
@@ -39,6 +41,7 @@ import { AudioCoachModal } from '../components/workout/AudioCoachModal';
 import { CourseModal } from '../components/workout/CourseModal';
 import { GhostRivalModal } from '../components/workout/GhostRivalModal';
 import { BottomSheet } from '../components/ui/BottomSheet';
+import { ChallengeHUD } from '../components/challenge/ChallengeHUD';
 import { AudioFrequency } from '../types';
 
 interface ActiveRunScreenProps {
@@ -84,6 +87,13 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const sliderTrackRef = useRef<HTMLDivElement | null>(null);
   const dragStartXRef = useRef<number | null>(null);
+
+  // ── Challenge Mode ──────────────────────────────────────────────────────
+  const [activeChallenge, setActiveChallenge] = useState<Challenge | null>(null);
+  const [challengeProgress, setChallengeProgress] = useState<LiveChallengeProgress | null>(null);
+  const activeChallengeIdRef = useRef<string | null>(null);
+  const lastPingDistanceRef = useRef<number>(0);
+  const PING_INTERVAL_METERS = 50; // send update every 50m
 
   const pocketUnlockMode: PocketUnlockMode =
     settings?.pocket_unlock_mode ||
@@ -239,6 +249,73 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
     };
   }, [workoutType, profile, settings, audioMuted]);
 
+  // ── Load active challenge from sessionStorage on mount ──────────────────
+  useEffect(() => {
+    const challengeId = sessionStorage.getItem('runwar_active_challenge_id');
+    if (!challengeId || !profile?.user_id) return;
+    activeChallengeIdRef.current = challengeId;
+
+    challengeService.getChallengeById(challengeId, profile.user_id).then((ch) => {
+      if (ch) {
+        setActiveChallenge(ch);
+        const prog = challengeService.computeLiveProgress(ch, profile.user_id);
+        if (prog) setChallengeProgress(prog);
+        // Mark as active in DB
+        challengeService.markChallengeActive(challengeId, profile.user_id).catch(() => {});
+      }
+    });
+
+    // Realtime opponent updates
+    const unsub = challengeService.subscribeToChallenge(challengeId, (updatedPart) => {
+      setActiveChallenge((prev) => {
+        if (!prev) return prev;
+        const isMe = updatedPart.user_id === profile.user_id;
+        const updated = {
+          ...prev,
+          my_participation: isMe ? updatedPart : prev.my_participation,
+          opponent_participation: !isMe ? updatedPart : prev.opponent_participation,
+        } as Challenge;
+        const prog = challengeService.computeLiveProgress(updated, profile.user_id);
+        if (prog) setChallengeProgress(prog);
+        return updated;
+      });
+    });
+
+    return () => { unsub(); };
+  }, [profile?.user_id]);
+
+  // ── Challenge progress ping on distance milestones ──────────────────────
+  useEffect(() => {
+    if (!activeChallengeIdRef.current || !profile?.user_id) return;
+    const dist = workoutState.distanceMeters;
+    if (dist - lastPingDistanceRef.current >= PING_INTERVAL_METERS) {
+      lastPingDistanceRef.current = dist;
+      challengeService.sendProgressPing(
+        activeChallengeIdRef.current,
+        profile.user_id,
+        dist,
+        workoutState.elapsedTime || 0,
+        workoutState.currentPace || 0
+      ).catch(() => {});
+
+      // Also refresh live progress display
+      setActiveChallenge((prev) => {
+        if (!prev || !profile?.user_id) return prev;
+        const myPart = prev.my_participation;
+        if (!myPart) return prev;
+        const updatedMyPart = {
+          ...myPart,
+          current_distance_meters: dist,
+          current_duration_seconds: workoutState.elapsedTime || 0,
+          current_pace: workoutState.currentPace || 0,
+        };
+        const updated = { ...prev, my_participation: updatedMyPart } as Challenge;
+        const prog = challengeService.computeLiveProgress(updated, profile.user_id);
+        if (prog) setChallengeProgress(prog);
+        return updated;
+      });
+    }
+  }, [workoutState.distanceMeters, profile?.user_id]);
 
   const handlePauseResume = () => {
     if (workoutState.status === 'tracking') {
@@ -251,6 +328,36 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
   const handleConfirmFinish = () => {
     const finalState = gpsEngine.finishTracking();
     onFinishWorkout(finalState);
+
+    // Challenge completion – best-effort, non-blocking
+    if (activeChallengeIdRef.current && profile?.user_id) {
+      const challengeId = activeChallengeIdRef.current;
+      const userId = profile.user_id;
+      const dist = finalState.distanceMeters || 0;
+      const dur = finalState.elapsedTime || 0;
+      // workoutId may not be saved yet; use a placeholder that workoutService will link later
+      const workoutId = finalState.workoutId || 'pending';
+      challengeService.completeChallengeParticipation(challengeId, userId, dist, dur, workoutId)
+        .then(({ position, challenge }) => {
+          console.log(`[Challenge] Completed at position ${position}`);
+          try {
+            sessionStorage.setItem('runwar_last_completed_challenge', JSON.stringify({
+              challengeId,
+              position,
+              title: challenge?.title || 'Running Challenge',
+              targetDistance: challenge?.target_distance_meters || dist,
+              opponentName: challenge?.opponent_profile?.username
+                ? `@${challenge.opponent_profile.username}`
+                : (challenge?.opponent_profile?.name || 'Opponent')
+            }));
+          } catch {}
+        })
+        .catch((err) => console.warn('[Challenge] Completion error:', err))
+        .finally(() => {
+          sessionStorage.removeItem('runwar_active_challenge_id');
+          activeChallengeIdRef.current = null;
+        });
+    }
   };
 
   const handleToggleSimulation = () => {
@@ -621,6 +728,17 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Live Running Challenge HUD */}
+        {activeChallenge && challengeProgress && (
+          <div className="shrink-0 animate-fade-in">
+            <ChallengeHUD
+              challenge={activeChallenge}
+              progress={challengeProgress}
+              distanceUnit={(profile?.distance_unit as 'km' | 'mi') || 'km'}
+            />
           </div>
         )}
 

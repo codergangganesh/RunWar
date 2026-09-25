@@ -1,12 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { UserProfile, UserSettings, Workout, GearItem, PersonalRecord, PocketUnlockMode } from '../types';
+import { UserProfile, UserSettings, Workout, GearItem, PersonalRecord, PocketUnlockMode, Goal } from '../types';
 import { authService } from '../services/authService';
+import { challengeService } from '../services/challengeService';
 import { gearService } from '../services/gearService';
+import { goalsService } from '../services/goalsService';
 import { DEFAULT_ACHIEVEMENTS } from '../services/achievementsService';
 import { downloadFile, generateWorkoutsCSV } from '../utils/exportGenerators';
 import { formatDistance, formatDuration, formatPace } from '../utils/formatters';
 import { BottomSheet } from '../components/ui/BottomSheet';
 import { optimizeImage } from '../utils/imageOptimizer';
+import { useUsernameCheck } from '../hooks/useUsernameCheck';
 import {
   User,
   Settings,
@@ -15,6 +18,8 @@ import {
   Timer,
   Trophy,
   Award,
+  Target,
+  Play,
   Download,
   Shield,
   LogOut,
@@ -33,6 +38,7 @@ import {
   Activity,
   Star,
   Plus,
+  Pencil,
   ShieldCheck,
   CheckCircle2,
   Mountain,
@@ -49,6 +55,8 @@ interface ProfileScreenProps {
   settings: UserSettings | null;
   workouts: Workout[];
   records?: PersonalRecord[];
+  goals?: Goal[];
+  onRefreshGoals?: () => void;
   onNavigate: (screen: any) => void;
   onSignOut: () => void;
   onUpdateProfile: (updated: UserProfile) => void;
@@ -61,6 +69,8 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   settings,
   workouts,
   records = [],
+  goals,
+  onRefreshGoals,
   onNavigate,
   onSignOut,
   onUpdateProfile,
@@ -68,6 +78,107 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   onRefreshWorkouts,
 }) => {
   const [editingProfile, setEditingProfile] = useState(false);
+  const [localGoals, setLocalGoals] = useState<Goal[]>(goals || []);
+  const [showGoalModal, setShowGoalModal] = useState(false);
+  const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
+  const [goalFilter, setGoalFilter] = useState<'all' | 'active' | 'completed' | 'paused'>('all');
+  const [showAllGoals, setShowAllGoals] = useState(false);
+  const [newGoalType, setNewGoalType] = useState<Goal['goal_type']>('weekly_distance');
+  const [newTargetValue, setNewTargetValue] = useState<number>(20);
+  const [newPeriod, setNewPeriod] = useState<Goal['period']>('weekly');
+  const [isSavingGoal, setIsSavingGoal] = useState(false);
+
+  useEffect(() => {
+    if (goals) {
+      setLocalGoals(goals);
+    } else if (profile?.user_id) {
+      goalsService.getGoals(profile.user_id).then((res) => setLocalGoals(res));
+    }
+  }, [goals, profile?.user_id]);
+
+  const handleOpenCreateGoal = () => {
+    setEditingGoal(null);
+    setNewGoalType('weekly_distance');
+    setNewTargetValue(20);
+    setNewPeriod('weekly');
+    setShowGoalModal(true);
+  };
+
+  const handleStartEditGoal = (goal: Goal) => {
+    setEditingGoal(goal);
+    setNewGoalType(goal.goal_type);
+    setNewTargetValue(goal.target_value);
+    setNewPeriod(goal.period);
+    setShowGoalModal(true);
+  };
+
+  const handleApplyPreset = (type: Goal['goal_type'], target: number, period: Goal['period']) => {
+    setEditingGoal(null);
+    setNewGoalType(type);
+    setNewTargetValue(target);
+    setNewPeriod(period);
+    setShowGoalModal(true);
+  };
+
+  const handleSaveGoal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!profile) return;
+    setIsSavingGoal(true);
+    try {
+      if (editingGoal) {
+        const updated = await goalsService.updateGoal(editingGoal.id, {
+          goal_type: newGoalType,
+          target_value: newTargetValue,
+          period: newPeriod,
+        });
+        setLocalGoals((prev) =>
+          prev.map((g) =>
+            g.id === editingGoal.id
+              ? updated || {
+                ...g,
+                goal_type: newGoalType,
+                target_value: newTargetValue,
+                period: newPeriod,
+              }
+              : g
+          )
+        );
+      } else {
+        const created = await goalsService.createGoal({
+          user_id: profile.user_id,
+          goal_type: newGoalType,
+          target_value: newTargetValue,
+          period: newPeriod,
+          status: 'active',
+        });
+        setLocalGoals((prev) => [created, ...prev]);
+      }
+      setShowGoalModal(false);
+      setEditingGoal(null);
+      onRefreshGoals?.();
+    } catch (err) {
+      console.error('Error saving goal:', err);
+    } finally {
+      setIsSavingGoal(false);
+    }
+  };
+
+  const handleCreateGoal = handleSaveGoal;
+
+  const handleToggleGoalStatus = async (goal: Goal) => {
+    const nextStatus = goal.status === 'active' ? 'paused' : 'active';
+    await goalsService.updateGoalStatus(goal.id, nextStatus);
+    setLocalGoals((prev) => prev.map((g) => (g.id === goal.id ? { ...g, status: nextStatus } : g)));
+    onRefreshGoals?.();
+  };
+
+  const handleDeleteGoal = async (goalId: string) => {
+    if (!window.confirm('Are you sure you want to delete this goal?')) return;
+    await goalsService.deleteGoal(goalId);
+    setLocalGoals((prev) => prev.filter((g) => g.id !== goalId));
+    onRefreshGoals?.();
+  };
+
   const [healthState, setHealthState] = useState(() => healthService.getPrimaryConnectionState());
 
   useEffect(() => {
@@ -77,6 +188,20 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   const [weight, setWeight] = useState(profile?.weight || 70);
   const [height, setHeight] = useState(profile?.height || 175);
   const [unitSystem, setUnitSystem] = useState(profile?.distance_unit === 'mi' ? 'imperial' : 'metric');
+  
+  // Real-time unique username availability check
+  const usernameCheck = useUsernameCheck(profile?.username || '', profile?.user_id || '');
+  const {
+    usernameInput,
+    setUsernameInput,
+    status: usernameStatus,
+    message: usernameMessage,
+    suggestions: usernameSuggestions,
+    isAvailable: isUsernameAvailable,
+    isChecking: isUsernameChecking,
+    isTaken: isUsernameTaken,
+    isInvalid: isUsernameInvalid,
+  } = usernameCheck;
   const [autoPause, setAutoPause] = useState(settings?.auto_pause ?? true);
   const [audioCoaching, setAudioCoaching] = useState(settings?.audio_coaching ?? true);
   const [audioFrequency, setAudioFrequency] = useState(settings?.audio_frequency || '1km');
@@ -316,7 +441,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
       if (onRefreshWorkouts) {
         try {
           await onRefreshWorkouts();
-        } catch {}
+        } catch { }
       }
 
       // 2. Fetch latest gear list from server/cache
@@ -408,8 +533,29 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
       const paceUnit = unitSystem === 'imperial' ? 'min_mi' : 'min_km';
       const weightUnit = unitSystem === 'imperial' ? 'lb' : 'kg';
 
+      // 1. Update username if modified and available
+      const cleanInput = usernameInput.replace(/^@/, '').toLowerCase().trim();
+      const currentClean = (profile.username || '').replace(/^@/, '').toLowerCase().trim();
+      let newUsername = profile.username;
+
+      if (cleanInput && cleanInput !== currentClean) {
+        if (!isUsernameAvailable) {
+          setIsSavingProfile(false);
+          setSaveProfileError(usernameMessage || 'Username is not available.');
+          return;
+        }
+        const usernameRes = await challengeService.setUsername(profile.user_id, cleanInput);
+        if (usernameRes.error) {
+          setIsSavingProfile(false);
+          setSaveProfileError(usernameRes.error);
+          return;
+        }
+        newUsername = cleanInput;
+      }
+
       const updatedProf = await authService.updateProfile(profile.user_id, {
         name: name.trim(),
+        username: newUsername,
         weight,
         height,
         distance_unit: distUnit,
@@ -519,9 +665,15 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
             <h2 className="font-display text-xl font-black text-emerald-950 dark:text-white truncate">
               {profile?.name || 'Runner'}
             </h2>
-            <p className="text-xs text-emerald-800/80 dark:text-slate-400 truncate">
-              {profile?.email || 'runner@insforge.app'}
-            </p>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="font-bold text-xs text-emerald-600 dark:text-emerald-400 font-mono">
+                @{profile?.username || 'runner'}
+              </span>
+              <span className="text-slate-300 dark:text-slate-700 text-xs">•</span>
+              <p className="text-xs text-emerald-800/80 dark:text-slate-400 truncate">
+                {profile?.email || 'runner@insforge.app'}
+              </p>
+            </div>
             <span className="inline-block mt-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-500/20">
               RunWar Athlete
             </span>
@@ -538,6 +690,13 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
         {avatarError && (
           <div className="p-3 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs">
             {avatarError}
+          </div>
+        )}
+
+        {saveProfileError && (
+          <div className="p-3 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs font-semibold flex items-center gap-2">
+            <X size={16} className="shrink-0" />
+            <span>{saveProfileError}</span>
           </div>
         )}
 
@@ -586,7 +745,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
 
       {/* Edit Profile & Settings Form */}
       {editingProfile ? (
-        <form onSubmit={handleSaveProfileAndSettings} className="rounded-3xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-slate-800 p-5 space-y-4 shadow-md dark:shadow-xl">
+        <form onSubmit={handleSaveProfileAndSettings} className="rounded-3xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-slate-800 p-5 space-y-4 shadow-md dark:shadow-xl text-left">
           <div className="flex items-center justify-between">
             <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-950 dark:text-slate-300">
               Edit Athlete Settings
@@ -617,6 +776,92 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
               onChange={(e) => setName(e.target.value)}
               className="w-full px-3.5 py-2.5 rounded-xl bg-emerald-50/50 dark:bg-slate-950 border border-emerald-200 dark:border-slate-800 text-emerald-950 dark:text-white text-sm focus:outline-none focus:border-emerald-500"
             />
+          </div>
+
+          {/* Athlete Username Field with Live Availability Check (Locked if set) */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-emerald-800 dark:text-slate-400">
+                Athlete Unique Username
+              </label>
+              {profile?.username && (
+                <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-700">
+                  <Lock size={10} /> Locked / Permanent
+                </span>
+              )}
+            </div>
+            <div className="relative flex items-center">
+              <span className="absolute left-3.5 text-sm font-bold text-emerald-600 dark:text-emerald-400 select-none">
+                @
+              </span>
+              <input
+                type="text"
+                disabled={!!profile?.username}
+                value={profile?.username || usernameInput}
+                onChange={(e) => setUsernameInput(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                placeholder="e.g. ganesh_runner"
+                maxLength={20}
+                className={`w-full pl-8 pr-10 py-2.5 rounded-xl text-sm font-bold outline-none transition-all ${
+                  profile?.username
+                    ? 'bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 cursor-not-allowed select-none'
+                    : isUsernameTaken || isUsernameInvalid
+                    ? 'border-rose-500 focus:border-rose-500 bg-rose-50/20 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400'
+                    : usernameStatus === 'available'
+                    ? 'border-emerald-500 focus:border-emerald-500 text-emerald-950 dark:text-white'
+                    : 'border-emerald-200 dark:border-slate-800 text-emerald-950 dark:text-white focus:border-emerald-500'
+                }`}
+              />
+
+              <div className="absolute right-3.5 flex items-center pointer-events-none">
+                {profile?.username ? (
+                  <Lock size={15} className="text-slate-400 dark:text-slate-600" />
+                ) : isUsernameChecking ? (
+                  <Loader2 size={16} className="animate-spin text-emerald-500" />
+                ) : usernameStatus === 'available' ? (
+                  <Check size={16} className="text-emerald-500 font-bold" />
+                ) : (isUsernameTaken || isUsernameInvalid) ? (
+                  <X size={16} className="text-rose-500 font-bold" />
+                ) : null}
+              </div>
+            </div>
+
+            {/* Status Feedback Message or Locked Explanation */}
+            {profile?.username ? (
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1 mt-1">
+                🔒 Your username is permanent and cannot be modified after creation.
+              </p>
+            ) : usernameMessage && (
+              <p className={`text-[11px] font-semibold flex items-center gap-1 mt-1 ${
+                isUsernameTaken || isUsernameInvalid
+                  ? 'text-rose-500'
+                  : usernameStatus === 'available'
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-slate-400'
+              }`}>
+                {isUsernameTaken && <span>⚠️ Username already taken</span>}
+                {usernameStatus === 'available' && <span>✓ Username available</span>}
+                {isUsernameInvalid && <span>❌ {usernameMessage}</span>}
+              </p>
+            )}
+
+            {/* Smart Suggestions Pills */}
+            {usernameSuggestions && usernameSuggestions.length > 0 && (
+              <div className="mt-2 space-y-1">
+                <span className="text-[10px] font-bold text-slate-500 uppercase">Available Suggestions:</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {usernameSuggestions.map((sug) => (
+                    <button
+                      key={sug}
+                      type="button"
+                      onClick={() => setUsernameInput(sug)}
+                      className="px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold hover:bg-emerald-100 dark:hover:bg-emerald-900 transition-all cursor-pointer"
+                    >
+                      @{sug}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <div>
@@ -768,10 +1013,10 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
             type="submit"
             disabled={isSavingProfile}
             className={`w-full py-3.5 px-4 rounded-xl font-bold text-xs shadow-md transition-all active:scale-98 flex items-center justify-center gap-2 cursor-pointer ${saveProfileSuccess
-                ? 'bg-emerald-600 text-white shadow-emerald-600/30'
-                : isSavingProfile
-                  ? 'bg-emerald-500/80 text-white cursor-wait opacity-90'
-                  : 'bg-emerald-500 hover:bg-emerald-600 text-white dark:text-slate-950 shadow-emerald-500/30 dark:shadow-glow-brand'
+              ? 'bg-emerald-600 text-white shadow-emerald-600/30'
+              : isSavingProfile
+                ? 'bg-emerald-500/80 text-white cursor-wait opacity-90'
+                : 'bg-emerald-500 hover:bg-emerald-600 text-white dark:text-slate-950 shadow-emerald-500/30 dark:shadow-glow-brand'
               }`}
           >
             {isSavingProfile && !saveProfileSuccess && (
@@ -800,31 +1045,368 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
             FITNESS HUB
           </h3>
 
-          <div className="grid grid-cols-2 gap-2.5">
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              onClick={() => onNavigate('goals')}
+              className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-500/50 flex flex-col justify-between text-left active:scale-98 transition-all shadow-sm group"
+            >
+              <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mb-1.5 group-hover:scale-105 transition-transform">
+                <Target size={17} />
+              </div>
+              <span className="text-xs font-bold text-emerald-950 dark:text-white truncate">Fitness Goals</span>
+              <span className="text-[9px] text-emerald-700/80 dark:text-slate-400 truncate">Weekly targets</span>
+            </button>
+
             <button
               onClick={() => onNavigate('achievements')}
-              className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-500/50 flex flex-col justify-between text-left active:scale-98 transition-all shadow-sm"
+              className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-500/50 flex flex-col justify-between text-left active:scale-98 transition-all shadow-sm group"
             >
-              <div className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center mb-2">
-                <Award size={18} />
+              <div className="w-8 h-8 rounded-xl bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center mb-1.5 group-hover:scale-105 transition-transform">
+                <Award size={17} />
               </div>
-              <span className="text-xs font-bold text-emerald-950 dark:text-white">Achievements</span>
-              <span className="text-[10px] text-emerald-700/80 dark:text-slate-400">Milestones & badges</span>
+              <span className="text-xs font-bold text-emerald-950 dark:text-white truncate">Achievements</span>
+              <span className="text-[9px] text-emerald-700/80 dark:text-slate-400 truncate">Milestones & XP</span>
             </button>
 
             <button
               onClick={() => onNavigate('records')}
-              className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-500/50 flex flex-col justify-between text-left active:scale-98 transition-all shadow-sm"
+              className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-500/50 flex flex-col justify-between text-left active:scale-98 transition-all shadow-sm group"
             >
-              <div className="w-9 h-9 rounded-xl bg-sky-50 dark:bg-sky-500/10 text-sky-600 dark:text-sky-400 flex items-center justify-center mb-2">
-                <Trophy size={18} />
+              <div className="w-8 h-8 rounded-xl bg-sky-50 dark:bg-sky-500/10 text-sky-600 dark:text-sky-400 flex items-center justify-center mb-1.5 group-hover:scale-105 transition-transform">
+                <Trophy size={17} />
               </div>
-              <span className="text-xs font-bold text-emerald-950 dark:text-white whitespace-nowrap">Personal Records</span>
-              <span className="text-[10px] text-emerald-700/80 dark:text-slate-400">1k, 5k, 10k bests</span>
+              <span className="text-xs font-bold text-emerald-950 dark:text-white truncate">PR Records</span>
+              <span className="text-[9px] text-emerald-700/80 dark:text-slate-400 truncate">Fastest paces</span>
             </button>
           </div>
         </div>
       )}
+
+      {/* Dedicated Fitness Goals Section */}
+      <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 sm:p-5 space-y-4 shadow-sm">
+        {/* Header & Quick Actions */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+              <Target size={18} />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white truncate">
+                FITNESS GOALS
+              </h3>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                {localGoals.length === 0
+                  ? 'Track consistent weekly & monthly targets'
+                  : `${localGoals.filter((g) => g.status === 'active').length} active · ${localGoals.filter((g) => g.current_value >= g.target_value).length} achieved`}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              onClick={() => onNavigate('goals')}
+              className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-0.5 cursor-pointer px-2 py-1 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-500/10 transition-colors"
+              title="Open full Goals Dashboard"
+            >
+              <span>Full View</span>
+              <ChevronRight size={13} />
+            </button>
+            <button
+              onClick={handleOpenCreateGoal}
+              className="text-[10px] font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-100/90 hover:bg-emerald-200 dark:bg-emerald-500/20 dark:hover:bg-emerald-500/30 px-3 py-1.5 rounded-xl border border-emerald-300 dark:border-emerald-500/30 active:scale-95 transition-all flex items-center gap-1 cursor-pointer shadow-2xs"
+            >
+              <Plus size={13} />
+              <span>Add Goal</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Filter Chips Bar (Only shown if user has goals) */}
+        {localGoals.length > 0 && (
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+            {(
+              [
+                { id: 'all', label: 'All', count: localGoals.length },
+                { id: 'active', label: 'Active', count: localGoals.filter((g) => g.status === 'active' && g.current_value < g.target_value).length },
+                { id: 'completed', label: 'Completed', count: localGoals.filter((g) => g.current_value >= g.target_value).length },
+                { id: 'paused', label: 'Paused', count: localGoals.filter((g) => g.status === 'paused').length },
+              ] as const
+            ).map((filter) => (
+              <button
+                key={filter.id}
+                onClick={() => setGoalFilter(filter.id)}
+                className={`px-2.5 py-1 rounded-xl text-[10px] font-bold transition-all shrink-0 cursor-pointer flex items-center gap-1.5 ${goalFilter === filter.id
+                  ? 'bg-emerald-500 text-white dark:text-slate-950 shadow-2xs'
+                  : 'bg-slate-100/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 hover:bg-slate-200/80 dark:hover:bg-slate-800'
+                  }`}
+              >
+                <span>{filter.label}</span>
+                <span
+                  className={`text-[9px] px-1.5 py-0.2 rounded-full ${goalFilter === filter.id
+                    ? 'bg-white/25 text-white dark:text-slate-950 font-black'
+                    : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                    }`}
+                >
+                  {filter.count}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Quick Presets Strip (When no goals) */}
+        {localGoals.length === 0 && (
+          <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-emerald-50/70 via-slate-50 to-white dark:from-slate-950 dark:via-slate-900 dark:to-emerald-950/20 border border-emerald-100/80 dark:border-slate-800 text-center space-y-3">
+            <div className="w-12 h-12 rounded-2xl bg-emerald-100 dark:bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto shadow-2xs">
+              <Target size={22} />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-slate-900 dark:text-white">No fitness goals active yet</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-xs mx-auto mt-0.5">
+                Set weekly mileage or workout frequency targets. Your runs will automatically track progress!
+              </p>
+            </div>
+
+            <div className="pt-1">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-2">
+                Quick Start Presets
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-left">
+                <button
+                  type="button"
+                  onClick={() => handleApplyPreset('weekly_distance', 20, 'weekly')}
+                  className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-emerald-200/70 dark:border-slate-800 hover:border-emerald-400 dark:hover:border-emerald-500/40 text-left transition-all active:scale-95 group shadow-2xs cursor-pointer"
+                >
+                  <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 text-xs font-black">
+                    <Footprints size={14} />
+                    <span>20 {distanceUnit} / Week</span>
+                  </div>
+                  <div className="text-[9px] text-slate-500 dark:text-slate-400 mt-0.5">Weekly volume target</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleApplyPreset('workout_count', 3, 'weekly')}
+                  className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-emerald-200/70 dark:border-slate-800 hover:border-emerald-400 dark:hover:border-emerald-500/40 text-left transition-all active:scale-95 group shadow-2xs cursor-pointer"
+                >
+                  <div className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400 text-xs font-black">
+                    <Flame size={14} />
+                    <span>3 Runs / Week</span>
+                  </div>
+                  <div className="text-[9px] text-slate-500 dark:text-slate-400 mt-0.5">Consistency routine</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleApplyPreset('single_run', 5, 'weekly')}
+                  className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-emerald-200/70 dark:border-slate-800 hover:border-emerald-400 dark:hover:border-emerald-500/40 text-left transition-all active:scale-95 group shadow-2xs cursor-pointer"
+                >
+                  <div className="flex items-center gap-1.5 text-sky-600 dark:text-sky-400 text-xs font-black">
+                    <Zap size={14} />
+                    <span>5 {distanceUnit} Single Run</span>
+                  </div>
+                  <div className="text-[9px] text-slate-500 dark:text-slate-400 mt-0.5">Single session target</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleApplyPreset('monthly_distance', 50, 'monthly')}
+                  className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-emerald-200/70 dark:border-slate-800 hover:border-emerald-400 dark:hover:border-emerald-500/40 text-left transition-all active:scale-95 group shadow-2xs cursor-pointer"
+                >
+                  <div className="flex items-center gap-1.5 text-purple-600 dark:text-purple-400 text-xs font-black">
+                    <Trophy size={14} />
+                    <span>50 {distanceUnit} / Month</span>
+                  </div>
+                  <div className="text-[9px] text-slate-500 dark:text-slate-400 mt-0.5">Monthly mileage build</div>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Goals List (Filtered) */}
+        {localGoals.length > 0 && (
+          <div className="space-y-3">
+            {(() => {
+              const filtered = localGoals.filter((g) => {
+                const isCompleted = g.current_value >= g.target_value;
+                if (goalFilter === 'active') return g.status === 'active' && !isCompleted;
+                if (goalFilter === 'completed') return isCompleted;
+                if (goalFilter === 'paused') return g.status === 'paused';
+                return true;
+              });
+
+              if (filtered.length === 0) {
+                return (
+                  <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 text-center text-xs text-slate-500 dark:text-slate-400 py-6">
+                    No {goalFilter} goals found.
+                  </div>
+                );
+              }
+
+              const visibleGoals = showAllGoals ? filtered : filtered.slice(0, 3);
+
+              return (
+                <>
+                  {visibleGoals.map((goal) => {
+                    const isCompleted = goal.current_value >= goal.target_value;
+                    const pct = Math.min(100, Math.round((goal.current_value / goal.target_value) * 100));
+                    const unitLabel = goal.goal_type.includes('distance')
+                      ? distanceUnit
+                      : goal.goal_type.includes('duration')
+                        ? 'min'
+                        : 'runs';
+
+                    const remaining = Math.max(0, goal.target_value - goal.current_value);
+
+                    const GoalIcon = isCompleted
+                      ? Trophy
+                      : goal.goal_type === 'workout_count'
+                        ? Flame
+                        : goal.goal_type === 'duration'
+                          ? Timer
+                          : goal.goal_type === 'single_run'
+                            ? Zap
+                            : Footprints;
+
+                    return (
+                      <div
+                        key={goal.id}
+                        className={`p-3.5 sm:p-4 rounded-2xl border transition-all ${isCompleted
+                          ? 'bg-emerald-50/80 dark:bg-emerald-950/20 border-emerald-300 dark:border-emerald-500/40 shadow-2xs'
+                          : goal.status === 'paused'
+                            ? 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 opacity-60'
+                            : 'bg-white dark:bg-slate-950 border-slate-200/90 dark:border-slate-800 shadow-2xs'
+                          }`}
+                      >
+                        <div className="flex items-center justify-between mb-2.5">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div
+                              className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${isCompleted
+                                ? 'bg-emerald-500 text-white font-black shadow-sm shadow-emerald-500/30'
+                                : goal.goal_type === 'workout_count'
+                                  ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                                  : goal.goal_type === 'duration'
+                                    ? 'bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400'
+                                    : 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                }`}
+                            >
+                              <GoalIcon size={17} />
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <h4 className="text-xs font-black text-slate-900 dark:text-white capitalize truncate">
+                                  {goal.period} {goal.goal_type.replace('_', ' ')}
+                                </h4>
+                                {isCompleted && (
+                                  <span className="text-[9px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-300/50 dark:border-emerald-500/30 flex items-center gap-1">
+                                    <span>Goal Achieved</span>
+
+                                  </span>
+                                )}
+                                {goal.status === 'paused' && (
+                                  <span className="text-[9px] font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/20 px-1.5 py-0.2 rounded-full border border-amber-200 dark:border-amber-500/30">
+                                    Paused
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                                Target: {goal.target_value} {unitLabel}
+                                {!isCompleted && goal.status === 'active' && (
+                                  <> · <span className="font-semibold text-emerald-600 dark:text-emerald-400">{remaining.toFixed(goal.goal_type.includes('distance') ? 1 : 0)} {unitLabel} to go</span></>
+                                )}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              onClick={() => handleStartEditGoal(goal)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 transition-colors active:scale-90 cursor-pointer"
+                              title="Edit goal"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                            <button
+                              onClick={() => handleToggleGoalStatus(goal)}
+                              className={`p-1.5 rounded-lg transition-colors active:scale-90 cursor-pointer ${goal.status === 'active'
+                                ? 'text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-500/10'
+                                : 'text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10'
+                                }`}
+                              title={goal.status === 'active' ? 'Pause goal' : 'Resume goal'}
+                            >
+                              {goal.status === 'active' ? <Pause size={14} /> : <Play size={14} />}
+                            </button>
+                            <button
+                              onClick={() => handleDeleteGoal(goal.id)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors active:scale-90 cursor-pointer"
+                              title="Delete goal"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Progress Bar & Value */}
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-mono font-bold text-slate-900 dark:text-slate-200 text-[11px]">
+                              {goal.current_value} / {goal.target_value} {unitLabel}
+                            </span>
+                            <span className="font-bold text-emerald-600 dark:text-emerald-400 font-mono text-[11px]">
+                              {pct}%
+                            </span>
+                          </div>
+                          <div className="h-2.5 w-full rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden relative">
+                            <div
+                              style={{ width: `${pct}%` }}
+                              className={`h-full rounded-full transition-all duration-500 ${isCompleted
+                                ? 'bg-gradient-to-r from-emerald-400 via-emerald-500 to-lime-400 shadow-sm shadow-emerald-500/40'
+                                : 'bg-gradient-to-r from-emerald-500 to-emerald-400'
+                                }`}
+                            />
+                          </div>
+
+                          {/* Motivational feedback microcopy */}
+                          <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center justify-between pt-0.5">
+                            <span>
+                              {isCompleted
+                                ? '🎉 Target unlocked! Keep up the momentum!'
+                                : pct >= 75
+                                  ? '🔥 Almost across the finish line!'
+                                  : pct >= 50
+                                    ? '⚡ Over halfway there! Keep pushing!'
+                                    : pct > 0
+                                      ? '🏃 Making steady progress!'
+                                      : '👟 Complete a workout to log progress'}
+                            </span>
+                            <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">
+                              {goal.period}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {/* Toggle Show All / Show Fewer if more than 3 goals */}
+                  {filtered.length > 3 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllGoals(!showAllGoals)}
+                      className="w-full py-2 rounded-xl bg-slate-100/70 hover:bg-slate-200/70 dark:bg-slate-800/60 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold transition-all flex items-center justify-center gap-1 cursor-pointer"
+                    >
+                      <span>{showAllGoals ? 'Show fewer goals' : `Show all ${filtered.length} goals`}</span>
+                      <ChevronRight size={13} className={`transition-transform ${showAllGoals ? '-rotate-90' : 'rotate-90'}`} />
+                    </button>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+        )}
+      </div>
+
       {/* Running Shoes & Gear Tracker */}
       <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 sm:p-5 space-y-3.5 shadow-sm">
         <div className="flex items-center justify-between gap-2">
@@ -1299,6 +1881,154 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           </form>
         </BottomSheet>
       )}
+
+      {/* Create / Edit Fitness Goal BottomSheet */}
+      <BottomSheet
+        isOpen={showGoalModal}
+        onClose={() => {
+          setShowGoalModal(false);
+          setEditingGoal(null);
+        }}
+        title={editingGoal ? 'Edit Fitness Goal' : 'Create Fitness Goal'}
+        icon={<Target size={18} />}
+      >
+        <form onSubmit={handleCreateGoal} className="space-y-4">
+          {/* Quick Presets Grid */}
+          <div>
+            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
+              Popular Goal Templates
+            </label>
+            <div className="grid grid-cols-3 gap-1.5">
+              {[
+                { label: '5K Run', type: 'single_run' as const, val: 5, period: 'weekly' as const },
+                { label: '10K Run', type: 'single_run' as const, val: 10, period: 'weekly' as const },
+                { label: '20K / Wk', type: 'weekly_distance' as const, val: 20, period: 'weekly' as const },
+                { label: '3x / Wk', type: 'workout_count' as const, val: 3, period: 'weekly' as const },
+                { label: '50K / Mo', type: 'monthly_distance' as const, val: 50, period: 'monthly' as const },
+                { label: '120 Min', type: 'duration' as const, val: 120, period: 'weekly' as const },
+              ].map((preset) => {
+                const isSelected =
+                  newGoalType === preset.type &&
+                  newTargetValue === preset.val &&
+                  newPeriod === preset.period;
+                return (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => {
+                      setNewGoalType(preset.type);
+                      setNewTargetValue(preset.val);
+                      setNewPeriod(preset.period);
+                    }}
+                    className={`py-2 px-1.5 rounded-xl text-[11px] font-bold text-center border transition-all cursor-pointer ${isSelected
+                      ? 'bg-emerald-500 text-white dark:text-slate-950 border-emerald-500 shadow-2xs'
+                      : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-emerald-300'
+                      }`}
+                  >
+                    {preset.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
+              Goal Type
+            </label>
+            <select
+              value={newGoalType}
+              onChange={(e: any) => {
+                const val = e.target.value;
+                setNewGoalType(val);
+                if (val === 'weekly_distance') {
+                  setNewTargetValue(20);
+                  setNewPeriod('weekly');
+                } else if (val === 'monthly_distance') {
+                  setNewTargetValue(80);
+                  setNewPeriod('monthly');
+                } else if (val === 'workout_count') {
+                  setNewTargetValue(4);
+                  setNewPeriod('weekly');
+                } else if (val === 'single_run') {
+                  setNewTargetValue(5);
+                  setNewPeriod('weekly');
+                } else if (val === 'duration') {
+                  setNewTargetValue(120);
+                  setNewPeriod('weekly');
+                }
+              }}
+              className="w-full px-3.5 py-3 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs font-medium focus:outline-none focus:border-emerald-500"
+            >
+              <option value="weekly_distance">Weekly Distance ({distanceUnit})</option>
+              <option value="monthly_distance">Monthly Distance ({distanceUnit})</option>
+              <option value="workout_count">Workouts per Week</option>
+              <option value="single_run">Single Run Target ({distanceUnit})</option>
+              <option value="duration">Weekly Duration (minutes)</option>
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
+                Target Value ({newGoalType.includes('distance') || newGoalType === 'single_run' ? distanceUnit : newGoalType === 'duration' ? 'min' : 'runs'})
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={1000}
+                required
+                value={newTargetValue}
+                onChange={(e) => setNewTargetValue(Number(e.target.value))}
+                className="w-full px-3.5 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-emerald-500 font-mono font-bold"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
+                Period
+              </label>
+              <select
+                value={newPeriod}
+                onChange={(e: any) => setNewPeriod(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs font-medium focus:outline-none focus:border-emerald-500"
+              >
+                <option value="weekly">Weekly Cycle</option>
+                <option value="monthly">Monthly Cycle</option>
+              </select>
+            </div>
+          </div>
+
+
+
+          <div className="flex flex-col gap-2 pt-2">
+            <button
+              type="submit"
+              disabled={isSavingGoal}
+              className="w-full py-3.5 px-4 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white dark:text-slate-950 font-bold text-xs shadow-md shadow-emerald-500/30 dark:shadow-glow-brand transition-all active:scale-95 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {isSavingGoal ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" />
+                  <span>{editingGoal ? 'Updating Goal...' : 'Saving Goal...'}</span>
+                </>
+              ) : (
+                <span>{editingGoal ? 'Update Goal' : 'Save & Start Tracking'}</span>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowGoalModal(false);
+                setEditingGoal(null);
+              }}
+              className="w-full py-2.5 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white text-xs font-semibold cursor-pointer"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </BottomSheet>
 
       {/* Audio & Voice Coach Customization Modal */}
       <AudioCoachModal

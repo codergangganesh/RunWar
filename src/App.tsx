@@ -19,6 +19,7 @@ import { ProfileScreen } from './screens/ProfileScreen';
 import { PrivacyScreen } from './screens/PrivacyScreen';
 import { ConnectedHealthScreen } from './screens/ConnectedHealthScreen';
 import { DailyActivityScreen } from './screens/DailyActivityScreen';
+import { ChallengesScreen } from './screens/ChallengesScreen';
 import { RecoveryModal } from './components/ui/RecoveryModal';
 import { PWAInstallBanner } from './components/ui/PWAInstallBanner';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
@@ -32,6 +33,7 @@ import { achievementsService } from './services/achievementsService';
 import { recordsService } from './services/recordsService';
 import { offlineSync } from './services/offlineSync';
 import { gpsEngine } from './services/gpsEngine';
+import { challengeService } from './services/challengeService';
 import { toDeterministicUUID } from './utils/uuid';
 import {
   Achievement,
@@ -144,8 +146,9 @@ export const App: React.FC = () => {
   const [finishedWorkoutState, setFinishedWorkoutState] = useState<LiveWorkoutState | null>(null);
   const [selectedWorkout, setSelectedWorkout] = useState<Workout | null>(null);
 
-  // Recovery modal state
+  // Recovery modal state & Targeted Invite Link Errors
   const [recoveredWorkoutBackup, setRecoveredWorkoutBackup] = useState<LiveWorkoutState | null>(null);
+  const [targetedInviteError, setTargetedInviteError] = useState<{ errorMessage: string; targetUsername?: string } | null>(null);
 
   // Immediate synchronous session restoration on frame 0 if recovering from reload
   useEffect(() => {
@@ -336,8 +339,12 @@ export const App: React.FC = () => {
           if (userProfile) setProfile(userProfile);
           workoutService.syncPendingWorkouts(user.id).catch(() => {});
           await loadAppData(user.id, true);
-          // If we are currently on splash or welcome, immediately route to main home screen
-          setScreen((prev) => (prev === 'splash' || prev === 'welcome' ? 'main' : prev));
+          const setupComplete = authService.isProfileSetupComplete(user.id, userProfile);
+          if (!setupComplete) {
+            setScreen('profile_setup');
+          } else {
+            setScreen((prev) => (prev === 'splash' || prev === 'welcome' ? 'main' : prev));
+          }
         } else {
           // Check local cached session user
           const cached = authService.getCachedUser();
@@ -348,7 +355,12 @@ export const App: React.FC = () => {
               : await authService.getProfile(cached.id);
             if (userProfile) setProfile(userProfile);
             await loadAppData(cached.id, true);
-            setScreen((prev) => (prev === 'splash' || prev === 'welcome' ? 'main' : prev));
+            const cachedSetupComplete = authService.isProfileSetupComplete(cached.id, userProfile);
+            if (!cachedSetupComplete) {
+              setScreen('profile_setup');
+            } else {
+              setScreen((prev) => (prev === 'splash' || prev === 'welcome' ? 'main' : prev));
+            }
           } else {
             setCurrentUser(null);
             authService.clearCachedUser();
@@ -397,8 +409,9 @@ export const App: React.FC = () => {
           setCurrentUser(user);
           authService.setCachedUser(user);
           let userProfile = await authService.getProfile(user.id);
-          const isSetupDone = localStorage.getItem(`runwar_profile_setup_done_${user.id}`);
-          if (!userProfile || !isSetupDone) {
+          const isSetupDone = authService.isProfileSetupComplete(user.id, userProfile);
+          if (!isSetupDone) {
+            if (userProfile) setProfile(userProfile);
             setScreen('profile_setup');
           } else {
             setProfile(userProfile);
@@ -551,15 +564,34 @@ export const App: React.FC = () => {
     const prof = user.firebase_uid
       ? await authService.getProfileByFirebaseUid(user.firebase_uid)
       : await authService.getProfile(user.id);
-    const isSetupDone = localStorage.getItem(`runwar_profile_setup_done_${user.id}`);
+    const isSetupDone = authService.isProfileSetupComplete(user.id, prof);
 
-    if (isNewUser || !prof || !isSetupDone) {
+    if (isNewUser || !isSetupDone) {
       if (prof) setProfile(prof);
       setScreen('profile_setup');
     } else {
       setProfile(prof);
       await loadAppData(user.id);
       setScreen('main');
+      // Handle challenge invite deep-link token
+      const params = new URLSearchParams(window.location.search);
+      const inviteToken = params.get('invite');
+      if (inviteToken && user.id) {
+        challengeService.claimInvitationToken(inviteToken, user.id)
+          .then((res) => {
+            if (res.success && res.challenge) {
+              window.history.replaceState({}, '', window.location.pathname);
+              setActiveTab('challenges');
+            } else if (res.error) {
+              setTargetedInviteError({
+                errorMessage: res.error,
+                targetUsername: res.targetUsername,
+              });
+              window.history.replaceState({}, '', window.location.pathname);
+            }
+          })
+          .catch(() => {});
+      }
     }
   };
 
@@ -881,7 +913,9 @@ export const App: React.FC = () => {
                           ? 'Personal Records'
                           : activeTab === 'calendar'
                             ? 'Activity Calendar'
-                            : 'Athlete Profile'
+                            : activeTab === 'challenges'
+                              ? 'Running Challenges'
+                              : 'Athlete Profile'
             }
           >
             {activeTab === 'home' && (
@@ -895,6 +929,7 @@ export const App: React.FC = () => {
                 onStartRun={handleStartRun}
                 onViewHistory={() => setActiveTab('history')}
                 onViewGoals={() => setActiveTab('goals')}
+                onViewChallenges={() => setActiveTab('challenges')}
                 onSelectWorkout={handleSelectWorkout}
               />
             )}
@@ -974,12 +1009,30 @@ export const App: React.FC = () => {
               />
             )}
 
+            {activeTab === 'challenges' && (
+              <ChallengesScreen
+                currentUser={profile || ({ user_id: currentUser?.id || 'guest_user', name: currentUser?.email?.split('@')[0] || 'Runner', id: currentUser?.id || 'guest_user' } as UserProfile)}
+                onStartRun={(challenge) => {
+                  // Store challenge ID so ActiveRunScreen can pick it up
+                  sessionStorage.setItem('runwar_active_challenge_id', challenge.id);
+                  handleStartRun('run');
+                }}
+                onBack={() => setActiveTab('home')}
+              />
+            )}
+
             {activeTab === 'profile' && (
               <ProfileScreen
                 profile={profile}
                 settings={settings}
                 workouts={workouts}
                 records={records}
+                goals={goals}
+                onRefreshGoals={() => {
+                  if (currentUser) {
+                    loadAppData(currentUser.id, true);
+                  }
+                }}
                 onNavigate={(destination) => {
                   if (destination === 'privacy') setScreen('privacy');
                   else if (destination === 'connected_health') setScreen('connected_health');
@@ -1011,6 +1064,73 @@ export const App: React.FC = () => {
           onFinish={handleFinishRecovered}
           onDiscard={handleDiscardRecovered}
         />
+      )}
+
+      {/* Targeted Username Challenge Invite Modal */}
+      {targetedInviteError && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'rgba(0, 0, 0, 0.75)',
+          backdropFilter: 'blur(8px)',
+          padding: '20px'
+        }}>
+          <div style={{
+            background: 'var(--surface-color, #1e293b)',
+            border: '1px solid var(--border-color, #334155)',
+            borderRadius: '24px',
+            padding: '28px 24px',
+            maxWidth: '420px',
+            width: '100%',
+            textAlign: 'center',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.6)',
+            color: '#f8fafc',
+            animation: 'fadeIn 0.2s ease-out'
+          }}>
+            <div style={{
+              width: '60px',
+              height: '60px',
+              borderRadius: '50%',
+              background: 'rgba(239, 68, 68, 0.15)',
+              color: '#ef4444',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 18px',
+              fontSize: '28px'
+            }}>
+              🔒
+            </div>
+            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, margin: '0 0 10px 0', color: '#f8fafc' }}>
+              Private Challenge Access
+            </h3>
+            <p style={{ fontSize: '0.925rem', color: '#94a3b8', lineHeight: '1.5', margin: '0 0 24px 0' }}>
+              {targetedInviteError.errorMessage}
+            </p>
+            <button
+              onClick={() => setTargetedInviteError(null)}
+              style={{
+                width: '100%',
+                padding: '14px',
+                background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '14px',
+                fontWeight: 700,
+                fontSize: '0.95rem',
+                cursor: 'pointer',
+                boxShadow: '0 4px 14px rgba(239, 68, 68, 0.35)',
+                transition: 'transform 0.15s ease'
+              }}
+            >
+              Understood
+            </button>
+          </div>
+        </div>
       )}
     </ErrorBoundary>
   );

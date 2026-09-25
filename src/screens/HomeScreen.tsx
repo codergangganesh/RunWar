@@ -3,7 +3,7 @@ import { CourseRoute, Goal, UserProfile, Workout, WorkoutType } from '../types';
 import { formatDistance, formatDuration, formatPace } from '../utils/formatters';
 import { formatLocalTime } from '../utils/dateUtils';
 import { WeeklyBarChart } from '../components/charts/WeeklyBarChart';
-import { Play, Zap, Footprints, Target, ArrowRight, Clock, Navigation, Route, Swords } from 'lucide-react';
+import { Play, Zap, Footprints, Target, ArrowRight, Clock, Navigation, Route, Swords, Trophy } from 'lucide-react';
 import { courseService } from '../services/courseService';
 import { CourseModal } from '../components/workout/CourseModal';
 import { ghostRivalService } from '../services/ghostRivalService';
@@ -37,6 +37,7 @@ interface HomeScreenProps {
   onStartRun: (type: WorkoutType) => void;
   onViewHistory: () => void;
   onViewGoals: () => void;
+  onViewChallenges?: () => void;
   onSelectWorkout: (workout: Workout) => void;
 }
 
@@ -50,6 +51,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onStartRun,
   onViewHistory,
   onViewGoals,
+  onViewChallenges,
   onSelectWorkout,
 }) => {
   const [selectedActivity, setSelectedActivity] = useState<WorkoutType>(
@@ -192,11 +194,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               <button
                 key={type}
                 onClick={() => setSelectedActivity(type)}
-                className={`py-1 px-2.5 rounded-lg text-xs font-bold capitalize transition-all active:scale-95 ${
-                  selectedActivity === type
-                    ? 'bg-emerald-500 text-white dark:text-slate-950 shadow-md shadow-emerald-500/25 dark:shadow-glow-brand font-black'
-                    : 'text-emerald-800 dark:text-slate-400 hover:text-emerald-950 dark:hover:text-white'
-                }`}
+                className={`py-1 px-2.5 rounded-lg text-xs font-bold capitalize transition-all active:scale-95 ${selectedActivity === type
+                  ? 'bg-emerald-500 text-white dark:text-slate-950 shadow-md shadow-emerald-500/25 dark:shadow-glow-brand font-black'
+                  : 'text-emerald-800 dark:text-slate-400 hover:text-emerald-950 dark:hover:text-white'
+                  }`}
               >
                 {type === 'run' ? '🏃 Run' : type === 'jog' ? '🚶 Jog' : '🚶‍♂️ Walk'}
               </button>
@@ -210,11 +211,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           <button
             type="button"
             onClick={() => setShowCourseModal(true)}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer group text-left truncate ${
-              activeCourse
-                ? 'bg-cyan-50 dark:bg-cyan-950/40 border-cyan-300 dark:border-cyan-800 text-cyan-700 dark:text-cyan-300'
-                : 'bg-slate-100 dark:bg-slate-950/80 hover:bg-cyan-50 dark:hover:bg-cyan-950/30 border-slate-200/80 dark:border-slate-800 text-slate-700 dark:text-slate-300'
-            }`}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer group text-left truncate ${activeCourse
+              ? 'bg-cyan-50 dark:bg-cyan-950/40 border-cyan-300 dark:border-cyan-800 text-cyan-700 dark:text-cyan-300'
+              : 'bg-slate-100 dark:bg-slate-950/80 hover:bg-cyan-50 dark:hover:bg-cyan-950/30 border-slate-200/80 dark:border-slate-800 text-slate-700 dark:text-slate-300'
+              }`}
           >
             <Navigation size={13} className={activeCourse ? "text-cyan-500 animate-pulse shrink-0" : "text-slate-400 group-hover:text-cyan-500 shrink-0"} />
             <span className="truncate">
@@ -226,11 +226,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           <button
             type="button"
             onClick={() => setShowGhostModal(true)}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer group text-left truncate ${
-              activeGhost
-                ? 'bg-violet-50 dark:bg-violet-950/40 border-violet-300 dark:border-violet-800 text-violet-700 dark:text-violet-300 shadow-2xs'
-                : 'bg-slate-100 dark:bg-slate-950/80 hover:bg-violet-50 dark:hover:bg-violet-950/30 border-slate-200/80 dark:border-slate-800 text-slate-700 dark:text-slate-300'
-            }`}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer group text-left truncate ${activeGhost
+              ? 'bg-violet-50 dark:bg-violet-950/40 border-violet-300 dark:border-violet-800 text-violet-700 dark:text-violet-300 shadow-2xs'
+              : 'bg-slate-100 dark:bg-slate-950/80 hover:bg-violet-50 dark:hover:bg-violet-950/30 border-slate-200/80 dark:border-slate-800 text-slate-700 dark:text-slate-300'
+              }`}
           >
             <Swords size={13} className={activeGhost ? "text-violet-500 animate-pulse shrink-0" : "text-slate-400 group-hover:text-violet-500 shrink-0"} />
             <span className="truncate">
@@ -239,7 +238,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </button>
         </div>
 
-        {/* Sleek Action Start Button */}
         <button
           onClick={() => onStartRun(selectedActivity)}
           className="w-full py-3 px-5 rounded-xl bg-gradient-to-r from-emerald-500 via-emerald-600 to-emerald-500 hover:from-emerald-600 hover:to-emerald-500 text-white font-black text-sm shadow-md shadow-emerald-500/30 active:scale-98 flex items-center justify-center gap-2.5 transition-all cursor-pointer"
@@ -248,6 +246,36 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           <span>START {selectedActivity.toUpperCase()}</span>
         </button>
       </div>
+
+      {/* Run Goal Challenge Feature Banner */}
+      {onViewChallenges && (
+        <div
+          onClick={onViewChallenges}
+          className="rounded-2xl bg-gradient-to-r from-orange-500/10 via-rose-500/10 to-amber-500/10 border border-orange-500/25 dark:border-orange-500/35 p-3.5 shadow-sm hover:border-orange-500/50 hover:shadow-md transition-all cursor-pointer group active:scale-[0.99]"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-rose-600 flex items-center justify-center text-white shadow-md shadow-orange-500/30 group-hover:scale-105 transition-transform shrink-0">
+                <Trophy size={20} />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-xs font-black uppercase tracking-wider text-orange-600 dark:text-orange-400">
+                    Run Goal Challenge
+                  </span>
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-orange-500/20 text-orange-600 dark:text-orange-300">
+                    1v1 Races
+                  </span>
+                </div>
+                <p className="text-xs text-slate-600 dark:text-slate-300 font-medium mt-0.5 truncate">
+                  Challenge a friend to a race & track live progress!
+                </p>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
 
       {/* Weekly Summary & Bar Chart */}
       <WeeklyBarChart
