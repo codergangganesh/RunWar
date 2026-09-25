@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { MapContainer, TileLayer, Polyline, Marker, Circle, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { GPSCoordinate } from '../../types';
-import { Compass, Layers, Navigation } from 'lucide-react';
+import { Compass, Layers, LocateFixed } from 'lucide-react';
 import { calculateSplits, getRouteDistanceMilestones } from '../../utils/calculations';
 import { formatDuration, formatPace } from '../../utils/formatters';
 
@@ -35,18 +35,59 @@ const createKilometerMarkerIcon = (kilometer: number) => L.divIcon({
 interface MapControllerProps {
   center: [number, number];
   followUser: boolean;
+  recenterTrigger: number;
+  onUserPan: () => void;
 }
 
-function MapController({ center, followUser }: MapControllerProps) {
+function MapController({ center, followUser, recenterTrigger, onUserPan }: MapControllerProps) {
   const map = useMap();
+  const isProgrammaticMoveRef = useRef(false);
 
+  // Recenter trigger effect: smooth flyTo when user clicks recenter
+  useEffect(() => {
+    if (recenterTrigger > 0 && center[0] !== 0 && center[1] !== 0) {
+      isProgrammaticMoveRef.current = true;
+      map.flyTo(center, Math.max(map.getZoom() || 16, 16), {
+        animate: true,
+        duration: 0.6,
+      });
+      const timer = setTimeout(() => {
+        isProgrammaticMoveRef.current = false;
+      }, 700);
+      return () => clearTimeout(timer);
+    }
+  }, [recenterTrigger, center, map]);
+
+  // Continuous tracking effect when followUser is active
   useEffect(() => {
     map.invalidateSize();
     if (followUser && center[0] !== 0 && center[1] !== 0) {
-      map.setView(center, map.getZoom() || 16, { animate: true });
+      if (!isProgrammaticMoveRef.current) {
+        map.setView(center, map.getZoom() || 16, { animate: true });
+      }
     }
   }, [center, followUser, map]);
 
+  // Detect user dragging / scrolling the map to release auto-follow
+  useEffect(() => {
+    const handleUserInteraction = () => {
+      if (!isProgrammaticMoveRef.current) {
+        onUserPan();
+      }
+    };
+
+    map.on('dragstart', handleUserInteraction);
+
+    const container = map.getContainer();
+    container.addEventListener('wheel', handleUserInteraction, { passive: true });
+
+    return () => {
+      map.off('dragstart', handleUserInteraction);
+      container.removeEventListener('wheel', handleUserInteraction);
+    };
+  }, [map, onUserPan]);
+
+  // ResizeObserver on the container to dynamically re-adjust whenever size changes
   useEffect(() => {
     const container = map.getContainer();
     if (!container) return;
@@ -100,12 +141,25 @@ export const LiveWorkoutMap: React.FC<LiveWorkoutMapProps> = ({
   children,
 }) => {
   const [followUser, setFollowUser] = useState(true);
+  const [recenterTrigger, setRecenterTrigger] = useState(0);
   const [mapStyle, setMapStyle] = useState<'outdoor' | 'dark' | 'satellite'>('outdoor');
   const activeCoord = currentLocation || (coordinates.length > 0 ? coordinates[coordinates.length - 1] : null);
   const startCoord = coordinates.length > 0 ? coordinates[0] : null;
   const currentCenter: [number, number] | null = activeCoord
     ? [activeCoord.latitude, activeCoord.longitude]
     : null;
+
+  const handleUserPan = useCallback(() => {
+    setFollowUser(false);
+  }, []);
+
+  const handleRecenter = useCallback((e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+    }
+    setFollowUser(true);
+    setRecenterTrigger((prev) => prev + 1);
+  }, []);
 
   const polylinePositions: [number, number][] = coordinates.map((c) => [c.latitude, c.longitude]);
   const kilometerMilestones = useMemo(
@@ -156,7 +210,12 @@ export const LiveWorkoutMap: React.FC<LiveWorkoutMapProps> = ({
           maxZoom={19}
         />
 
-        <MapController center={currentCenter} followUser={followUser} />
+        <MapController
+          center={currentCenter}
+          followUser={followUser}
+          recenterTrigger={recenterTrigger}
+          onUserPan={handleUserPan}
+        />
 
         {/* Start Pin */}
         {startCoord && (
@@ -254,23 +313,21 @@ export const LiveWorkoutMap: React.FC<LiveWorkoutMapProps> = ({
             const next = mapStyle === 'outdoor' ? 'dark' : mapStyle === 'dark' ? 'satellite' : 'outdoor';
             setMapStyle(next);
           }}
-          className="p-2.5 rounded-xl bg-white/90 dark:bg-slate-900/80 backdrop-blur-md border border-emerald-200 dark:border-slate-700/60 text-emerald-900 dark:text-slate-300 hover:text-emerald-950 dark:hover:text-white shadow-md active:scale-95 transition-all"
+          className="p-2 sm:p-2.5 rounded-xl bg-slate-900/90 dark:bg-slate-900/95 backdrop-blur-md border border-slate-700/80 text-white hover:text-emerald-400 shadow-md active:scale-95 transition-all cursor-pointer"
           title="Toggle map style"
+          aria-label="Toggle map style"
         >
-          <Layers size={18} />
+          <Layers size={16} />
         </button>
 
-        {/* Recenter & Follow Toggle */}
+        {/* Recenter Button - identical to History Details section */}
         <button
-          onClick={() => setFollowUser(!followUser)}
-          className={`p-2.5 rounded-xl backdrop-blur-md border shadow-md active:scale-95 transition-all ${
-            followUser
-              ? 'bg-emerald-500 border-emerald-400 text-white shadow-sm'
-              : 'bg-white/90 dark:bg-slate-900/80 border-emerald-200 dark:border-slate-700/60 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
-          }`}
-          title={followUser ? 'Follow runner: ON' : 'Follow runner: OFF'}
+          onClick={handleRecenter}
+          className="p-2 sm:p-2.5 rounded-xl bg-slate-900/90 dark:bg-slate-900/95 backdrop-blur-md border border-slate-700/80 text-white hover:text-emerald-400 shadow-md active:scale-95 transition-all cursor-pointer"
+          title="Recenter Map"
+          aria-label="Recenter Map"
         >
-          <Navigation size={18} className={followUser ? 'text-white' : ''} />
+          <LocateFixed size={16} />
         </button>
       </div>
 

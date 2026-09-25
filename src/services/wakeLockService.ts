@@ -67,6 +67,15 @@ class WakeLockService {
       return false;
     }
 
+    // Guard: The W3C Wake Lock API requires the document to be visible.
+    // If the tab or app is hidden or minimized, skip calling the browser API
+    // to avoid "The requesting page is not visible" rejections.
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+      this.enableFallbackKeepAlive();
+      this.notify();
+      return false;
+    }
+
     try {
       if (this.sentinel && !this.sentinel.released) {
         this.notify();
@@ -92,7 +101,14 @@ class WakeLockService {
       this.notify();
       return true;
     } catch (err: any) {
-      console.warn('Screen Wake Lock request failed:', err?.message || err);
+      // Normal browser visibility transitions should not log alarming warnings
+      const isVisibilityError =
+        err?.message?.toLowerCase().includes('not visible') ||
+        err?.name === 'NotAllowedError';
+
+      if (!isVisibilityError) {
+        console.warn('Screen Wake Lock request failed:', err?.message || err);
+      }
       this.enableFallbackKeepAlive();
       this.notify();
       return false;
@@ -190,7 +206,11 @@ class WakeLockService {
 
     if (typeof window !== 'undefined') {
       window.addEventListener('focus', () => {
-        if (this.isRequested) {
+        if (
+          this.isRequested &&
+          typeof document !== 'undefined' &&
+          document.visibilityState === 'visible'
+        ) {
           this.requestLock().catch(() => {});
         }
       });

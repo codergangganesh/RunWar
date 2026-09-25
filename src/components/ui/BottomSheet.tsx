@@ -75,9 +75,8 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
       {/* Backdrop */}
       <div
         onClick={onClose}
-        className={`absolute inset-0 bg-black/60 dark:bg-black/75 backdrop-blur-sm transition-opacity duration-300 ease-out ${
-          isAnimating ? 'opacity-100' : 'opacity-0'
-        }`}
+        className={`absolute inset-0 bg-black/60 dark:bg-black/75 backdrop-blur-sm transition-opacity duration-300 ease-out ${isAnimating ? 'opacity-100' : 'opacity-0'
+          }`}
       />
 
       {/* Sheet Content Panel - Pure Smooth Slide Up from Bottom */}
@@ -89,9 +88,8 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
           transform: dragOffsetY > 0 ? `translateY(${dragOffsetY}px)` : undefined,
           transition: dragOffsetY > 0 ? 'none' : 'transform 320ms cubic-bezier(0.32, 0.72, 0, 1)',
         }}
-        className={`relative z-10 w-full max-w-lg bg-white dark:bg-slate-900 border-t border-x border-emerald-100 dark:border-slate-800 rounded-t-[32px] shadow-[0_-12px_40px_rgba(0,0,0,0.35)] dark:shadow-[0_-12px_40px_rgba(0,0,0,0.85)] overflow-hidden flex flex-col max-h-[88dvh] will-change-transform ${
-          isAnimating && dragOffsetY === 0 ? 'translate-y-0' : 'translate-y-full'
-        }`}
+        className={`relative z-10 w-full max-w-lg bg-white dark:bg-slate-900 border-t border-x border-emerald-100 dark:border-slate-800 rounded-t-[32px] shadow-[0_-12px_40px_rgba(0,0,0,0.35)] dark:shadow-[0_-12px_40px_rgba(0,0,0,0.85)] overflow-hidden flex flex-col max-h-[88dvh] will-change-transform ${isAnimating && dragOffsetY === 0 ? 'translate-y-0' : 'translate-y-full'
+          }`}
       >
         {/* Top Handle / Grab Bar */}
         <div className="flex flex-col items-center pt-3 pb-1 cursor-grab active:cursor-grabbing touch-none">

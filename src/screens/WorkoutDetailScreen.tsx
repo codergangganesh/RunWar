@@ -107,15 +107,19 @@ export const WorkoutDetailScreen: React.FC<WorkoutDetailScreenProps> = ({
       }
 
       if (targetLat != null && targetLng != null) {
-        const fresh = await weatherService.getWeatherForLocation(targetLat, targetLng, bypassCache);
-        if (fresh) {
-          setActiveWeather(fresh);
-          setWorkout((prev) => ({ ...prev, weather: fresh }));
-          await workoutService.updateWorkoutWeather(workout.id, fresh);
+        const historicalOrLive = await weatherService.getHistoricalWeatherForWorkout(
+          targetLat,
+          targetLng,
+          workout.started_at
+        );
+        if (historicalOrLive) {
+          setActiveWeather(historicalOrLive);
+          setWorkout((prev) => ({ ...prev, weather: historicalOrLive }));
+          await workoutService.updateWorkoutWeather(workout.id, historicalOrLive);
         }
       }
     } catch (err) {
-      console.warn('Failed to refresh realtime weather:', err);
+      console.warn('Failed to load workout weather:', err);
     } finally {
       setIsRefreshingWeather(false);
     }
@@ -242,14 +246,12 @@ export const WorkoutDetailScreen: React.FC<WorkoutDetailScreenProps> = ({
           )}
         </div>
 
-        {/* Real-time Ambient Weather Widget */}
+        {/* Recorded Workout Weather Widget */}
         <WeatherBadge
           weather={activeWeather}
           distanceUnit={distanceUnit}
           variant="embedded"
-          isRealtime={true}
-          isRefreshing={isRefreshingWeather}
-          onRefresh={() => handleRefreshWeather(true)}
+          isRealtime={false}
         />
 
         {/* Clean Runner Notes (rendered only if actual user notes exist) */}

@@ -27,11 +27,13 @@ import {
   X,
   ChevronRight,
   Sliders,
+  Zap,
 } from 'lucide-react';
 import { formatDistance, formatDuration, formatPace, formatPaceRaw } from '../utils/formatters';
 import { WakeLockIndicator } from '../components/workout/WakeLockIndicator';
 import { WeatherBadge } from '../components/workout/WeatherBadge';
 import { AudioCoachModal } from '../components/workout/AudioCoachModal';
+import { BottomSheet } from '../components/ui/BottomSheet';
 import { AudioFrequency } from '../types';
 
 interface ActiveRunScreenProps {
@@ -258,66 +260,88 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
   const distanceUnit = profile?.distance_unit || 'km';
   const paceUnit = profile?.pace_unit || 'min_km';
 
-  // Format GPS Status
-  const getGpsBadge = () => {
+  // Format GPS Status (Icon only for sleek single-pill header)
+  const getGpsIcon = () => {
     const status = workoutState.gpsStatus;
     const acc = workoutState.gpsAccuracy ? Math.round(workoutState.gpsAccuracy) : null;
 
     if (status === 'locked') {
       return (
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] sm:text-[11px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse" />
-          <span>GPS Locked {acc ? `(±${acc}m)` : ''}</span>
+        <div
+          className="relative p-1.5 rounded-lg flex items-center justify-center text-emerald-600 dark:text-emerald-400"
+          title={`GPS Locked (±${acc || 5}m accuracy)`}
+        >
+          <div className="relative flex items-center justify-center">
+            <Compass size={14} className="text-emerald-500" />
+            <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-500 animate-ping opacity-75" />
+            <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-500" />
+          </div>
         </div>
       );
     }
     if (status === 'weak') {
       return (
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] sm:text-[11px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
-          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 dark:bg-amber-400" />
-          <span>GPS Weak {acc ? `(±${acc}m)` : ''}</span>
+        <div
+          className="relative p-1.5 rounded-lg flex items-center justify-center text-amber-500"
+          title={`GPS Signal Weak (±${acc || 30}m accuracy)`}
+        >
+          <div className="relative flex items-center justify-center">
+            <Compass size={14} className="text-amber-500" />
+            <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-500" />
+          </div>
         </div>
       );
     }
     if (status === 'lost') {
       return (
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] sm:text-[11px] font-bold bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/40 animate-pulse">
-          <AlertTriangle size={11} />
-          <span>GPS Lost</span>
+        <div
+          className="relative p-1.5 rounded-lg flex items-center justify-center text-rose-500 animate-pulse"
+          title="GPS Signal Lost"
+        >
+          <div className="relative flex items-center justify-center">
+            <AlertTriangle size={14} className="text-rose-500" />
+            <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-rose-500" />
+          </div>
         </div>
       );
     }
     return (
-      <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] sm:text-[11px] font-bold bg-emerald-50 dark:bg-slate-800 text-emerald-800 dark:text-slate-400 border border-emerald-200 dark:border-slate-700">
-        <Compass size={11} className="animate-spin" />
-        <span>Acquiring GPS...</span>
+      <div
+        className="relative p-1.5 rounded-lg flex items-center justify-center text-emerald-600 dark:text-emerald-400"
+        title="Acquiring GPS Signal..."
+      >
+        <Compass size={14} className="animate-spin text-emerald-500" />
       </div>
     );
   };
 
-  // Format Sync Status
-  const getNetworkBadge = () => {
+  // Format Sync Status (Icon only)
+  const getNetworkIcon = () => {
     const status = workoutState.networkStatus;
     if (status === 'offline') {
       return (
-        <div
-          className="flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-400 border border-slate-300 dark:border-slate-700"
-          title="Offline mode: points saved locally"
-        >
-          <WifiOff size={11} />
-          <span>Offline</span>
-        </div>
+        <>
+          <span className="w-px h-3.5 bg-slate-200 dark:bg-slate-800 mx-0.5" />
+          <div
+            className="p-1.5 rounded-lg flex items-center justify-center text-slate-400"
+            title="Offline mode: GPS points stored locally"
+          >
+            <WifiOff size={14} />
+          </div>
+        </>
       );
     }
     if (status === 'syncing') {
       return (
-        <div
-          className="flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium bg-sky-500/15 text-sky-600 dark:text-sky-400 border border-sky-500/30 animate-pulse"
-          title="Syncing coordinates..."
-        >
-          <CloudUpload size={11} />
-          <span>Syncing</span>
-        </div>
+        <>
+          <span className="w-px h-3.5 bg-slate-200 dark:bg-slate-800 mx-0.5" />
+          <div
+            className="p-1.5 rounded-lg flex items-center justify-center text-sky-500 animate-pulse"
+            title="Syncing coordinates to cloud..."
+          >
+            <CloudUpload size={14} />
+          </div>
+        </>
       );
     }
     return null;
@@ -328,23 +352,26 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
       <div className="w-full max-w-xl md:max-w-2xl flex flex-col flex-1 justify-between gap-2 relative h-full min-h-0">
         {/* Top Status & Controls Header */}
         <div className="flex items-center justify-between z-20 shrink-0">
-          {/* GPS, Network & Sim Mode */}
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {getGpsBadge()}
-            {getNetworkBadge()}
-            <WakeLockIndicator compact />
-
+          {/* Unified Compact Status Capsule: GPS, Wake Lock & Sim Mode */}
+          <div className="flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-white/90 dark:bg-slate-900/90 border border-emerald-200/80 dark:border-slate-800 shadow-sm backdrop-blur-md">
+            {getGpsIcon()}
+            <span className="w-px h-3.5 bg-slate-200 dark:bg-slate-800 mx-0.5" />
+            <WakeLockIndicator iconOnly />
+            <span className="w-px h-3.5 bg-slate-200 dark:bg-slate-800 mx-0.5" />
             <button
+              type="button"
               onClick={handleToggleSimulation}
-              className={`px-2.5 py-1 rounded-full text-[10px] sm:text-[11px] font-bold border transition-all active:scale-95 ${simMode
-                  ? 'bg-lime-500/20 text-lime-700 dark:text-lime-400 border-lime-500/40'
-                  : 'bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-emerald-800/80 dark:text-slate-400 hover:text-emerald-950 dark:hover:text-slate-200'
-                }`}
-              title="Toggle realistic GPS route simulation"
+              className={`p-1.5 rounded-lg transition-all active:scale-95 flex items-center justify-center cursor-pointer ${
+                simMode
+                  ? 'text-amber-500 bg-amber-500/15'
+                  : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+              }`}
+              title={simMode ? 'GPS Simulation is ON (Tap to use Real GPS)' : 'GPS Simulation is OFF (Tap to enable Simulation)'}
+              aria-label="Toggle GPS Simulation"
             >
-              {simMode ? '⚡ Sim ON' : 'Sim Mode'}
+              <Zap size={14} className={simMode ? 'fill-amber-500 text-amber-500 animate-pulse' : ''} />
             </button>
-
+            {getNetworkIcon()}
           </div>
 
           {/* Voice Coach, Audio Settings, Splits & View Switcher */}
@@ -577,39 +604,40 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
           </div>
         </div>
 
-        {/* Splits Bottom Drawer */}
-        {showSplitsDrawer && workoutState.splits && workoutState.splits.length > 0 && (
-          <div className="fixed inset-x-4 bottom-24 z-30 max-h-56 overflow-y-auto rounded-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-emerald-100 dark:border-slate-800 p-3.5 shadow-2xl animate-slide-up">
-            <div className="flex items-center justify-between pb-2 border-b border-emerald-100 dark:border-slate-800 mb-2">
-              <div className="flex items-center gap-1.5">
-                <Flag size={14} className="text-emerald-600 dark:text-emerald-400" />
-                <span className="text-xs font-bold uppercase tracking-wider text-emerald-950 dark:text-white">Kilometer Splits</span>
-              </div>
-              <button
-                onClick={() => setShowSplitsDrawer(false)}
-                className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-white p-1"
-              >
-                Close
-              </button>
-            </div>
-            <div className="space-y-1">
-              {workoutState.splits.map((split) => (
+        {/* Splits Bottom Sheet */}
+        <BottomSheet
+          isOpen={showSplitsDrawer && Boolean(workoutState.splits && workoutState.splits.length > 0)}
+          onClose={() => setShowSplitsDrawer(false)}
+          title="Kilometer Splits"
+          icon={<Flag size={18} />}
+        >
+          <div className="space-y-2">
+            {workoutState.splits &&
+              workoutState.splits.map((split) => (
                 <div
                   key={split.split_number}
-                  className="flex items-center justify-between px-2.5 py-1.5 rounded-xl bg-emerald-50/50 dark:bg-slate-950/60 border border-emerald-100 dark:border-slate-800/80 text-xs"
+                  className="flex items-center justify-between px-3.5 py-2.5 rounded-2xl bg-emerald-50/60 dark:bg-slate-950/60 border border-emerald-100 dark:border-slate-800/80 text-xs"
                 >
-                  <span className="font-bold text-emerald-950 dark:text-slate-300">KM {split.split_number}</span>
-                  <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">
-                    {formatPaceRaw(split.pace, paceUnit)} {paceUnit === 'min_mi' ? '/mi' : '/km'}
-                  </span>
-                  <span className="font-mono text-slate-600 dark:text-slate-400">
-                    {formatDuration(split.duration_seconds)}
-                  </span>
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-6 h-6 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-black flex items-center justify-center text-[11px]">
+                      {split.split_number}
+                    </span>
+                    <span className="font-bold text-slate-900 dark:text-white">
+                      Split {split.split_number}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">
+                      {formatPaceRaw(split.pace, paceUnit)} {paceUnit === 'min_mi' ? '/mi' : '/km'}
+                    </span>
+                    <span className="font-mono text-slate-500 dark:text-slate-400">
+                      {formatDuration(split.duration_seconds)}
+                    </span>
+                  </div>
                 </div>
               ))}
-            </div>
           </div>
-        )}
+        </BottomSheet>
 
         {/* Clean, Circular Workout Controls */}
         <div className="py-2.5 flex items-center justify-center shrink-0 z-20">

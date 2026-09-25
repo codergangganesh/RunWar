@@ -170,12 +170,14 @@ export const WeatherBadge: React.FC<WeatherBadgeProps> = ({
                   Realtime Weather
                 </span>
               ) : (
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                  Run Weather
+                <span className="inline-flex items-center gap-1 text-[9px] font-extrabold uppercase tracking-wider text-emerald-800 dark:text-emerald-300 bg-emerald-100/80 dark:bg-emerald-500/20 px-1.5 py-0.5 rounded-md">
+                  Workout Weather
                 </span>
               )}
               <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">
-                {weatherService.formatObservationTime(weather.timestamp)}
+                {isRealtime
+                  ? weatherService.formatObservationTime(weather.timestamp)
+                  : 'Recorded during session'}
               </span>
             </div>
             <div className="text-xs font-black text-slate-900 dark:text-white flex items-center gap-1.5 mt-0.5 truncate">
@@ -196,7 +198,7 @@ export const WeatherBadge: React.FC<WeatherBadgeProps> = ({
             </span>
           </div>
 
-          {onRefresh && (
+          {isRealtime && onRefresh && (
             <button
               type="button"
               onClick={onRefresh}

@@ -367,8 +367,8 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
                     {workout.source_provider && workout.source_provider !== 'runwar_gps' && (
                       <span
                         className={`inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.2 rounded-md border ${workout.source_provider === 'strava'
-                            ? 'bg-[#fc5200]/10 text-[#fc5200] border-[#fc5200]/25'
-                            : 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20'
+                          ? 'bg-[#fc5200]/10 text-[#fc5200] border-[#fc5200]/25'
+                          : 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20'
                           }`}
                       >
                         <span

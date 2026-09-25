@@ -145,6 +145,85 @@ class WeatherService {
   }
 
   /**
+   * Fetch historical weather conditions for the exact date and hour a past workout was recorded
+   */
+  public async getHistoricalWeatherForWorkout(lat: number, lng: number, startedAt?: string): Promise<WeatherSnapshot | null> {
+    if (!lat || !lng || isNaN(lat) || isNaN(lng)) return null;
+
+    if (!startedAt) {
+      return this.getWeatherForLocation(lat, lng);
+    }
+
+    try {
+      const workoutDate = new Date(startedAt);
+      if (isNaN(workoutDate.getTime())) {
+        return this.getWeatherForLocation(lat, lng);
+      }
+
+      const now = new Date();
+      const diffHours = (now.getTime() - workoutDate.getTime()) / (1000 * 60 * 60);
+
+      // If workout happened in the last 2 hours, live API weather is the most accurate
+      if (diffHours >= 0 && diffHours < 2) {
+        return this.getWeatherForLocation(lat, lng);
+      }
+
+      // Format ISO date (YYYY-MM-DD)
+      const year = workoutDate.getFullYear();
+      const month = String(workoutDate.getMonth() + 1).padStart(2, '0');
+      const day = String(workoutDate.getDate()).padStart(2, '0');
+      const dateStr = `${year}-${month}-${day}`;
+      const hour = workoutDate.getHours();
+
+      // For workouts within the past 7 days, the forecast API with start_date & end_date works seamlessly
+      let url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}&start_date=${dateStr}&end_date=${dateStr}&hourly=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&timezone=auto`;
+
+      // For older workouts (more than 7 days ago), use archive-api.open-meteo.com
+      if (diffHours > 7 * 24) {
+        url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}&start_date=${dateStr}&end_date=${dateStr}&hourly=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&timezone=auto`;
+      }
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
+      if (!res.ok) {
+        // Fallback to current weather if archive query fails
+        return this.getWeatherForLocation(lat, lng);
+      }
+
+      const data = await res.json();
+      const hourly = data?.hourly;
+      if (!hourly || !hourly.time || hourly.time.length === 0) {
+        return this.getWeatherForLocation(lat, lng);
+      }
+
+      // Find the hourly index closest to the workout hour
+      const targetIndex = Math.min(Math.max(hour, 0), hourly.time.length - 1);
+      const code = hourly.weather_code?.[targetIndex] ?? 0;
+      const wmoInfo = WMO_CODE_MAP[code] || { text: 'Clear Sky', icon: 'sun' };
+
+      const snapshot: WeatherSnapshot = {
+        temperature: Math.round(hourly.temperature_2m?.[targetIndex] ?? 20),
+        apparentTemperature: Math.round(hourly.apparent_temperature?.[targetIndex] ?? hourly.temperature_2m?.[targetIndex] ?? 20),
+        conditionText: wmoInfo.text,
+        conditionCode: code,
+        icon: wmoInfo.icon,
+        humidity: Math.round(hourly.relative_humidity_2m?.[targetIndex] ?? 50),
+        windSpeedKmh: Math.round(hourly.wind_speed_10m?.[targetIndex] ?? 5),
+        isDay: hour >= 6 && hour < 19,
+        timestamp: workoutDate.getTime(),
+      };
+
+      return snapshot;
+    } catch (e) {
+      console.warn('Failed to fetch historical weather for workout:', e);
+      return this.getWeatherForLocation(lat, lng);
+    }
+  }
+
+  /**
    * Helper to format wind speed
    */
   public formatWind(speedKmh: number, unit: 'km' | 'mi' = 'km'): string {

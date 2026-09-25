@@ -3,14 +3,15 @@ import { audioCoach, VoiceOption } from '../../services/audioCoach';
 import { soundEffects } from '../../services/soundEffects';
 import { hapticsService } from '../../services/hapticsService';
 import { AudioFrequency } from '../../types';
+import { BottomSheet } from '../ui/BottomSheet';
 import {
   Volume2,
   VolumeX,
   Play,
   Bell,
   Vibrate,
-  X,
   Check,
+  Sliders,
 } from 'lucide-react';
 
 interface AudioCoachModalProps {
@@ -55,8 +56,6 @@ export const AudioCoachModal: React.FC<AudioCoachModalProps> = ({
     setSelectedVoiceURI(params.selectedVoiceURI || (list[0]?.voiceURI ?? ''));
   }, [isOpen]);
 
-  if (!isOpen) return null;
-
   const handleVoiceChange = (uri: string) => {
     setSelectedVoiceURI(uri);
     audioCoach.setVoiceByURI(uri);
@@ -96,32 +95,13 @@ export const AudioCoachModal: React.FC<AudioCoachModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-sm animate-fade-in select-none">
-      <div className="bg-white dark:bg-slate-900 border border-emerald-100 dark:border-slate-800 rounded-3xl p-5 max-w-md w-full shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto animate-scale-up">
-        {/* Top Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-          <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
-              <Volume2 size={20} />
-            </div>
-            <div>
-              <h2 className="text-sm font-black text-slate-900 dark:text-white">
-                Audio & Voice Coach
-              </h2>
-              <p className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
-                Pace updates, split chimes & haptics
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-xl transition-colors"
-          >
-            <X size={18} />
-          </button>
-        </div>
-
+    <BottomSheet
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Audio & Voice Coach"
+      icon={<Sliders size={18} />}
+    >
+      <div className="space-y-4">
         {/* Master Voice Coaching Toggle */}
         <div className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800">
           <div className="flex items-center gap-2.5">
@@ -142,7 +122,7 @@ export const AudioCoachModal: React.FC<AudioCoachModalProps> = ({
           <button
             type="button"
             onClick={onToggleMute}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95 ${
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer ${
               !isMuted
                 ? 'bg-emerald-500 text-white shadow-sm'
                 : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
@@ -171,7 +151,7 @@ export const AudioCoachModal: React.FC<AudioCoachModalProps> = ({
                     onChangeFrequency(opt.id as AudioFrequency);
                     audioCoach.setConfig(!isMuted, opt.id as AudioFrequency);
                   }}
-                  className={`py-2 px-1.5 rounded-xl text-xs font-bold transition-all active:scale-95 border ${
+                  className={`py-2 px-1.5 rounded-xl text-xs font-bold transition-all active:scale-95 border cursor-pointer ${
                     frequency === opt.id
                       ? 'bg-emerald-500 text-white border-emerald-500 shadow-sm'
                       : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-emerald-300'
@@ -193,7 +173,7 @@ export const AudioCoachModal: React.FC<AudioCoachModalProps> = ({
             <select
               value={selectedVoiceURI}
               onChange={(e) => handleVoiceChange(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs font-medium focus:outline-none focus:border-emerald-500"
+              className="w-full px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs font-medium focus:outline-none focus:border-emerald-500 cursor-pointer"
             >
               {voices.map((v) => (
                 <option key={v.voiceURI} value={v.voiceURI}>
@@ -284,14 +264,14 @@ export const AudioCoachModal: React.FC<AudioCoachModalProps> = ({
           </div>
         </div>
 
-        {/* Action Buttons: Test Voice & Close */}
-        <div className="pt-2 flex gap-2">
+        {/* Sticky Action Buttons: Test Voice & Close */}
+        <div className="sticky bottom-0 bg-white dark:bg-slate-900 pt-3 pb-1 border-t border-slate-100 dark:border-slate-800 flex gap-2.5 mt-2">
           {!isMuted && (
             <button
               type="button"
               onClick={handleTestVoice}
               disabled={isTesting}
-              className="flex-1 py-3 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-700 dark:text-emerald-400 font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-95 shadow-sm"
+              className="flex-1 py-3 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-700 dark:text-emerald-400 font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-95 shadow-sm cursor-pointer"
             >
               <Play size={14} className={isTesting ? 'animate-pulse' : ''} />
               <span>{isTesting ? 'Playing Sample...' : 'Test Voice Coach'}</span>
@@ -301,13 +281,13 @@ export const AudioCoachModal: React.FC<AudioCoachModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow-md shadow-emerald-600/20"
+            className="flex-1 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow-md shadow-emerald-600/20 cursor-pointer"
           >
             <Check size={15} />
             <span>Save & Close</span>
           </button>
         </div>
       </div>
-    </div>
+    </BottomSheet>
   );
 };
