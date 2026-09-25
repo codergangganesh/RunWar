@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Connecting Strava - RunWar</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #0f172a;
+      color: #ffffff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      text-align: center;
+    }
+    .spinner {
+      width: 48px;
+      height: 48px;
+      border: 4px solid rgba(252, 82, 0, 0.2);
+      border-top-color: #fc5200;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-bottom: 20px;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    h2 {
+      margin: 0 0 8px 0;
+      font-size: 20px;
+      font-weight: 700;
+    }
+    p {
+      margin: 0;
+      font-size: 14px;
+      color: #94a3b8;
+    }
+  </style>
+</head>
+<body>
+  <div class="spinner"></div>
+  <h2>Connecting Strava</h2>
+  <p id="status">Completing authentication with RunWar...</p>
+
+  <script>
+    (function() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const code = urlParams.get('code');
+      const error = urlParams.get('error');
+
+      if (error) {
+        document.getElementById('status').innerText = 'Authentication cancelled or failed.';
+        if (window.opener) {
+          window.opener.postMessage({ type: 'RUNWAR_STRAVA_AUTH_ERROR', error }, window.location.origin);
+          setTimeout(() => window.close(), 1200);
+        } else {
+          setTimeout(() => { window.location.href = '/'; }, 1500);
+        }
+        return;
+      }
+
+      if (code) {
+        if (window.opener) {
+          // Send authorization code to parent window
+          window.opener.postMessage({ type: 'RUNWAR_STRAVA_AUTH_CODE', code }, window.location.origin);
+          document.getElementById('status').innerText = 'Success! Closing window...';
+          setTimeout(() => {
+            window.close();
+          }, 600);
+        } else {
+          // Direct navigation fallback
+          sessionStorage.setItem('runwar_pending_strava_code', code);
+          document.getElementById('status').innerText = 'Redirecting back to RunWar...';
+          window.location.href = '/';
+        }
+      } else {
+        document.getElementById('status').innerText = 'No authorization code received.';
+        setTimeout(() => { window.location.href = '/'; }, 2000);
+      }
+    })();
+  </script>
+</body>
+</html>

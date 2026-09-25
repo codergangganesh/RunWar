@@ -26,7 +26,9 @@ import {
   ArrowLeft,
   TrendingUp,
   TrendingDown,
+  RefreshCw,
 } from 'lucide-react';
+import { stravaProvider } from '../services/health/stravaProvider';
 
 interface WorkoutSummaryScreenProps {
   workoutState: LiveWorkoutState | null;
@@ -59,6 +61,8 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
   const [newlyUnlockedAchievements, setNewlyUnlockedAchievements] = useState<Achievement[]>([]);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [quoteIndex, setQuoteIndex] = useState(0);
+  const [isUploadingToStrava, setIsUploadingToStrava] = useState(false);
+  const [stravaUploadStatus, setStravaUploadStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
   const isSavingRef = useRef(false);
 
@@ -497,6 +501,77 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
           </span>
         </div>
         <ChevronRight size={16} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+      </div>
+
+      {/* Strava 1-Click Sync/Upload Action Banner */}
+      <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-xl bg-[#fc5200] text-white flex items-center justify-center shadow-xs shrink-0">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="white">
+              <path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-6.926 13.827h4.172" />
+            </svg>
+          </div>
+          <div className="min-w-0">
+            <span className="text-xs font-bold text-slate-900 dark:text-white block truncate">
+              {stravaUploadStatus === 'success' ? 'Uploaded to Strava! 🏃' : 'Publish to Strava'}
+            </span>
+            <span className="text-[10px] text-slate-500 dark:text-slate-400 block truncate">
+              {stravaUploadStatus === 'success'
+                ? 'Activity is live on your Strava feed'
+                : 'Upload route, pace & splits with 1-click'}
+            </span>
+          </div>
+        </div>
+
+        <button
+          onClick={async () => {
+            if (isUploadingToStrava || stravaUploadStatus === 'success' || !currentWorkoutObject) return;
+            setIsUploadingToStrava(true);
+            try {
+              const isConn = stravaProvider.getConnectionState().isConnected;
+              if (!isConn) {
+                const connRes = await stravaProvider.connect();
+                if (!connRes.success) {
+                  setIsUploadingToStrava(false);
+                  return;
+                }
+              }
+              const res = await stravaProvider.uploadWorkout(currentWorkoutObject, profile?.user_id);
+              if (res.success) {
+                setStravaUploadStatus('success');
+              } else {
+                setStravaUploadStatus('error');
+              }
+            } catch {
+              setStravaUploadStatus('error');
+            } finally {
+              setIsUploadingToStrava(false);
+            }
+          }}
+          disabled={isUploadingToStrava || stravaUploadStatus === 'success'}
+          className={`px-3 py-1.5 rounded-xl font-extrabold text-[11px] flex items-center gap-1.5 transition-all cursor-pointer ${
+            stravaUploadStatus === 'success'
+              ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800'
+              : 'bg-[#fc5200] hover:bg-[#e04900] text-white shadow-xs active:scale-95'
+          }`}
+        >
+          {isUploadingToStrava ? (
+            <>
+              <RefreshCw size={12} className="animate-spin" />
+              <span>Uploading...</span>
+            </>
+          ) : stravaUploadStatus === 'success' ? (
+            <>
+              <Check size={12} />
+              <span>Uploaded</span>
+            </>
+          ) : (
+            <>
+              <span>Upload</span>
+              <ArrowRight size={12} />
+            </>
+          )}
+        </button>
       </div>
 
       {/* 8. Bottom Action Buttons (Side-by-Side) */}

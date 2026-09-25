@@ -8,8 +8,45 @@ import { syncQueue } from './syncQueue';
 import { workoutLogger } from '../utils/workoutLogger';
 import { getLocalDateKey, getStartOfLocalWeek, isSameLocalDate } from '../utils/dateUtils';
 import { calculateSplits } from '../utils/calculations';
+import { toDeterministicUUID } from '../utils/uuid';
 
 const WORKOUTS_CACHE_KEY = 'runwar_cached_workouts';
+
+/**
+ * Universal classifier to identify Strava workouts (real synced or sandbox demo)
+ * regardless of whether source_provider was stored or defaulted.
+ */
+export function isStravaWorkout(w: any): boolean {
+  if (!w) return false;
+  if (w.source_provider === 'strava') return true;
+  if (typeof w.notes === 'string' && w.notes.toLowerCase().includes('strava')) return true;
+  if (
+    typeof w.external_record_id === 'string' &&
+    (w.external_record_id.startsWith('demo_') ||
+      w.external_record_id.startsWith('strava_') ||
+      w.external_record_id === 'demo_10192837' ||
+      w.external_record_id === 'demo_10248192')
+  ) {
+    return true;
+  }
+  if (
+    typeof w.id === 'string' &&
+    (w.id.toLowerCase().includes('strava') ||
+      w.id.toLowerCase().includes('demo_101') ||
+      w.id.toLowerCase().includes('demo_102'))
+  ) {
+    return true;
+  }
+  if (
+    (w.title === 'Sunrise 5K Run' || w.title === 'Weekend Trail Interval') &&
+    (w.notes?.includes('10192837') ||
+      w.notes?.includes('10248192') ||
+      w.notes?.toLowerCase().includes('strava'))
+  ) {
+    return true;
+  }
+  return false;
+}
 
 export interface SaveWorkoutResult {
   workout: Workout;
@@ -567,6 +604,33 @@ export const workoutService = {
       rawMerged = userCachedWorkouts;
     }
 
+    // If Strava provider is disconnected, ensure NO Strava workouts (demo or real) leak into UI
+    try {
+      const stravaTokens = typeof localStorage !== 'undefined' ? localStorage.getItem('runwar_strava_tokens') : null;
+      const stravaStateRaw = typeof localStorage !== 'undefined' ? localStorage.getItem('runwar_strava_state') : null;
+      let isStravaActive = false;
+      if (stravaTokens) {
+        try {
+          const t = JSON.parse(stravaTokens);
+          if (t && t.access_token) isStravaActive = true;
+        } catch {}
+      }
+      if (!isStravaActive && stravaStateRaw) {
+        try {
+          const s = JSON.parse(stravaStateRaw);
+          if (s && s.isConnected) isStravaActive = true;
+        } catch {}
+      }
+
+      if (!isStravaActive) {
+        const initialCount = rawMerged.length;
+        rawMerged = rawMerged.filter((w) => !isStravaWorkout(w));
+        if (rawMerged.length !== initialCount) {
+          this.saveWorkoutsCache(rawMerged, canonicalUserId);
+        }
+      }
+    } catch {}
+
     const seenIds = new Set<string>();
     const seenExternalKeys = new Set<string>();
     const seenTimestamps: number[] = [];
@@ -969,6 +1033,157 @@ export const workoutService = {
         keysToRemove.forEach((k) => localStorage.removeItem(k));
       }
     } catch {}
+  },
+
+  /**
+   * Delete all workouts imported from a specific provider (e.g. 'strava' or 'google_health')
+   * Purges them from InsForge database and local caches, and notifies app listeners
+   */
+  async deleteWorkoutsByProvider(provider: string, userId?: string): Promise<number> {
+    // 1. Resolve canonical user ID from all potential sources
+    let canonicalUserId = userId;
+    if (!canonicalUserId || canonicalUserId === 'guest_user' || canonicalUserId === 'usr_guest_demo') {
+      try {
+        const { data: authData } = await insforge.auth.getCurrentUser();
+        const authUser = (authData as any)?.user || authData;
+        if (authUser?.id) {
+          canonicalUserId = authUser.id;
+        }
+      } catch {}
+    }
+    if (!canonicalUserId || canonicalUserId === 'guest_user') {
+      try {
+        const rawCached = localStorage.getItem('runwar_cached_user');
+        if (rawCached) {
+          const parsed = JSON.parse(rawCached);
+          if (parsed?.id) canonicalUserId = parsed.id;
+        }
+      } catch {}
+    }
+
+    let deletedCount = 0;
+
+    // 2. Delete from PostgreSQL if online
+    if (navigator.onLine) {
+      const userIdsToDelete = Array.from(
+        new Set([canonicalUserId, userId, 'guest_user'].filter(Boolean))
+      ) as string[];
+
+      for (const targetId of userIdsToDelete) {
+        if (!targetId) continue;
+
+        // Try deleting by source_provider
+        try {
+          const { data, error } = await insforge.database
+            .from('workouts')
+            .delete()
+            .eq('user_id', targetId)
+            .eq('source_provider', provider)
+            .select('id');
+
+          if (!error && Array.isArray(data)) {
+            deletedCount += data.length;
+          }
+        } catch (err) {
+          console.warn(`Error deleting ${provider} workouts from cloud by source_provider:`, err);
+        }
+
+        // If provider is strava, also delete by notes / title / deterministic IDs
+        if (provider === 'strava') {
+          try {
+            await insforge.database
+              .from('workouts')
+              .delete()
+              .eq('user_id', targetId)
+              .ilike('notes', '%strava%');
+          } catch {}
+
+          try {
+            await insforge.database
+              .from('workouts')
+              .delete()
+              .eq('user_id', targetId)
+              .ilike('title', '%Sunrise 5K Run%');
+          } catch {}
+
+          try {
+            await insforge.database
+              .from('workouts')
+              .delete()
+              .eq('user_id', targetId)
+              .ilike('title', '%Weekend Trail Interval%');
+          } catch {}
+
+          // Specific demo IDs generated by toDeterministicUUID
+          const demoIds = [
+            toDeterministicUUID(`strava_demo_101_${targetId}`),
+            toDeterministicUUID(`strava_demo_102_${targetId}`),
+            toDeterministicUUID('strava_demo_101_guest_user'),
+            toDeterministicUUID('strava_demo_102_guest_user'),
+          ];
+          for (const did of demoIds) {
+            try {
+              await insforge.database.from('workouts').delete().eq('id', did);
+            } catch {}
+          }
+        }
+      }
+    }
+
+    // 3. Purge from ALL LocalStorage keys
+    const isTargetWorkout = (w: any): boolean => {
+      if (!w) return false;
+      if (w.source_provider === provider) return true;
+      if (provider === 'strava' && isStravaWorkout(w)) return true;
+      return false;
+    };
+
+    const purgeKey = (key: string) => {
+      try {
+        const raw = localStorage.getItem(key);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          const beforeLen = parsed.length;
+          const filtered = parsed.filter((w: any) => !isTargetWorkout(w));
+          if (filtered.length !== beforeLen) {
+            localStorage.setItem(key, JSON.stringify(filtered));
+            deletedCount += (beforeLen - filtered.length);
+          }
+        }
+      } catch {}
+    };
+
+    // Specific known cache keys
+    if (canonicalUserId) purgeKey(this.getCacheKey(canonicalUserId));
+    if (userId) purgeKey(this.getCacheKey(userId));
+    purgeKey(this.getCacheKey('guest_user'));
+    purgeKey(WORKOUTS_CACHE_KEY);
+    purgeKey('runwar_offline_workouts_queue');
+
+    // Dynamically scan every single key in localStorage to ensure zero residue
+    try {
+      const allKeys: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k) allKeys.push(k);
+      }
+      for (const k of allKeys) {
+        if (k.startsWith('runwar_') && (k.includes('workout') || k.includes('queue'))) {
+          purgeKey(k);
+        }
+      }
+    } catch {}
+
+    // 4. Dispatch global custom events so all screens and memory states instantly refresh
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('runwar:workouts_purged', { detail: { provider } })
+      );
+      window.dispatchEvent(new CustomEvent('runwar:sync_completed'));
+    }
+
+    return deletedCount;
   },
 
   /**

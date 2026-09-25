@@ -26,7 +26,7 @@ import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { insforge } from './lib/insforge';
 import { authService } from './services/authService';
 import { firebaseAuthService } from './services/firebaseAuthService';
-import { workoutService, normalizeWorkout } from './services/workoutService';
+import { workoutService, normalizeWorkout, isStravaWorkout } from './services/workoutService';
 import { goalsService } from './services/goalsService';
 import { achievementsService } from './services/achievementsService';
 import { recordsService } from './services/recordsService';
@@ -238,10 +238,21 @@ export const App: React.FC = () => {
     offlineSync.initSyncListener();
 
     const handleSyncCompleted = () => {
-      const activeId = currentUser?.id || authService.getCachedUser()?.id;
-      if (activeId) {
-        loadAppData(activeId, true);
-      }
+      const activeId = currentUser?.id || authService.getCachedUser()?.id || 'guest_user';
+      loadAppData(activeId, true);
+    };
+
+    const handleWorkoutsPurged = (event: any) => {
+      const provider = event?.detail?.provider || 'strava';
+      setWorkouts((prev) =>
+        prev.filter((w) => {
+          if (provider === 'strava' && isStravaWorkout(w)) return false;
+          if (w.source_provider === provider) return false;
+          return true;
+        })
+      );
+      const activeId = currentUser?.id || authService.getCachedUser()?.id || 'guest_user';
+      loadAppData(activeId, true);
     };
 
     const handleWorkoutSynced = (event: any) => {
@@ -265,6 +276,7 @@ export const App: React.FC = () => {
     };
 
     window.addEventListener('runwar:sync_completed', handleSyncCompleted);
+    window.addEventListener('runwar:workouts_purged', handleWorkoutsPurged);
     window.addEventListener('runwar:workout_synced', handleWorkoutSynced);
 
     const initAuth = async () => {
@@ -400,6 +412,7 @@ export const App: React.FC = () => {
       if (typeof unsubFirebase === 'function') unsubFirebase();
       if (typeof unsubscribe === 'function') unsubscribe();
       window.removeEventListener('runwar:sync_completed', handleSyncCompleted);
+      window.removeEventListener('runwar:workouts_purged', handleWorkoutsPurged);
       window.removeEventListener('runwar:workout_synced', handleWorkoutSynced);
     };
   }, [loadAppData]);
@@ -812,7 +825,7 @@ export const App: React.FC = () => {
             <ConnectedHealthScreen
               profile={profile}
               onRefreshWorkouts={() => {
-                const uid = currentUser?.id || profile?.user_id || 'guest_user';
+                const uid = currentUser?.id || profile?.user_id || authService.getCachedUser()?.id || 'guest_user';
                 return loadAppData(uid, false);
               }}
               onBack={() => setScreen('main')}
@@ -891,10 +904,8 @@ export const App: React.FC = () => {
                 isLoading={isDataLoading}
                 error={dataError}
                 onRefresh={async () => {
-                  const activeId = currentUser?.id || authService.getCachedUser()?.id;
-                  if (activeId) {
-                    await loadAppData(activeId);
-                  }
+                  const activeId = currentUser?.id || authService.getCachedUser()?.id || 'guest_user';
+                  await loadAppData(activeId);
                 }}
                 onSelectWorkout={handleSelectWorkout}
                 onStartRun={() => handleStartRun('run')}

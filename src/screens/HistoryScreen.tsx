@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile, Workout, WorkoutType } from '../types';
 import { formatDistance, formatDuration, formatPace, formatWorkoutDate } from '../utils/formatters';
+import { isStravaWorkout } from '../services/workoutService';
 import { RouteThumbnail } from '../components/map/RouteThumbnail';
 import { BottomSheet } from '../components/ui/BottomSheet';
 import {
@@ -44,23 +45,53 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
     setDisplayCount(10);
   }, [filterType, sortBy]);
 
-  // Always refresh latest workouts from InsForge on mount
+  // Always refresh latest workouts from InsForge on mount & on sync/purge events
   useEffect(() => {
     if (onRefresh) {
       onRefresh().catch(() => {});
     }
-  }, []);
+
+    const handleSync = () => {
+      if (onRefresh) onRefresh().catch(() => {});
+    };
+
+    window.addEventListener('runwar:sync_completed', handleSync);
+    window.addEventListener('runwar:workouts_purged', handleSync);
+    return () => {
+      window.removeEventListener('runwar:sync_completed', handleSync);
+      window.removeEventListener('runwar:workouts_purged', handleSync);
+    };
+  }, [onRefresh]);
 
   const distanceUnit = profile?.distance_unit || 'km';
   const paceUnit = profile?.pace_unit || 'min_km';
 
-  // Deduplicate workouts strictly by ID and external record key
+  // Check if Strava is currently active/connected
+  let isStravaActive = false;
+  try {
+    const rawTokens = localStorage.getItem('runwar_strava_tokens');
+    const rawState = localStorage.getItem('runwar_strava_state');
+    if (rawTokens) {
+      const t = JSON.parse(rawTokens);
+      if (t?.access_token) isStravaActive = true;
+    }
+    if (!isStravaActive && rawState) {
+      const s = JSON.parse(rawState);
+      if (s?.isConnected) isStravaActive = true;
+    }
+  } catch {}
+
+  // Deduplicate workouts strictly by ID and external record key, and omit disconnected provider workouts
   const seenIds = new Set<string>();
   const seenExtKeys = new Set<string>();
   const uniqueWorkouts: Workout[] = [];
 
   for (const w of workouts) {
     if (!w || !w.id || seenIds.has(w.id)) continue;
+    // If Strava is disconnected, strictly suppress all Strava workouts (demo sandbox or real)
+    if (!isStravaActive && isStravaWorkout(w)) {
+      continue;
+    }
     if (w.source_provider && w.external_record_id && w.source_provider !== 'runwar_gps') {
       const extKey = `${w.source_provider}_${w.external_record_id}`;
       if (seenExtKeys.has(extKey)) continue;
@@ -294,15 +325,27 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
                       {formatWorkoutDate(workout.started_at)}
                     </span>
                     {workout.source_provider && workout.source_provider !== 'runwar_gps' && (
-                      <span className="inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.2 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
-                        <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-                        {workout.source_provider === 'google_health'
+                      <span
+                        className={`inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.2 rounded-md border ${
+                          workout.source_provider === 'strava'
+                            ? 'bg-[#fc5200]/10 text-[#fc5200] border-[#fc5200]/25'
+                            : 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20'
+                        }`}
+                      >
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full ${
+                            workout.source_provider === 'strava' ? 'bg-[#fc5200]' : 'bg-blue-500'
+                          }`}
+                        />
+                        {workout.source_provider === 'strava'
+                          ? 'Strava'
+                          : workout.source_provider === 'google_health'
                           ? 'Google Health'
                           : workout.source_provider === 'health_connect'
-                            ? 'Health Connect'
-                            : workout.source_provider === 'manual_import'
-                              ? 'File Import'
-                              : workout.source_provider}
+                          ? 'Health Connect'
+                          : workout.source_provider === 'manual_import'
+                          ? 'File Import'
+                          : workout.source_provider}
                       </span>
                     )}
                     {workout.heart_rate_avg && workout.heart_rate_avg > 0 && (

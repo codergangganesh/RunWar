@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { healthService } from '../../services/health/healthService';
 import { HealthConnectionState } from '../../types';
 import {
@@ -34,6 +35,7 @@ export const ConnectedHealthModal: React.FC<ConnectedHealthModalProps> = ({
   );
   const [isConnecting, setIsConnecting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
@@ -93,6 +95,7 @@ export const ConnectedHealthModal: React.FC<ConnectedHealthModalProps> = ({
   };
 
   const handleDisconnect = async () => {
+    setIsDisconnecting(true);
     try {
       await healthService.disconnect('google_health');
       setConnectionState(healthService.getPrimaryConnectionState());
@@ -100,6 +103,8 @@ export const ConnectedHealthModal: React.FC<ConnectedHealthModalProps> = ({
       setSuccessMsg('Google Health disconnected.');
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to disconnect.');
+    } finally {
+      setIsDisconnecting(false);
     }
   };
 
@@ -119,9 +124,9 @@ export const ConnectedHealthModal: React.FC<ConnectedHealthModalProps> = ({
     });
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-      <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+  const modalContent = (
+    <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 sm:p-6 bg-black/60 dark:bg-black/75 backdrop-blur-md animate-fade-in">
+      <div className="w-full max-w-md bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="flex items-center justify-between p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800">
           <div className="flex items-center gap-2.5">
@@ -269,22 +274,31 @@ export const ConnectedHealthModal: React.FC<ConnectedHealthModalProps> = ({
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleDisconnect}
-                  className="flex-1 py-2 px-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition-colors cursor-pointer"
-                >
-                  Yes, Disconnect
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowDisconnectConfirm(false)}
-                  className="py-2 px-3 rounded-xl bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs transition-colors cursor-pointer"
-                >
-                  Cancel
-                </button>
-              </div>
+              {isDisconnecting ? (
+                <div className="flex items-center justify-center gap-2 py-2 text-xs font-bold text-rose-600 dark:text-rose-400">
+                  <RefreshCw size={14} className="animate-spin" />
+                  <span>Disconnecting Google Health...</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleDisconnect}
+                    disabled={isDisconnecting}
+                    className="flex-1 py-2 px-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    Yes, Disconnect
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowDisconnectConfirm(false)}
+                    disabled={isDisconnecting}
+                    className="py-2 px-3 rounded-xl bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -337,4 +351,6 @@ export const ConnectedHealthModal: React.FC<ConnectedHealthModalProps> = ({
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(modalContent, document.body) : modalContent;
 };

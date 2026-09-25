@@ -2,6 +2,7 @@ import { HealthProvider, HealthProviderType, SyncResult } from './types';
 import { HealthConnectionState, Workout } from '../../types';
 import { googleHealthProvider } from './googleHealthProvider';
 import { healthConnectProvider } from './healthConnectProvider';
+import { stravaProvider } from './stravaProvider';
 import { workoutService } from '../workoutService';
 
 export class HealthService {
@@ -10,6 +11,7 @@ export class HealthService {
   constructor() {
     this.providers.set('google_health', googleHealthProvider);
     this.providers.set('health_connect', healthConnectProvider);
+    this.providers.set('strava', stravaProvider);
   }
 
   /**

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { UserProfile, HealthConnectionState, Workout } from '../types';
 import { healthService } from '../services/health/healthService';
 import { takeoutImporter } from '../services/health/takeoutImporter';
+import { StravaConnectionCard } from '../components/health/StravaConnectionCard';
 import {
   CheckCircle2,
   RefreshCw,
@@ -24,6 +25,7 @@ export const ConnectedHealthScreen: React.FC<ConnectedHealthScreenProps> = ({
   profile,
   onRefreshWorkouts,
 }) => {
+  const [activeProviderTab, setActiveProviderTab] = useState<'all' | 'strava' | 'google' | 'files'>('all');
   const [healthState, setHealthState] = useState<HealthConnectionState>(() =>
     healthService.getPrimaryConnectionState()
   );
@@ -114,9 +116,8 @@ export const ConnectedHealthScreen: React.FC<ConnectedHealthScreenProps> = ({
         if (result.importedCount > 0) {
           setSyncFeedback({
             type: 'success',
-            message: `Successfully imported ${result.importedCount} new ${
-              result.importedCount === 1 ? 'workout' : 'workouts'
-            }!`,
+            message: `Successfully imported ${result.importedCount} new ${result.importedCount === 1 ? 'workout' : 'workouts'
+              }!`,
             count: result.importedCount,
           });
         } else {
@@ -178,9 +179,8 @@ export const ConnectedHealthScreen: React.FC<ConnectedHealthScreenProps> = ({
           ).toFixed(2);
           setSyncFeedback({
             type: 'success',
-            message: `Successfully imported ${result.importedCount} workout${
-              result.importedCount === 1 ? '' : 's'
-            } (${totalDistKm} km total)!`,
+            message: `Successfully imported ${result.importedCount} workout${result.importedCount === 1 ? '' : 's'
+              } (${totalDistKm} km total)!`,
             count: result.importedCount,
           });
           if (onRefreshWorkouts) {
@@ -239,6 +239,10 @@ export const ConnectedHealthScreen: React.FC<ConnectedHealthScreenProps> = ({
 
   const faqs = [
     {
+      q: 'How does Strava sync with RUNWAR?',
+      a: 'Connecting your Strava account lets RUNWAR import all your outdoor runs, trail runs, and walks with full GPS polyline tracks, pace splits, and elevation. You can also upload runs recorded directly in RUNWAR to your Strava feed with 1-click.',
+    },
+    {
       q: 'How does Google Health sync your workout data with RUNWAR?',
       a: 'When you connect your Google account, RUNWAR connects to Google Fitness APIs to query your recorded runs, walks, distances, GPS track coordinates, pace splits, and calories. Everything is imported directly into your RUNWAR account and immediately updates your weekly activity charts, personal records, and workout history.',
     },
@@ -261,11 +265,10 @@ export const ConnectedHealthScreen: React.FC<ConnectedHealthScreenProps> = ({
       {/* Feedback Toast */}
       {syncFeedback && (
         <div
-          className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 text-xs animate-scale-in ${
-            syncFeedback.type === 'success'
-              ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30 text-emerald-900 dark:text-emerald-300'
-              : 'bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-900 dark:text-rose-300'
-          }`}
+          className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 text-xs animate-scale-in ${syncFeedback.type === 'success'
+            ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30 text-emerald-900 dark:text-emerald-300'
+            : 'bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-900 dark:text-rose-300'
+            }`}
         >
           <div className="flex items-center gap-2">
             {syncFeedback.type === 'success' ? (
@@ -284,305 +287,362 @@ export const ConnectedHealthScreen: React.FC<ConnectedHealthScreenProps> = ({
         </div>
       )}
 
-      {/* 1. Provider Identity Header */}
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          {/* Google Official Logo */}
-          <div className="w-12 h-12 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-center shadow-xs shrink-0">
-            <svg viewBox="0 0 24 24" width="24" height="24">
-              <path
-                fill="#4285F4"
-                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-              />
-              <path
-                fill="#34A853"
-                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-              />
-              <path
-                fill="#FBBC05"
-                d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-              />
-              <path
-                fill="#EA4335"
-                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-              />
-            </svg>
-          </div>
-
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="font-display text-lg sm:text-xl font-black text-slate-950 dark:text-white">
-                Google Health / Fit
-              </h2>
-            </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Direct Cloud Sync via Google Fitness REST API
-            </p>
-          </div>
-        </div>
-
-        <span
-          className={`text-[10px] font-bold px-2.5 py-1 rounded-full shrink-0 ${
-            healthState.status === 'syncing' || isSyncing
-              ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/40 animate-pulse'
-              : healthState.status === 'error'
-              ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/20'
-              : healthState.isConnected
-              ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
-              : 'bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
-          }`}
+      {/* Provider Selection Filter Tabs */}
+      <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-800 text-xs font-bold overflow-x-auto scrollbar-none">
+        <button
+          onClick={() => setActiveProviderTab('all')}
+          className={`px-3.5 py-2 rounded-xl transition-all cursor-pointer whitespace-nowrap ${activeProviderTab === 'all'
+            ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
+            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
         >
-          {healthState.status === 'syncing' || isSyncing
-            ? 'Syncing...'
-            : healthState.status === 'error'
-            ? 'Sync Paused'
-            : healthState.isConnected
-            ? 'Connected'
-            : 'Not Connected'}
-        </span>
+          All Services
+        </button>
+        <button
+          onClick={() => setActiveProviderTab('strava')}
+          className={`px-3.5 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${activeProviderTab === 'strava'
+            ? 'bg-[#fc5200] text-white shadow-xs'
+            : 'text-slate-600 dark:text-slate-400 hover:text-[#fc5200]'
+            }`}
+        >
+          <span className="w-2 h-2 rounded-full bg-[#fc5200]" />
+          Strava
+        </button>
+        <button
+          onClick={() => setActiveProviderTab('google')}
+          className={`px-3.5 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${activeProviderTab === 'google'
+            ? 'bg-emerald-600 text-white shadow-xs'
+            : 'text-slate-600 dark:text-slate-400 hover:text-emerald-500'
+            }`}
+        >
+          <span className="w-2 h-2 rounded-full bg-emerald-500" />
+          Google Health
+        </button>
+        <button
+          onClick={() => setActiveProviderTab('files')}
+          className={`px-3.5 py-2 rounded-xl transition-all cursor-pointer whitespace-nowrap ${activeProviderTab === 'files'
+            ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
+            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+        >
+          File Upload
+        </button>
       </div>
 
-      {/* 2. Primary Connection & Sync Actions */}
-      {healthState.isConnected ? (
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2 text-xs py-2.5 border-y border-slate-200 dark:border-slate-800">
-            <div>
-              <span className="text-slate-500 dark:text-slate-400 block text-[10px] uppercase font-bold tracking-wider">
-                Connected Account
-              </span>
-              <span className="font-bold text-slate-950 dark:text-white">
-                {healthState.accountEmail || 'Google Account Linked'}
-              </span>
-            </div>
-            <div className="text-right">
-              <span className="text-slate-500 dark:text-slate-400 block text-[10px] uppercase font-bold tracking-wider">
-                {isSyncing || healthState.status === 'syncing' ? 'Syncing Progress' : 'Workouts Synced'}
-              </span>
-              <span className="font-display font-black text-emerald-600 dark:text-emerald-400 text-sm">
-                {(isSyncing || healthState.status === 'syncing') &&
-                healthState.syncProgress &&
-                healthState.syncProgress.total > 0
-                  ? `${healthState.syncProgress.current} / ${healthState.syncProgress.total}`
-                  : `${healthState.syncedCount} workouts`}
-              </span>
-            </div>
-          </div>
+      {/* 1. Strava Integration Card */}
+      {(activeProviderTab === 'all' || activeProviderTab === 'strava') && (
+        <StravaConnectionCard
+          userId={profile?.user_id}
+          onRefreshWorkouts={onRefreshWorkouts}
+        />
+      )}
 
-          {/* Real-Time Syncing Progress Indicator */}
-          {(isSyncing || healthState.status === 'syncing') && (
-            <div className="p-3 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-500/20 space-y-2 animate-fade-in">
-              <div className="flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2 min-w-0">
-                  <RefreshCw size={13} className="animate-spin text-emerald-600 dark:text-emerald-400 shrink-0" />
-                  <span className="font-bold text-slate-900 dark:text-white truncate">
-                    {healthState.syncProgress?.currentTitle || 'Processing workout sessions...'}
-                  </span>
-                </div>
-                {healthState.syncProgress && healthState.syncProgress.total > 0 && (
-                  <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 text-[11px] shrink-0 ml-2">
-                    {Math.round((healthState.syncProgress.current / healthState.syncProgress.total) * 100)}%
-                  </span>
-                )}
+      {/* 2. Google Health / Fit Card */}
+      {(activeProviderTab === 'all' || activeProviderTab === 'google') && (
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200/80 dark:border-slate-800 shadow-sm relative overflow-hidden transition-all duration-300 space-y-4">
+          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 via-emerald-500 to-amber-500" />
+
+          {/* Provider Identity Header */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              {/* Google Official Logo */}
+              <div className="w-12 h-12 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-center shadow-xs shrink-0">
+                <svg viewBox="0 0 24 24" width="24" height="24">
+                  <path
+                    fill="#4285F4"
+                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                  />
+                </svg>
               </div>
 
-              {healthState.syncProgress && healthState.syncProgress.total > 0 && (
-                <div className="w-full h-1.5 bg-emerald-200/50 dark:bg-slate-800 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-emerald-500 rounded-full transition-all duration-300"
-                    style={{
-                      width: `${Math.min(
-                        100,
-                        Math.max(5, (healthState.syncProgress.current / healthState.syncProgress.total) * 100)
-                      )}%`,
-                    }}
-                  />
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="font-display text-lg sm:text-xl font-black text-slate-950 dark:text-white">
+                    Google Health
+                  </h2>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Google Fitness
+                </p>
+              </div>
+            </div>
+
+            <span
+              className={`text-[10px] font-bold px-2.5 py-1 rounded-full shrink-0 ${healthState.status === 'syncing' || isSyncing
+                ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/40 animate-pulse'
+                : healthState.status === 'error'
+                  ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/20'
+                  : healthState.isConnected
+                    ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                    : 'bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                }`}
+            >
+              {healthState.status === 'syncing' || isSyncing
+                ? 'Syncing...'
+                : healthState.status === 'error'
+                  ? 'Sync Paused'
+                  : healthState.isConnected
+                    ? 'Connected'
+                    : 'Not Connected'}
+            </span>
+          </div>
+
+          {/* Primary Connection & Sync Actions */}
+          {healthState.isConnected ? (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs py-2.5 border-y border-slate-200 dark:border-slate-800">
+                <div>
+                  <span className="text-slate-500 dark:text-slate-400 block text-[10px] uppercase font-bold tracking-wider">
+                    Connected Account
+                  </span>
+                  <span className="font-bold text-slate-950 dark:text-white">
+                    {healthState.accountEmail || 'Google Account Linked'}
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-slate-500 dark:text-slate-400 block text-[10px] uppercase font-bold tracking-wider">
+                    {isSyncing || healthState.status === 'syncing' ? 'Syncing Progress' : 'Workouts Synced'}
+                  </span>
+                  <span className="font-display font-black text-emerald-600 dark:text-emerald-400 text-sm">
+                    {(isSyncing || healthState.status === 'syncing') &&
+                      healthState.syncProgress &&
+                      healthState.syncProgress.total > 0
+                      ? `${healthState.syncProgress.current} / ${healthState.syncProgress.total}`
+                      : `${healthState.syncedCount} workouts`}
+                  </span>
+                </div>
+              </div>
+
+              {/* Real-Time Syncing Progress Indicator */}
+              {(isSyncing || healthState.status === 'syncing') && (
+                <div className="p-3 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-500/20 space-y-2 animate-fade-in">
+                  <div className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <RefreshCw size={13} className="animate-spin text-emerald-600 dark:text-emerald-400 shrink-0" />
+                      <span className="font-bold text-slate-900 dark:text-white truncate">
+                        {healthState.syncProgress?.currentTitle || 'Processing workout sessions...'}
+                      </span>
+                    </div>
+                    {healthState.syncProgress && healthState.syncProgress.total > 0 && (
+                      <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 text-[11px] shrink-0 ml-2">
+                        {Math.round((healthState.syncProgress.current / healthState.syncProgress.total) * 100)}%
+                      </span>
+                    )}
+                  </div>
+
+                  {healthState.syncProgress && healthState.syncProgress.total > 0 && (
+                    <div className="w-full h-1.5 bg-emerald-200/50 dark:bg-slate-800 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-emerald-500 rounded-full transition-all duration-300"
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            Math.max(5, (healthState.syncProgress.current / healthState.syncProgress.total) * 100)
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400">
+                    <span>
+                      {healthState.syncProgress?.newlySynced !== undefined
+                        ? `${healthState.syncProgress.newlySynced} newly imported`
+                        : 'Fetching activities...'}
+                    </span>
+                    <span>{healthState.syncedCount} total in RUNWAR</span>
+                  </div>
                 </div>
               )}
 
-              <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400">
-                <span>
-                  {healthState.syncProgress?.newlySynced !== undefined
-                    ? `${healthState.syncProgress.newlySynced} newly imported`
-                    : 'Fetching activities...'}
-                </span>
-                <span>{healthState.syncedCount} total in RUNWAR</span>
-              </div>
-            </div>
-          )}
+              {/* Sync Error / Paused Alert */}
+              {healthState.status === 'error' && !isSyncing && (
+                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-amber-900 dark:text-amber-300 text-xs flex items-center justify-between gap-2 animate-scale-in">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <AlertCircle size={15} className="text-amber-600 dark:text-amber-400 shrink-0" />
+                    <div className="min-w-0">
+                      <span className="font-bold block">Sync Paused</span>
+                      <span className="text-[11px] text-amber-800 dark:text-amber-200/80 truncate block">
+                        {healthState.syncedCount} workouts synced so far. {healthState.errorMessage || ''}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const targetUserId = profile?.user_id || 'guest_user';
+                      handleSyncWorkouts(targetUserId);
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[11px] shrink-0 transition-all cursor-pointer"
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
 
-          {/* Sync Error / Paused Alert */}
-          {healthState.status === 'error' && !isSyncing && (
-            <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-amber-900 dark:text-amber-300 text-xs flex items-center justify-between gap-2 animate-scale-in">
-              <div className="flex items-center gap-2 min-w-0">
-                <AlertCircle size={15} className="text-amber-600 dark:text-amber-400 shrink-0" />
-                <div className="min-w-0">
-                  <span className="font-bold block">Sync Paused</span>
-                  <span className="text-[11px] text-amber-800 dark:text-amber-200/80 truncate block">
-                    {healthState.syncedCount} workouts synced so far. {healthState.errorMessage || ''}
+              {healthState.lastSyncAt && healthState.status !== 'syncing' && (
+                <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
+                  <span>Last Synchronized:</span>
+                  <span className="font-mono font-medium text-slate-900 dark:text-slate-200">
+                    {new Date(healthState.lastSyncAt).toLocaleString()}
                   </span>
                 </div>
+              )}
+
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  onClick={() => {
+                    const targetUserId = profile?.user_id || 'guest_user';
+                    handleSyncWorkouts(targetUserId);
+                  }}
+                  disabled={isSyncing || healthState.status === 'syncing'}
+                  className="flex-1 py-3 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white dark:text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
+                >
+                  <RefreshCw size={15} className={isSyncing || healthState.status === 'syncing' ? 'animate-spin' : ''} />
+                  <span>
+                    {isSyncing || healthState.status === 'syncing'
+                      ? healthState.syncProgress && healthState.syncProgress.total > 0
+                        ? `Syncing (${healthState.syncProgress.current}/${healthState.syncProgress.total})...`
+                        : 'Syncing Workouts...'
+                      : 'Sync Workouts Now'}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => setShowDisconnectConfirm(true)}
+                  disabled={isSyncing || healthState.status === 'syncing'}
+                  className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-500/20 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                  title="Disconnect Google Health"
+                >
+                  <Unlink size={16} />
+                </button>
               </div>
-              <button
-                onClick={() => {
-                  const targetUserId = profile?.user_id || 'guest_user';
-                  handleSyncWorkouts(targetUserId);
-                }}
-                className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[11px] shrink-0 transition-all cursor-pointer"
-              >
-                Retry
-              </button>
             </div>
-          )}
-
-          {healthState.lastSyncAt && healthState.status !== 'syncing' && (
-            <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
-              <span>Last Synchronized:</span>
-              <span className="font-mono font-medium text-slate-900 dark:text-slate-200">
-                {new Date(healthState.lastSyncAt).toLocaleString()}
-              </span>
-            </div>
-          )}
-
-          <div className="flex items-center gap-2 pt-1">
-            <button
-              onClick={() => {
-                const targetUserId = profile?.user_id || 'guest_user';
-                handleSyncWorkouts(targetUserId);
-              }}
-              disabled={isSyncing || healthState.status === 'syncing'}
-              className="flex-1 py-3 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white dark:text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
-            >
-              <RefreshCw size={15} className={isSyncing || healthState.status === 'syncing' ? 'animate-spin' : ''} />
-              <span>
-                {isSyncing || healthState.status === 'syncing'
-                  ? healthState.syncProgress && healthState.syncProgress.total > 0
-                    ? `Syncing (${healthState.syncProgress.current}/${healthState.syncProgress.total})...`
-                    : 'Syncing Workouts...'
-                  : 'Sync Workouts Now'}
-              </span>
-            </button>
-
-            <button
-              onClick={() => setShowDisconnectConfirm(true)}
-              disabled={isSyncing || healthState.status === 'syncing'}
-              className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-500/20 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
-              title="Disconnect Google Health"
-            >
-              <Unlink size={16} />
-            </button>
-          </div>
-        </div>
-      ) : (
-        <button
-          onClick={handleConnectGoogle}
-          disabled={isConnecting}
-          className="w-full py-3.5 px-5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white dark:text-slate-950 font-bold text-sm flex items-center justify-center gap-2.5 shadow-md shadow-emerald-500/25 active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
-        >
-          {isConnecting ? (
-            <RefreshCw size={16} className="animate-spin" />
           ) : (
-            <Link2 size={16} />
+            <button
+              onClick={handleConnectGoogle}
+              disabled={isConnecting}
+              className="w-full py-3.5 px-5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white dark:text-slate-950 font-bold text-sm flex items-center justify-center gap-2.5 shadow-md shadow-emerald-500/25 active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
+            >
+              {isConnecting ? (
+                <RefreshCw size={16} className="animate-spin" />
+              ) : (
+                <Link2 size={16} />
+              )}
+              <span>{isConnecting ? 'Connecting with Google...' : 'Connect Google Health'}</span>
+            </button>
           )}
-          <span>{isConnecting ? 'Connecting with Google...' : 'Connect Google Health'}</span>
-        </button>
-      )}
 
-      {/* Disconnect Confirmation Alert */}
-      {showDisconnectConfirm && (
-        <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 space-y-2 animate-scale-in text-xs">
-          <div className="font-bold text-rose-950 dark:text-rose-300 flex items-center gap-1.5">
-            <AlertCircle size={15} className="text-rose-600 dark:text-rose-400" />
-            <span>Are you sure you want to disconnect?</span>
-          </div>
-          <p className="text-rose-900/80 dark:text-rose-200/80 text-[11px]">
-            Disconnecting stops future automated imports. Your previously imported workouts will remain safely saved in RUNWAR.
-          </p>
-          <div className="flex items-center justify-end gap-2 pt-1">
-            <button
-              onClick={() => setShowDisconnectConfirm(false)}
-              className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs font-semibold cursor-pointer"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleDisconnect}
-              className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-sm cursor-pointer"
-            >
-              Confirm Disconnect
-            </button>
-          </div>
+          {/* Disconnect Confirmation Alert */}
+          {showDisconnectConfirm && (
+            <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 space-y-2 animate-scale-in text-xs">
+              <div className="font-bold text-rose-950 dark:text-rose-300 flex items-center gap-1.5">
+                <AlertCircle size={15} className="text-rose-600 dark:text-rose-400" />
+                <span>Are you sure you want to disconnect?</span>
+              </div>
+              <p className="text-rose-900/80 dark:text-rose-200/80 text-[11px]">
+                Disconnecting stops future automated imports. Your previously imported workouts will remain safely saved in RUNWAR.
+              </p>
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  onClick={() => setShowDisconnectConfirm(false)}
+                  className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDisconnect}
+                  className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-sm cursor-pointer"
+                >
+                  Confirm Disconnect
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* 2.5 Upload Supported Workout Files Card */}
-      <div
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-        className={`rounded-2xl border transition-all duration-200 p-4 space-y-3.5 ${
-          isDragging
+      {/* 3. Upload Supported Workout Files Card */}
+      {(activeProviderTab === 'all' || activeProviderTab === 'files') && (
+        <div
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          className={`rounded-2xl border transition-all duration-200 p-4 space-y-3.5 ${isDragging
             ? 'bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-500 border-dashed scale-[1.01]'
             : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm'
-        }`}
-      >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
-              <UploadCloud size={18} />
+            }`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                <UploadCloud size={18} />
+              </div>
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-950 dark:text-white">
+                  Upload Workout Files
+                </h3>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Import activities from supported files
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                .TCX
+              </span>
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                .GPX
+              </span>
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                .JSON
+              </span>
+            </div>
+          </div>
+
+          <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+            Upload fitness tracks from Garmin, Polar, Strava, Coros, or export archives with full GPS routes, distance, pace splits, and vitals.
+          </p>
+
+          {/* Drag & Drop / File Select Button Area */}
+          <label className="border-2 border-dashed border-slate-200 dark:border-slate-800 hover:border-emerald-500 dark:hover:border-emerald-500/70 bg-slate-50/60 dark:bg-slate-950/40 hover:bg-emerald-50/30 dark:hover:bg-emerald-950/10 rounded-xl p-4 flex flex-col items-center justify-center gap-2 text-center cursor-pointer transition-all group">
+            <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 group-hover:bg-emerald-500 group-hover:text-white flex items-center justify-center transition-all shadow-xs">
+              {isUploadingFiles ? (
+                <RefreshCw size={18} className="animate-spin text-emerald-500 group-hover:text-white" />
+              ) : (
+                <FileUp size={18} />
+              )}
             </div>
             <div>
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-950 dark:text-white">
-                Upload Workout Files
-              </h3>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Import activities from supported files
-              </p>
+              <span className="text-xs font-bold text-slate-900 dark:text-white block group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
+                {isUploadingFiles ? 'Parsing & Importing Workouts...' : 'Choose files or drag & drop here'}
+              </span>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                Select one or multiple .tcx, .gpx, or .json workout files
+              </span>
             </div>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-              .TCX
-            </span>
-            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-              .GPX
-            </span>
-            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-              .JSON
-            </span>
-          </div>
+            <input
+              type="file"
+              multiple
+              accept=".tcx,.gpx,.json"
+              onChange={handleFileInputChange}
+              disabled={isUploadingFiles}
+              className="hidden"
+            />
+          </label>
         </div>
-
-        <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-          Upload fitness tracks from Garmin, Polar, Strava, Coros, or export archives with full GPS routes, distance, pace splits, and vitals.
-        </p>
-
-        {/* Drag & Drop / File Select Button Area */}
-        <label className="border-2 border-dashed border-slate-200 dark:border-slate-800 hover:border-emerald-500 dark:hover:border-emerald-500/70 bg-slate-50/60 dark:bg-slate-950/40 hover:bg-emerald-50/30 dark:hover:bg-emerald-950/10 rounded-xl p-4 flex flex-col items-center justify-center gap-2 text-center cursor-pointer transition-all group">
-          <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 group-hover:bg-emerald-500 group-hover:text-white flex items-center justify-center transition-all shadow-xs">
-            {isUploadingFiles ? (
-              <RefreshCw size={18} className="animate-spin text-emerald-500 group-hover:text-white" />
-            ) : (
-              <FileUp size={18} />
-            )}
-          </div>
-          <div>
-            <span className="text-xs font-bold text-slate-900 dark:text-white block group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
-              {isUploadingFiles ? 'Parsing & Importing Workouts...' : 'Choose files or drag & drop here'}
-            </span>
-            <span className="text-[11px] text-slate-500 dark:text-slate-400">
-              Select one or multiple .tcx, .gpx, or .json workout files
-            </span>
-          </div>
-          <input
-            type="file"
-            multiple
-            accept=".tcx,.gpx,.json"
-            onChange={handleFileInputChange}
-            disabled={isUploadingFiles}
-            className="hidden"
-          />
-        </label>
-      </div>
+      )}
 
       {/* 3. How Google Health Sync Works */}
       <div className="space-y-3 pt-2">

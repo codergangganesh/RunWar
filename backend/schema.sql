@@ -303,6 +303,14 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS phone_number TEXT;
 CREATE INDEX IF NOT EXISTS idx_profiles_firebase_uid ON public.profiles(firebase_uid);
 
 -- ============================================================
+-- MIGRATION: EXTERNAL HEALTH PROVIDERS (Strava, Google Health)
+-- ============================================================
+ALTER TABLE public.workouts ADD COLUMN IF NOT EXISTS source_provider TEXT DEFAULT 'runwar_gps';
+ALTER TABLE public.workouts ADD COLUMN IF NOT EXISTS external_record_id TEXT;
+ALTER TABLE public.workouts ADD COLUMN IF NOT EXISTS heart_rate_avg NUMERIC;
+CREATE INDEX IF NOT EXISTS idx_workouts_source_provider ON public.workouts(user_id, source_provider);
+
+-- ============================================================
 -- 10. RUNNING SHOES & GEAR TABLE
 -- ============================================================
 CREATE TABLE IF NOT EXISTS public.user_gear (
@@ -330,5 +338,43 @@ CREATE POLICY "Users can update own gear" ON public.user_gear
     FOR UPDATE USING (auth.uid() = user_id);
 CREATE POLICY "Users can delete own gear" ON public.user_gear
     FOR DELETE USING (auth.uid() = user_id);
+
+-- ============================================================
+-- 11. USER INTEGRATIONS TABLE (Strava, Google Health, etc.)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.user_integrations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL, -- 'strava', 'google_health', 'health_connect'
+    access_token TEXT,
+    refresh_token TEXT,
+    token_expires_at TIMESTAMPTZ,
+    athlete_id TEXT,
+    athlete_name TEXT,
+    athlete_profile_url TEXT,
+    scopes TEXT,
+    is_connected BOOLEAN DEFAULT TRUE,
+    auto_sync BOOLEAN DEFAULT TRUE,
+    auto_upload BOOLEAN DEFAULT FALSE,
+    last_synced_at TIMESTAMPTZ,
+    synced_count INTEGER DEFAULT 0,
+    metadata JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now(),
+    CONSTRAINT uq_user_provider UNIQUE (user_id, provider)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_integrations_user ON public.user_integrations(user_id);
+ALTER TABLE public.user_integrations ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own integrations" ON public.user_integrations
+    FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own integrations" ON public.user_integrations
+    FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own integrations" ON public.user_integrations
+    FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can delete own integrations" ON public.user_integrations
+    FOR DELETE USING (auth.uid() = user_id);
+
 
 
