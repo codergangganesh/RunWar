@@ -13,9 +13,37 @@ import { toDeterministicUUID } from '../utils/uuid';
 const WORKOUTS_CACHE_KEY = 'runwar_cached_workouts';
 
 /**
- * Universal classifier to identify Strava workouts (real synced or sandbox demo)
- * regardless of whether source_provider was stored or defaulted.
+ * Dedicated classifier to identify fake / sandbox demo workouts.
+ * Fake demo workouts MUST NEVER be displayed when a real Strava account is connected!
  */
+export function isDemoWorkout(w: any): boolean {
+  if (!w) return false;
+  if (
+    typeof w.external_record_id === 'string' &&
+    (w.external_record_id.startsWith('demo_') ||
+      w.external_record_id === 'demo_10192837' ||
+      w.external_record_id === 'demo_10248192')
+  ) {
+    return true;
+  }
+  if (
+    typeof w.id === 'string' &&
+    (w.id.includes('demo_101') || w.id.includes('demo_102') || w.id.includes('strava_demo'))
+  ) {
+    return true;
+  }
+  if (w.title === 'Sunrise 5K Run' || w.title === 'Weekend Trail Interval') {
+    return true;
+  }
+  if (
+    typeof w.notes === 'string' &&
+    (w.notes.includes('10192837') || w.notes.includes('10248192'))
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export function isStravaWorkout(w: any): boolean {
   if (!w) return false;
   if (w.source_provider === 'strava') return true;
@@ -604,24 +632,46 @@ export const workoutService = {
       rawMerged = userCachedWorkouts;
     }
 
-    // If Strava provider is disconnected, ensure NO Strava workouts (demo or real) leak into UI
+    // Inspect Strava connection status: is it connected, and is it a demo connection or real connection?
     try {
       const stravaTokens = typeof localStorage !== 'undefined' ? localStorage.getItem('runwar_strava_tokens') : null;
       const stravaStateRaw = typeof localStorage !== 'undefined' ? localStorage.getItem('runwar_strava_state') : null;
       let isStravaActive = false;
+      let isDemoSession = false;
+
       if (stravaTokens) {
         try {
           const t = JSON.parse(stravaTokens);
-          if (t && t.access_token) isStravaActive = true;
+          if (t && t.access_token) {
+            isStravaActive = true;
+            if (typeof t.access_token === 'string' && t.access_token.startsWith('demo_')) {
+              isDemoSession = true;
+            }
+          }
         } catch {}
       }
       if (!isStravaActive && stravaStateRaw) {
         try {
           const s = JSON.parse(stravaStateRaw);
-          if (s && s.isConnected) isStravaActive = true;
+          if (s && s.isConnected) {
+            isStravaActive = true;
+            if (s.accountEmail?.includes('Demo')) {
+              isDemoSession = true;
+            }
+          }
         } catch {}
       }
 
+      // CRITICAL: If NOT in demo sandbox mode, NEVER return fake demo workouts!
+      if (!isDemoSession) {
+        const countBefore = rawMerged.length;
+        rawMerged = rawMerged.filter((w) => !isDemoWorkout(w));
+        if (rawMerged.length !== countBefore) {
+          this.saveWorkoutsCache(rawMerged, canonicalUserId);
+        }
+      }
+
+      // If Strava is completely disconnected, NEVER show any Strava workouts
       if (!isStravaActive) {
         const initialCount = rawMerged.length;
         rawMerged = rawMerged.filter((w) => !isStravaWorkout(w));
@@ -1036,10 +1086,97 @@ export const workoutService = {
   },
 
   /**
+   * Unconditionally purge all fake sandbox demo workouts from PostgreSQL and all local caches.
+   * Can be called whenever real Strava is connected, on app startup, or when unlinking demo.
+   */
+  async purgeDemoWorkouts(userId?: string): Promise<number> {
+    let deletedCount = 0;
+    const targetUserId = userId || 'guest_user';
+
+    // 1. Delete from PostgreSQL if online
+    if (navigator.onLine) {
+      const candidateUserIds = Array.from(
+        new Set([targetUserId, 'guest_user', 'usr_guest_demo'].filter(Boolean))
+      ) as string[];
+
+      for (const uid of candidateUserIds) {
+        // Direct title matching (works 100% in PostgreSQL regardless of schema columns)
+        try {
+          await insforge.database
+            .from('workouts')
+            .delete()
+            .eq('user_id', uid)
+            .eq('title', 'Sunrise 5K Run');
+        } catch {}
+
+        try {
+          await insforge.database
+            .from('workouts')
+            .delete()
+            .eq('user_id', uid)
+            .eq('title', 'Weekend Trail Interval');
+        } catch {}
+
+        // Match by deterministic demo UUIDs
+        const demoIds = [
+          toDeterministicUUID(`strava_demo_101_${uid}`),
+          toDeterministicUUID(`strava_demo_102_${uid}`),
+          toDeterministicUUID('strava_demo_101_guest_user'),
+          toDeterministicUUID('strava_demo_102_guest_user'),
+        ];
+        for (const did of demoIds) {
+          try {
+            await insforge.database.from('workouts').delete().eq('id', did);
+          } catch {}
+        }
+      }
+    }
+
+    // 2. Wipe from ALL localStorage caches
+    const purgeKey = (key: string) => {
+      try {
+        const raw = localStorage.getItem(key);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          const filtered = parsed.filter((w: any) => !isDemoWorkout(w));
+          if (filtered.length !== parsed.length) {
+            localStorage.setItem(key, JSON.stringify(filtered));
+            deletedCount += (parsed.length - filtered.length);
+          }
+        }
+      } catch {}
+    };
+
+    purgeKey(this.getCacheKey(targetUserId));
+    purgeKey(this.getCacheKey('guest_user'));
+    purgeKey(WORKOUTS_CACHE_KEY);
+    purgeKey('runwar_offline_workouts_queue');
+
+    try {
+      const allKeys: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k) allKeys.push(k);
+      }
+      for (const k of allKeys) {
+        if (k.startsWith('runwar_')) {
+          purgeKey(k);
+        }
+      }
+    } catch {}
+
+    return deletedCount;
+  },
+
+  /**
    * Delete all workouts imported from a specific provider (e.g. 'strava' or 'google_health')
    * Purges them from InsForge database and local caches, and notifies app listeners
    */
   async deleteWorkoutsByProvider(provider: string, userId?: string): Promise<number> {
+    if (provider === 'strava') {
+      await this.purgeDemoWorkouts(userId);
+    }
     // 1. Resolve canonical user ID from all potential sources
     let canonicalUserId = userId;
     if (!canonicalUserId || canonicalUserId === 'guest_user' || canonicalUserId === 'usr_guest_demo') {

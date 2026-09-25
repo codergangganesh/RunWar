@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile, Workout, WorkoutType } from '../types';
 import { formatDistance, formatDuration, formatPace, formatWorkoutDate } from '../utils/formatters';
-import { isStravaWorkout } from '../services/workoutService';
+import { isStravaWorkout, isDemoWorkout } from '../services/workoutService';
 import { RouteThumbnail } from '../components/map/RouteThumbnail';
 import { BottomSheet } from '../components/ui/BottomSheet';
 import {
@@ -66,29 +66,46 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
   const distanceUnit = profile?.distance_unit || 'km';
   const paceUnit = profile?.pace_unit || 'min_km';
 
-  // Check if Strava is currently active/connected
+  // Check if Strava is currently active/connected and whether it is a demo or real connection
   let isStravaActive = false;
+  let isDemoSession = false;
   try {
     const rawTokens = localStorage.getItem('runwar_strava_tokens');
     const rawState = localStorage.getItem('runwar_strava_state');
     if (rawTokens) {
       const t = JSON.parse(rawTokens);
-      if (t?.access_token) isStravaActive = true;
+      if (t?.access_token) {
+        isStravaActive = true;
+        if (typeof t.access_token === 'string' && t.access_token.startsWith('demo_')) {
+          isDemoSession = true;
+        }
+      }
     }
     if (!isStravaActive && rawState) {
       const s = JSON.parse(rawState);
-      if (s?.isConnected) isStravaActive = true;
+      if (s?.isConnected) {
+        isStravaActive = true;
+        if (s.accountEmail?.includes('Demo')) {
+          isDemoSession = true;
+        }
+      }
     }
   } catch {}
 
-  // Deduplicate workouts strictly by ID and external record key, and omit disconnected provider workouts
+  // Deduplicate workouts strictly by ID and external record key, and omit disconnected/demo workouts
   const seenIds = new Set<string>();
   const seenExtKeys = new Set<string>();
   const uniqueWorkouts: Workout[] = [];
 
   for (const w of workouts) {
     if (!w || !w.id || seenIds.has(w.id)) continue;
-    // If Strava is disconnected, strictly suppress all Strava workouts (demo sandbox or real)
+
+    // CRITICAL: If NOT in demo sandbox mode, NEVER show fake demo workouts!
+    if (!isDemoSession && isDemoWorkout(w)) {
+      continue;
+    }
+
+    // If Strava is disconnected, strictly suppress all Strava workouts
     if (!isStravaActive && isStravaWorkout(w)) {
       continue;
     }

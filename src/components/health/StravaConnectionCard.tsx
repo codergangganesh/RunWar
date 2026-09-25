@@ -240,6 +240,32 @@ export const StravaConnectionCard: React.FC<StravaConnectionCardProps> = ({
     } catch { }
   };
 
+  const formatLastSync = (isoString?: string | null) => {
+    if (!isoString) return 'Not yet';
+    const date = new Date(isoString);
+    if (isNaN(date.getTime())) return 'Not yet';
+    const now = new Date();
+    const diffSec = Math.floor((now.getTime() - date.getTime()) / 1000);
+    if (diffSec < 45) return 'Just now';
+    if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+
+    const isToday =
+      date.getDate() === now.getDate() &&
+      date.getMonth() === now.getMonth() &&
+      date.getFullYear() === now.getFullYear();
+
+    if (isToday) {
+      return `Today at ${date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+    }
+
+    return date.toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  };
+
   return (
     <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200/80 dark:border-slate-800 shadow-sm relative overflow-hidden transition-all duration-300">
       {/* Top Brand Accent Line */}
@@ -286,12 +312,27 @@ export const StravaConnectionCard: React.FC<StravaConnectionCardProps> = ({
             </svg>
           </div>
 
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="font-display text-lg sm:text-xl font-black text-slate-950 dark:text-white">
-                Strava
-              </h2>
-            </div>
+          <div className="flex flex-col min-w-0">
+            <h2 className="font-display text-lg sm:text-xl font-black text-slate-950 dark:text-white leading-tight">
+              Strava
+            </h2>
+            {state.isConnected ? (
+              <span
+                className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 font-medium pt-0.5 truncate"
+                title={state.lastSyncAt ? new Date(state.lastSyncAt).toLocaleString() : 'Not synchronized yet'}
+              >
+                Last synchronized:{' '}
+                <span className="font-semibold text-slate-700 dark:text-slate-300">
+                  {isSyncing || state.status === 'syncing'
+                    ? 'Syncing...'
+                    : formatLastSync(state.lastSyncAt)}
+                </span>
+              </span>
+            ) : (
+              <span className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 font-medium pt-0.5 truncate">
+                Sync activities & GPS routes
+              </span>
+            )}
           </div>
         </div>
 
@@ -380,16 +421,6 @@ export const StravaConnectionCard: React.FC<StravaConnectionCardProps> = ({
                   </span>
                 )}
               </div>
-            </div>
-          )}
-
-          {/* Last Sync Timestamp */}
-          {state.lastSyncAt && state.status !== 'syncing' && (
-            <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between px-1">
-              <span>Last Synchronized:</span>
-              <span className="font-mono font-medium text-slate-800 dark:text-slate-200">
-                {new Date(state.lastSyncAt).toLocaleString()}
-              </span>
             </div>
           )}
 
