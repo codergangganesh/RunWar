@@ -28,8 +28,10 @@ import {
   TrendingUp,
   TrendingDown,
   RefreshCw,
+  CloudSun,
 } from 'lucide-react';
-import { stravaProvider } from '../services/health/stravaProvider';
+import { weatherService } from '../services/weatherService';
+import { WeatherSnapshot } from '../types';
 
 interface WorkoutSummaryScreenProps {
   workoutState: LiveWorkoutState | null;
@@ -62,8 +64,10 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
   const [newlyUnlockedAchievements, setNewlyUnlockedAchievements] = useState<Achievement[]>([]);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [quoteIndex, setQuoteIndex] = useState(0);
-  const [isUploadingToStrava, setIsUploadingToStrava] = useState(false);
-  const [stravaUploadStatus, setStravaUploadStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [weatherData, setWeatherData] = useState<WeatherSnapshot | null>(
+    workoutState?.weather || null
+  );
+  const [isFetchingWeather, setIsFetchingWeather] = useState(false);
 
   const isSavingRef = useRef(false);
 
@@ -106,7 +110,7 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
     status: 'completed',
     route_coordinates: coords,
     splits: splitsList,
-    weather: workoutState?.weather || null,
+    weather: workoutState?.weather || weatherData || null,
     created_at: new Date().toISOString(),
   };
 
@@ -143,7 +147,7 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
             if (current?.id && current.id !== 'guest_user') {
               targetUserId = current.id;
             }
-          } catch {}
+          } catch { }
         }
       }
 
@@ -168,7 +172,7 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
         status: 'completed',
         route_coordinates: coords,
         splits: splitsList,
-        weather: workoutState.weather || null,
+        weather: workoutState.weather || weatherData || null,
       };
 
       const result = await workoutService.saveWorkout(payload);
@@ -182,11 +186,77 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
     } finally {
       setSaving(false);
     }
-  }, [workoutState, profile, onSaved, savedWorkout, wType, elapsed, moving, paused, distM, avgPaceVal, avgSpeed, maxSpd, cals, elevGain, elevLoss, coords, splitsList]);
+  }, [workoutState, profile, onSaved, savedWorkout, wType, elapsed, moving, paused, distM, avgPaceVal, avgSpeed, maxSpd, cals, elevGain, elevLoss, coords, splitsList, weatherData]);
 
   useEffect(() => {
     handleAutoSave();
   }, [handleAutoSave]);
+
+  // Weather auto-fetcher if not previously recorded during active run
+  const fetchWorkoutWeather = useCallback(async (forceRefresh: boolean = false) => {
+    if (!forceRefresh && (workoutState?.weather || savedWorkout?.weather || weatherData)) {
+      return;
+    }
+
+    const coordsList = workoutState?.coordinates || [];
+    let lat: number | null = null;
+    let lng: number | null = null;
+
+    if (coordsList.length > 0) {
+      const lastCoord = coordsList[coordsList.length - 1];
+      lat = lastCoord.latitude;
+      lng = lastCoord.longitude;
+    } else if (workoutState?.currentLocation) {
+      lat = workoutState.currentLocation.latitude;
+      lng = workoutState.currentLocation.longitude;
+    }
+
+    if (lat != null && lng != null) {
+      setIsFetchingWeather(true);
+      try {
+        const fetched = await weatherService.getWeatherForLocation(lat, lng, forceRefresh);
+        if (fetched) {
+          setWeatherData(fetched);
+          if (savedWorkout?.id) {
+            workoutService.updateWorkoutWeather(savedWorkout.id, fetched);
+          }
+        }
+      } catch (err) {
+        console.warn('Could not fetch summary weather:', err);
+      } finally {
+        setIsFetchingWeather(false);
+      }
+    } else if (navigator.geolocation) {
+      setIsFetchingWeather(true);
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          try {
+            const fetched = await weatherService.getWeatherForLocation(
+              pos.coords.latitude,
+              pos.coords.longitude,
+              forceRefresh
+            );
+            if (fetched) {
+              setWeatherData(fetched);
+              if (savedWorkout?.id) {
+                workoutService.updateWorkoutWeather(savedWorkout.id, fetched);
+              }
+            }
+          } catch (e) {
+            console.warn('Geolocation weather fetch error:', e);
+          } finally {
+            setIsFetchingWeather(false);
+          }
+        },
+        () => setIsFetchingWeather(false),
+        { timeout: 6000 }
+      );
+    }
+  }, [workoutState, savedWorkout?.id, weatherData]);
+
+  useEffect(() => {
+    fetchWorkoutWeather(false);
+  }, [fetchWorkoutWeather]);
 
   // 3. Audio Voice Coach Summary
   const handleVoiceRecap = () => {
@@ -416,15 +486,6 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
         </div>
       </div>
 
-      {/* Weather Conditions Card (if recorded during workout) */}
-      {(currentWorkoutObject.weather || savedWorkout?.weather) && (
-        <WeatherBadge
-          weather={savedWorkout?.weather || currentWorkoutObject.weather}
-          distanceUnit={distanceUnit}
-          variant="card"
-        />
-      )}
-
       {/* 6. Secondary 6 Metrics Grid */}
       <div className="space-y-2">
         {/* Row 1: Duration, Avg Pace, Calories */}
@@ -515,75 +576,27 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
         <ChevronRight size={16} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
       </div>
 
-      {/* Strava 1-Click Sync/Upload Action Banner */}
-      <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-8 h-8 rounded-xl bg-[#fc5200] text-white flex items-center justify-center shadow-xs shrink-0">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="white">
-              <path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-6.926 13.827h4.172" />
-            </svg>
+      {/* Weather & Conditions Section */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between px-0.5">
+          <div className="flex items-center gap-2 text-slate-900 dark:text-white font-extrabold text-sm sm:text-base">
+            <CloudSun size={18} className="text-emerald-600 dark:text-emerald-400" />
+            <span>Weather & Conditions</span>
           </div>
-          <div className="min-w-0">
-            <span className="text-xs font-bold text-slate-900 dark:text-white block truncate">
-              {stravaUploadStatus === 'success' ? 'Uploaded to Strava! 🏃' : 'Publish to Strava'}
+          {(savedWorkout?.weather || workoutState?.weather || weatherData) && (
+            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+              Recorded during workout
             </span>
-            <span className="text-[10px] text-slate-500 dark:text-slate-400 block truncate">
-              {stravaUploadStatus === 'success'
-                ? 'Activity is live on your Strava feed'
-                : 'Upload route, pace & splits with 1-click'}
-            </span>
-          </div>
+          )}
         </div>
 
-        <button
-          onClick={async () => {
-            if (isUploadingToStrava || stravaUploadStatus === 'success' || !currentWorkoutObject) return;
-            setIsUploadingToStrava(true);
-            try {
-              const isConn = stravaProvider.getConnectionState().isConnected;
-              if (!isConn) {
-                const connRes = await stravaProvider.connect();
-                if (!connRes.success) {
-                  setIsUploadingToStrava(false);
-                  return;
-                }
-              }
-              const res = await stravaProvider.uploadWorkout(currentWorkoutObject, profile?.user_id);
-              if (res.success) {
-                setStravaUploadStatus('success');
-              } else {
-                setStravaUploadStatus('error');
-              }
-            } catch {
-              setStravaUploadStatus('error');
-            } finally {
-              setIsUploadingToStrava(false);
-            }
-          }}
-          disabled={isUploadingToStrava || stravaUploadStatus === 'success'}
-          className={`px-3 py-1.5 rounded-xl font-extrabold text-[11px] flex items-center gap-1.5 transition-all cursor-pointer ${
-            stravaUploadStatus === 'success'
-              ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800'
-              : 'bg-[#fc5200] hover:bg-[#e04900] text-white shadow-xs active:scale-95'
-          }`}
-        >
-          {isUploadingToStrava ? (
-            <>
-              <RefreshCw size={12} className="animate-spin" />
-              <span>Uploading...</span>
-            </>
-          ) : stravaUploadStatus === 'success' ? (
-            <>
-              <Check size={12} />
-              <span>Uploaded</span>
-            </>
-          ) : (
-            <>
-              <span>Upload</span>
-              <ArrowRight size={12} />
-            </>
-          )}
-        </button>
+        <WeatherBadge
+          weather={savedWorkout?.weather || workoutState?.weather || weatherData}
+          distanceUnit={distanceUnit}
+          variant="card"
+          isRefreshing={isFetchingWeather}
+          onRefresh={() => fetchWorkoutWeather(true)}
+        />
       </div>
 
       {/* 8. Bottom Action Buttons (Side-by-Side) */}

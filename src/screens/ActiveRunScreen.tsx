@@ -268,49 +268,39 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
     if (status === 'locked') {
       return (
         <div
-          className="relative p-1.5 rounded-lg flex items-center justify-center text-emerald-600 dark:text-emerald-400"
+          className="p-1.5 rounded-lg flex items-center justify-center text-emerald-600 dark:text-emerald-400"
           title={`GPS Locked (±${acc || 5}m accuracy)`}
         >
-          <div className="relative flex items-center justify-center">
-            <Compass size={14} className="text-emerald-500" />
-            <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-500 animate-ping opacity-75" />
-            <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-500" />
-          </div>
+          <Compass size={14} className="text-emerald-500" />
         </div>
       );
     }
     if (status === 'weak') {
       return (
         <div
-          className="relative p-1.5 rounded-lg flex items-center justify-center text-amber-500"
+          className="p-1.5 rounded-lg flex items-center justify-center text-amber-500"
           title={`GPS Signal Weak (±${acc || 30}m accuracy)`}
         >
-          <div className="relative flex items-center justify-center">
-            <Compass size={14} className="text-amber-500" />
-            <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-500" />
-          </div>
+          <Compass size={14} className="text-amber-500" />
         </div>
       );
     }
     if (status === 'lost') {
       return (
         <div
-          className="relative p-1.5 rounded-lg flex items-center justify-center text-rose-500 animate-pulse"
+          className="p-1.5 rounded-lg flex items-center justify-center text-rose-500"
           title="GPS Signal Lost"
         >
-          <div className="relative flex items-center justify-center">
-            <AlertTriangle size={14} className="text-rose-500" />
-            <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-rose-500" />
-          </div>
+          <AlertTriangle size={14} className="text-rose-500" />
         </div>
       );
     }
     return (
       <div
-        className="relative p-1.5 rounded-lg flex items-center justify-center text-emerald-600 dark:text-emerald-400"
+        className="p-1.5 rounded-lg flex items-center justify-center text-slate-400"
         title="Acquiring GPS Signal..."
       >
-        <Compass size={14} className="animate-spin text-emerald-500" />
+        <Compass size={14} className="text-slate-400" />
       </div>
     );
   };
@@ -336,7 +326,7 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
         <>
           <span className="w-px h-3.5 bg-slate-200 dark:bg-slate-800 mx-0.5" />
           <div
-            className="p-1.5 rounded-lg flex items-center justify-center text-sky-500 animate-pulse"
+            className="p-1.5 rounded-lg flex items-center justify-center text-sky-500"
             title="Syncing coordinates to cloud..."
           >
             <CloudUpload size={14} />
@@ -361,15 +351,11 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
             <button
               type="button"
               onClick={handleToggleSimulation}
-              className={`p-1.5 rounded-lg transition-all active:scale-95 flex items-center justify-center cursor-pointer ${
-                simMode
-                  ? 'text-amber-500 bg-amber-500/15'
-                  : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
-              }`}
+              className="p-1.5 rounded-lg transition-all active:scale-95 flex items-center justify-center cursor-pointer text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
               title={simMode ? 'GPS Simulation is ON (Tap to use Real GPS)' : 'GPS Simulation is OFF (Tap to enable Simulation)'}
               aria-label="Toggle GPS Simulation"
             >
-              <Zap size={14} className={simMode ? 'fill-amber-500 text-amber-500 animate-pulse' : ''} />
+              <Zap size={14} className={simMode ? 'text-amber-500 fill-amber-500' : 'text-slate-400'} />
             </button>
             {getNetworkIcon()}
           </div>

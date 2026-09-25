@@ -112,20 +112,14 @@ export const WakeLockIndicator: React.FC<WakeLockIndicatorProps> = ({
             e.stopPropagation();
             setShowInfo(true);
           }}
-          className="relative p-1.5 rounded-lg hover:bg-emerald-500/10 dark:hover:bg-slate-800 transition-all select-none active:scale-95 cursor-pointer flex items-center justify-center"
+          className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-all select-none active:scale-95 cursor-pointer flex items-center justify-center"
           title={status.isActive ? 'Screen Awake: Active (Screen stays on - click for info)' : 'Screen Awake: Standby (Click to enable)'}
           aria-label="Screen Wake Lock Status"
         >
-          <div className="relative flex items-center justify-center">
-            <Smartphone size={14} className={status.isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'} />
-            {status.isActive && (
-              <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-500 animate-ping opacity-75" />
-            )}
-            <span
-              className={`absolute -top-1 -right-1 w-2 h-2 rounded-full ${status.isActive ? 'bg-emerald-500' : 'bg-amber-500'
-                }`}
-            />
-          </div>
+          <Smartphone
+            size={14}
+            className={status.isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}
+          />
         </button>
         {renderModal()}
       </>
@@ -147,15 +141,9 @@ export const WakeLockIndicator: React.FC<WakeLockIndicatorProps> = ({
           }`}
         title={status.isActive ? 'Screen Wake Lock Active (Click for info)' : 'Screen Wake Lock Inactive (Click to manage)'}
       >
-        <span className="relative flex h-2 w-2">
-          {status.isActive && (
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-          )}
-          <span
-            className={`relative inline-flex rounded-full h-2 w-2 ${status.isActive ? 'bg-emerald-500' : 'bg-amber-500'
-              }`}
-          />
-        </span>
+        <span
+          className={`h-2 w-2 rounded-full ${status.isActive ? 'bg-emerald-500' : 'bg-amber-500'}`}
+        />
         <Smartphone size={compact ? 11 : 13} className="shrink-0" />
         <span>{status.isActive ? 'SCREEN AWAKE' : 'SLEEP ON'}</span>
       </button>
