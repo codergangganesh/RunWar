@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { MapContainer, TileLayer, Polyline, Marker, Circle, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
-import { CourseNavProgress, CourseRoute, GPSCoordinate } from '../../types';
+import { CourseNavProgress, CourseRoute, GhostRivalProgress, GPSCoordinate } from '../../types';
 import { Compass, Layers, LocateFixed, Navigation } from 'lucide-react';
 import { calculateSplits, getRouteDistanceMilestones } from '../../utils/calculations';
 import { formatDistance, formatDuration, formatPace } from '../../utils/formatters';
@@ -57,6 +57,13 @@ const createKilometerMarkerIcon = (kilometer: number) => L.divIcon({
   html: `<div class="flex h-7 min-w-7 items-center justify-center rounded-full border-2 border-white bg-emerald-700 px-1 text-[10px] font-black text-white shadow-lg">${kilometer}</div>`,
   iconSize: [28, 28],
   iconAnchor: [14, 14],
+});
+
+const createGhostMarkerIcon = () => L.divIcon({
+  className: 'ghost-rival-marker',
+  html: `<div class="w-8 h-8 rounded-full bg-violet-600 border-2 border-white text-white flex items-center justify-center text-sm shadow-xl shadow-violet-500/50 animate-pulse">👻</div>`,
+  iconSize: [32, 32],
+  iconAnchor: [16, 16],
 });
 
 interface MapControllerProps {
@@ -158,6 +165,7 @@ interface LiveWorkoutMapProps {
   className?: string;
   course?: CourseRoute | null;
   courseProgress?: CourseNavProgress | null;
+  ghostProgress?: GhostRivalProgress | null;
   distanceUnit?: 'km' | 'mi';
   children?: React.ReactNode;
 }
@@ -170,6 +178,7 @@ export const LiveWorkoutMap: React.FC<LiveWorkoutMapProps> = ({
   className = 'h-full w-full',
   course,
   courseProgress,
+  ghostProgress,
   distanceUnit = 'km',
   children,
 }) => {
@@ -379,6 +388,29 @@ export const LiveWorkoutMap: React.FC<LiveWorkoutMapProps> = ({
                 weight: 1,
               }}
             />
+          )}
+
+          {/* Virtual Ghost Runner Avatar */}
+          {ghostProgress?.ghostCoordinate && (
+            <Marker
+              position={[ghostProgress.ghostCoordinate.latitude, ghostProgress.ghostCoordinate.longitude]}
+              icon={createGhostMarkerIcon()}
+              zIndexOffset={950}
+            >
+              <Popup closeButton={false} offset={[0, -16]}>
+                <div className="text-center text-xs font-bold text-slate-800 p-0.5">
+                  <p className="flex items-center justify-center gap-1 text-violet-700">
+                    <span>👻</span>
+                    <span>{ghostProgress.config.name}</span>
+                  </p>
+                  <p className="text-[10px] text-slate-500 font-semibold mt-0.5">
+                    {ghostProgress.isRunnerAhead
+                      ? `${ghostProgress.deltaMeters}m behind you`
+                      : `${Math.abs(ghostProgress.deltaMeters)}m ahead of you`}
+                  </p>
+                </div>
+              </Popup>
+            </Marker>
           )}
 
           {/* Current Runner Marker */}

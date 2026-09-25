@@ -21,7 +21,8 @@ import { wakeLockService } from './wakeLockService';
 import { weatherService } from './weatherService';
 import { hapticsService } from './hapticsService';
 import { courseService } from './courseService';
-import { CourseRoute } from '../types';
+import { ghostRivalService } from './ghostRivalService';
+import { CourseRoute, GhostRivalConfig } from '../types';
 
 type StateListener = (state: LiveWorkoutState) => void;
 
@@ -98,6 +99,8 @@ export class WorkoutEngine {
       weather: null,
       activeCourse: courseService.getActiveCourse(),
       courseProgress: null,
+      ghostRival: ghostRivalService.getActiveGhost(),
+      ghostProgress: null,
     };
   }
 
@@ -201,6 +204,7 @@ export class WorkoutEngine {
 
     // Reset clean session
     const activeCourse = courseService.getActiveCourse();
+    const activeGhost = ghostRivalService.getActiveGhost();
     this.state = {
       ...this.createInitialState(),
       workoutId: crypto.randomUUID(),
@@ -209,6 +213,7 @@ export class WorkoutEngine {
       engineState: 'ACTIVE',
       status: 'tracking',
       activeCourse,
+      ghostRival: activeGhost,
     };
 
     this.stationaryCounterSec = 0;
@@ -224,6 +229,10 @@ export class WorkoutEngine {
         timestamp: Date.now(),
       };
       this.state.courseProgress = courseService.calculateProgress(activeCourse, fallbackCoord, 0);
+    }
+
+    if (activeGhost) {
+      this.state.ghostProgress = ghostRivalService.calculateProgress(activeGhost, 0, 0, []);
     }
 
     workoutLogger.log('WORKOUT_STARTED', 'info', {
@@ -271,6 +280,23 @@ export class WorkoutEngine {
         timestamp: Date.now(),
       };
       this.state.courseProgress = courseService.calculateProgress(course, coord, distanceRunOnCourse);
+    }
+    this.notify();
+  }
+
+  /** Set or clear active Ghost Rival */
+  public setGhostRival(rival: GhostRivalConfig | null): void {
+    ghostRivalService.setActiveGhost(rival);
+    this.state.ghostRival = rival;
+    if (!rival) {
+      this.state.ghostProgress = null;
+    } else {
+      this.state.ghostProgress = ghostRivalService.calculateProgress(
+        rival,
+        this.state.elapsedTime,
+        this.state.distanceMeters,
+        this.state.coordinates
+      );
     }
     this.notify();
   }
@@ -522,6 +548,16 @@ export class WorkoutEngine {
         this.state.courseProgress = courseService.calculateProgress(this.state.activeCourse, coord, distanceRunOnCourse);
       }
 
+      // Compute Ghost Rival racing progress
+      if (this.state.ghostRival) {
+        this.state.ghostProgress = ghostRivalService.calculateProgress(
+          this.state.ghostRival,
+          this.state.elapsedTime,
+          this.state.distanceMeters,
+          this.state.coordinates
+        );
+      }
+
       // 3. Speed & Pace Calculation with Noise Smoothing
       let instSpeedKmh = 0;
       if (prevCoord && coord.distanceFromPrevious > 0) {
@@ -750,6 +786,16 @@ export class WorkoutEngine {
         this.state.calories,
         false
       );
+
+      // Real-time second-by-second Ghost Rival progression
+      if (this.state.ghostRival) {
+        this.state.ghostProgress = ghostRivalService.calculateProgress(
+          this.state.ghostRival,
+          this.state.elapsedTime,
+          this.state.distanceMeters,
+          this.state.coordinates
+        );
+      }
 
       this.notify();
     } else if (this.state.engineState === 'PAUSED') {

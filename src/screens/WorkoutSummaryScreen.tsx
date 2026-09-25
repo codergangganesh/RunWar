@@ -31,6 +31,7 @@ import {
   CloudSun,
   Download,
   Navigation,
+  Swords,
 } from 'lucide-react';
 import { weatherService } from '../services/weatherService';
 import { WeatherSnapshot } from '../types';
@@ -430,7 +431,93 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
         </p>
       </div>
 
-      {/* 3. Measured & Recorded Trophy Banner */}
+      {/* 3. Virtual Ghost Rival Battle Verdict Card */}
+      {workoutState.ghostProgress && (() => {
+        const gp = workoutState.ghostProgress;
+        const isVictory = gp.isRunnerAhead || gp.deltaMeters >= 0;
+        const deltaM = Math.round(Math.abs(gp.deltaMeters));
+        const targetPaceStr = formatPace(gp.ghostPaceSecondsPerKm, paceUnit).replace(/\s\/\w+/, '');
+
+        return (
+          <div
+            className={`p-4 rounded-3xl border shadow-lg transition-all ${
+              isVictory
+                ? 'bg-gradient-to-br from-emerald-500/10 via-teal-500/5 to-amber-500/10 dark:from-emerald-950/40 dark:via-teal-950/20 dark:to-slate-900 border-emerald-300/80 dark:border-emerald-500/40 shadow-emerald-500/10'
+                : 'bg-gradient-to-br from-violet-500/10 via-purple-500/5 to-rose-500/10 dark:from-purple-950/40 dark:via-slate-900 dark:to-rose-950/20 border-violet-300/80 dark:border-purple-500/40 shadow-violet-500/10'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2.5">
+                <div
+                  className={`w-9 h-9 rounded-2xl flex items-center justify-center shadow-xs ${
+                    isVictory ? 'bg-amber-400/20 text-amber-500' : 'bg-violet-400/20 text-violet-400'
+                  }`}
+                >
+                  {isVictory ? <Trophy size={19} /> : <Swords size={19} />}
+                </div>
+                <div>
+                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-1.5">
+                    <span>{isVictory ? '🏆 Rival Victory!' : '⚔️ Rival Battle Complete'}</span>
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium truncate max-w-[170px]">
+                    vs {gp.config.name}
+                  </p>
+                </div>
+              </div>
+
+              {/* Status Badge */}
+              <div
+                className={`px-3 py-1 rounded-full text-xs font-black font-mono flex items-center gap-1 ${
+                  isVictory
+                    ? 'bg-emerald-500 text-white shadow-xs shadow-emerald-500/30'
+                    : 'bg-rose-500 text-white shadow-xs shadow-rose-500/30'
+                }`}
+              >
+                <span>{isVictory ? `+${deltaM}m Ahead` : `-${deltaM}m Behind`}</span>
+              </div>
+            </div>
+
+            {/* Split Comparison Grid */}
+            <div className="grid grid-cols-3 gap-2 py-2.5 px-3 rounded-2xl bg-white/70 dark:bg-slate-950/60 border border-slate-200/60 dark:border-slate-800/80 text-center mb-3">
+              <div>
+                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-0.5">
+                  Your Pace
+                </span>
+                <span className="text-xs sm:text-sm font-mono font-black text-slate-900 dark:text-white">
+                  {formattedPace}
+                </span>
+              </div>
+              <div className="border-x border-slate-200/60 dark:border-slate-800/80 px-1">
+                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-0.5">
+                  Rival Pace
+                </span>
+                <span className="text-xs sm:text-sm font-mono font-black text-violet-600 dark:text-violet-400">
+                  {targetPaceStr}
+                </span>
+              </div>
+              <div>
+                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-0.5">
+                  Net Gap
+                </span>
+                <span
+                  className={`text-xs sm:text-sm font-mono font-black ${
+                    isVictory ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+                  }`}
+                >
+                  {deltaM}m
+                </span>
+              </div>
+            </div>
+
+            {/* Race Summary message */}
+            <p className="text-[11px] text-center font-semibold text-slate-600 dark:text-slate-300">
+              {isVictory
+                ? `🔥 Incredible speed! You pulled ahead by ${deltaM} meters and beat the rival pace.`
+                : `⚡ Valiant effort! You finished ${deltaM} meters behind the ghost. Run again to claim victory!`}
+            </p>
+          </div>
+        );
+      })()}
 
 
       {/* 4. Your Route Map Section */}

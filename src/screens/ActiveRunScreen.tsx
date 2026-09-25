@@ -30,12 +30,14 @@ import {
   Zap,
   Navigation,
   Route,
+  Swords,
 } from 'lucide-react';
 import { formatDistance, formatDuration, formatPace, formatPaceRaw } from '../utils/formatters';
 import { WakeLockIndicator } from '../components/workout/WakeLockIndicator';
 import { WeatherBadge } from '../components/workout/WeatherBadge';
 import { AudioCoachModal } from '../components/workout/AudioCoachModal';
 import { CourseModal } from '../components/workout/CourseModal';
+import { GhostRivalModal } from '../components/workout/GhostRivalModal';
 import { BottomSheet } from '../components/ui/BottomSheet';
 import { AudioFrequency } from '../types';
 
@@ -62,6 +64,7 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
   const [audioMuted, setAudioMuted] = useState(!audioCoach.getIsEnabled());
   const [showAudioSettings, setShowAudioSettings] = useState(false);
   const [showCourseModal, setShowCourseModal] = useState(false);
+  const [showGhostModal, setShowGhostModal] = useState(false);
   const [coachFrequency, setCoachFrequency] = useState<AudioFrequency>(settings?.audio_frequency || '1km');
   const [simMode, setSimMode] = useState(gpsEngine.isSimulationMode);
   const [activeToast, setActiveToast] = useState<SplitToastInfo | null>(null);
@@ -418,6 +421,24 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
               <Navigation size={15} className={workoutState.activeCourse ? 'animate-pulse' : ''} />
             </button>
 
+            {/* Ghost Rival Racing Mode Trigger */}
+            <button
+              onClick={() => setShowGhostModal(true)}
+              className={`p-2 rounded-xl border transition-all active:scale-95 flex items-center gap-1 cursor-pointer ${
+                workoutState.ghostRival
+                  ? 'bg-violet-600 text-white border-violet-500 shadow-sm shadow-violet-500/25 font-bold'
+                  : 'bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-slate-500 hover:text-violet-600 dark:hover:text-violet-400'
+              }`}
+              title={
+                workoutState.ghostRival
+                  ? `Rival: ${workoutState.ghostRival.name} (Tap to change)`
+                  : 'Race against a Virtual Ghost Rival'
+              }
+              aria-label="Ghost Rival"
+            >
+              <Swords size={15} className={workoutState.ghostRival ? 'animate-pulse' : ''} />
+            </button>
+
             {/* Pocket Mode Toggle */}
             <button
               onClick={() => setIsPocketMode(true)}
@@ -483,6 +504,122 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
                 className="h-full bg-gradient-to-r from-cyan-500 to-teal-400 transition-all duration-500 rounded-full"
                 style={{ width: `${workoutState.courseProgress?.percentCompleted || 0}%` }}
               />
+            </div>
+          </div>
+        )}
+
+        {/* Virtual Ghost Runner / Rival Mode Racing HUD Card */}
+        {workoutState.ghostProgress && (
+          <div className="shrink-0 w-full p-2.5 sm:p-3 rounded-2xl bg-gradient-to-r from-violet-50/95 via-purple-50/90 to-indigo-50/95 dark:from-violet-950/40 dark:via-purple-950/30 dark:to-indigo-950/40 border border-violet-200/90 dark:border-violet-500/40 shadow-sm animate-fade-in space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <div className="w-6 h-6 rounded-lg bg-violet-500/20 text-violet-600 dark:text-violet-400 flex items-center justify-center shrink-0">
+                  <Swords size={13} className="text-violet-500" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[10px] font-black uppercase text-violet-700 dark:text-violet-400 tracking-wider">
+                      GHOST RIVAL
+                    </span>
+                    <span
+                      className={`text-[10px] font-black px-1.5 py-0.5 rounded-full flex items-center gap-0.5 ${
+                        workoutState.ghostProgress.isRunnerAhead
+                          ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30'
+                          : 'bg-rose-500/15 text-rose-700 dark:text-rose-400 border border-rose-500/30'
+                      }`}
+                    >
+                      {workoutState.ghostProgress.isRunnerAhead ? '▲' : '▼'}{' '}
+                      {Math.abs(workoutState.ghostProgress.deltaMeters)}m{' '}
+                      {workoutState.ghostProgress.isRunnerAhead ? 'Ahead' : 'Behind'}
+                    </span>
+                  </div>
+                  <h4 className="text-xs font-bold text-slate-950 dark:text-white truncate">
+                    {workoutState.ghostProgress.config.name}
+                  </h4>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                <div className="text-right">
+                  <span className="text-[9px] font-bold text-slate-400 uppercase block">Rival Pace</span>
+                  <span className="text-xs font-mono font-black text-violet-600 dark:text-violet-400">
+                    {formatPace(workoutState.ghostProgress.ghostPaceSecondsPerKm, paceUnit)}
+                  </span>
+                </div>
+                <button
+                  onClick={() => setShowGhostModal(true)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-violet-600 dark:hover:text-violet-400 cursor-pointer"
+                  title="Configure Ghost Rival"
+                >
+                  <Swords size={13} />
+                </button>
+              </div>
+            </div>
+
+            {/* Head-to-Head Racing Track Progress Visualizer */}
+            <div className="relative pt-2 pb-1">
+              <div className="w-full h-2 rounded-full bg-slate-200/80 dark:bg-slate-800 relative overflow-visible">
+                {/* Runner Progress Fill */}
+                <div
+                  className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-300"
+                  style={{
+                    width: `${Math.min(
+                      100,
+                      Math.max(
+                        0,
+                        (workoutState.distanceMeters /
+                          (workoutState.ghostProgress.config.targetDistanceMeters ||
+                            Math.max(workoutState.distanceMeters, workoutState.ghostProgress.ghostDistanceMeters, 1000))) *
+                          100
+                      )
+                    )}%`,
+                  }}
+                />
+
+                {/* Ghost Runner Marker Avatar */}
+                <div
+                  className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 transition-all duration-500 z-10"
+                  style={{
+                    left: `${Math.min(
+                      96,
+                      Math.max(
+                        4,
+                        (workoutState.ghostProgress.ghostDistanceMeters /
+                          (workoutState.ghostProgress.config.targetDistanceMeters ||
+                            Math.max(workoutState.distanceMeters, workoutState.ghostProgress.ghostDistanceMeters, 1000))) *
+                          100
+                      )
+                    )}%`,
+                  }}
+                  title={`Ghost: ${workoutState.ghostProgress.ghostDistanceMeters}m`}
+                >
+                  <div className="w-5 h-5 rounded-full bg-violet-600 text-white flex items-center justify-center text-[10px] shadow-md shadow-violet-600/40 ring-2 ring-white dark:ring-slate-900 animate-pulse">
+                    👻
+                  </div>
+                </div>
+
+                {/* User Runner Avatar */}
+                <div
+                  className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 transition-all duration-300 z-20"
+                  style={{
+                    left: `${Math.min(
+                      96,
+                      Math.max(
+                        4,
+                        (workoutState.distanceMeters /
+                          (workoutState.ghostProgress.config.targetDistanceMeters ||
+                            Math.max(workoutState.distanceMeters, workoutState.ghostProgress.ghostDistanceMeters, 1000))) *
+                          100
+                      )
+                    )}%`,
+                  }}
+                  title={`You: ${Math.round(workoutState.distanceMeters)}m`}
+                >
+                  <div className="w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center text-[10px] shadow-md shadow-emerald-500/40 ring-2 ring-white dark:ring-slate-900">
+                    🏃
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -615,6 +752,7 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
                 gpsAccuracy={workoutState.gpsAccuracy}
                 course={workoutState.activeCourse}
                 courseProgress={workoutState.courseProgress}
+                ghostProgress={workoutState.ghostProgress}
                 distanceUnit={distanceUnit}
                 className="h-full w-full"
               >
@@ -1057,6 +1195,14 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
         onClose={() => setShowCourseModal(false)}
         profile={profile}
         onSelectCourse={(course) => gpsEngine.setActiveCourse(course)}
+      />
+
+      {/* Virtual Ghost Runner / Rival Mode Modal */}
+      <GhostRivalModal
+        isOpen={showGhostModal}
+        onClose={() => setShowGhostModal(false)}
+        profile={profile}
+        onSelectGhost={(ghost) => gpsEngine.setGhostRival(ghost)}
       />
     </div>
   );

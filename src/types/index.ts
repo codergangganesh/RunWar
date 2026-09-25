@@ -324,5 +324,33 @@ export interface LiveWorkoutState {
   weather?: WeatherSnapshot | null;
   activeCourse?: CourseRoute | null;
   courseProgress?: CourseNavProgress | null;
+  ghostRival?: GhostRivalConfig | null;
+  ghostProgress?: GhostRivalProgress | null;
+}
+
+export type GhostRivalType = 'target_pace' | 'previous_workout';
+
+export interface GhostRivalConfig {
+  id: string;
+  name: string;
+  type: GhostRivalType;
+  targetPaceSecondsPerKm: number; // e.g. 300 for 5:00 min/km
+  targetDistanceMeters?: number; // optional target distance, e.g. 5000
+  previousWorkoutId?: string;
+  previousWorkoutTitle?: string;
+  previousWorkoutDate?: string;
+  previousCoordinates?: GPSCoordinate[];
+}
+
+export interface GhostRivalProgress {
+  config: GhostRivalConfig;
+  ghostDistanceMeters: number;
+  runnerDistanceMeters: number;
+  deltaMeters: number; // positive = runner ahead, negative = ghost ahead
+  deltaSeconds: number; // estimated seconds ahead or behind
+  isRunnerAhead: boolean;
+  ghostPaceSecondsPerKm: number;
+  ghostCoordinate?: GPSCoordinate | null; // calculated marker on map
+  percentCompleted?: number; // if targetDistanceMeters is set
 }
 

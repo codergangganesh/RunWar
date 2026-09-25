@@ -3,9 +3,12 @@ import { CourseRoute, Goal, UserProfile, Workout, WorkoutType } from '../types';
 import { formatDistance, formatDuration, formatPace } from '../utils/formatters';
 import { formatLocalTime } from '../utils/dateUtils';
 import { WeeklyBarChart } from '../components/charts/WeeklyBarChart';
-import { Play, Zap, Footprints, Target, ArrowRight, Clock, Navigation, Route } from 'lucide-react';
+import { Play, Zap, Footprints, Target, ArrowRight, Clock, Navigation, Route, Swords } from 'lucide-react';
 import { courseService } from '../services/courseService';
 import { CourseModal } from '../components/workout/CourseModal';
+import { ghostRivalService } from '../services/ghostRivalService';
+import { GhostRivalModal } from '../components/workout/GhostRivalModal';
+import { GhostRivalConfig } from '../types';
 
 interface HomeScreenProps {
   profile: UserProfile | null;
@@ -54,9 +57,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   );
   const [activeCourse, setActiveCourse] = useState<CourseRoute | null>(() => courseService.getActiveCourse());
   const [showCourseModal, setShowCourseModal] = useState(false);
+  const [activeGhost, setActiveGhost] = useState<GhostRivalConfig | null>(() => ghostRivalService.getActiveGhost());
+  const [showGhostModal, setShowGhostModal] = useState(false);
 
   useEffect(() => {
-    return courseService.subscribe(setActiveCourse);
+    const unsubCourse = courseService.subscribe(setActiveCourse);
+    const unsubGhost = ghostRivalService.subscribe(setActiveGhost);
+    return () => {
+      unsubCourse();
+      unsubGhost();
+    };
   }, []);
 
   const getGreeting = () => {
@@ -194,31 +204,39 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </div>
         </div>
 
-        {/* Course / Route Selector Pill */}
-        <div className="flex items-center justify-between pt-0.5 px-0.5">
+        {/* Course / Route & Ghost Rival Selectors */}
+        <div className="grid grid-cols-2 gap-2 pt-0.5 px-0.5">
+          {/* Route Selector Pill */}
           <button
             type="button"
             onClick={() => setShowCourseModal(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-950/80 hover:bg-cyan-50 dark:hover:bg-cyan-950/30 border border-slate-200/80 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 transition-all cursor-pointer group max-w-[80%]"
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer group text-left truncate ${
+              activeCourse
+                ? 'bg-cyan-50 dark:bg-cyan-950/40 border-cyan-300 dark:border-cyan-800 text-cyan-700 dark:text-cyan-300'
+                : 'bg-slate-100 dark:bg-slate-950/80 hover:bg-cyan-50 dark:hover:bg-cyan-950/30 border-slate-200/80 dark:border-slate-800 text-slate-700 dark:text-slate-300'
+            }`}
           >
             <Navigation size={13} className={activeCourse ? "text-cyan-500 animate-pulse shrink-0" : "text-slate-400 group-hover:text-cyan-500 shrink-0"} />
             <span className="truncate">
-              {activeCourse ? activeCourse.name : 'Course: Free Run'}
+              {activeCourse ? activeCourse.name : 'Route: Free'}
             </span>
           </button>
 
-          {activeCourse ? (
-            <span className="text-[11px] font-mono font-bold text-cyan-600 dark:text-cyan-400">
-              {formatDistance(activeCourse.totalDistanceMeters, distanceUnit)}
+          {/* Ghost Rival Selector Pill */}
+          <button
+            type="button"
+            onClick={() => setShowGhostModal(true)}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer group text-left truncate ${
+              activeGhost
+                ? 'bg-violet-50 dark:bg-violet-950/40 border-violet-300 dark:border-violet-800 text-violet-700 dark:text-violet-300 shadow-2xs'
+                : 'bg-slate-100 dark:bg-slate-950/80 hover:bg-violet-50 dark:hover:bg-violet-950/30 border-slate-200/80 dark:border-slate-800 text-slate-700 dark:text-slate-300'
+            }`}
+          >
+            <Swords size={13} className={activeGhost ? "text-violet-500 animate-pulse shrink-0" : "text-slate-400 group-hover:text-violet-500 shrink-0"} />
+            <span className="truncate">
+              {activeGhost ? `Rival: ${activeGhost.name}` : 'Rival: Off'}
             </span>
-          ) : (
-            <button
-              onClick={() => setShowCourseModal(true)}
-              className="text-[10px] font-bold text-cyan-600 dark:text-cyan-400 hover:underline cursor-pointer"
-            >
-              Pick Route
-            </button>
-          )}
+          </button>
         </div>
 
         {/* Sleek Action Start Button */}
@@ -338,6 +356,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         onClose={() => setShowCourseModal(false)}
         profile={profile}
         onSelectCourse={setActiveCourse}
+      />
+
+      {/* Ghost Rival Selector Modal */}
+      <GhostRivalModal
+        isOpen={showGhostModal}
+        onClose={() => setShowGhostModal(false)}
+        profile={profile}
+        onSelectGhost={setActiveGhost}
       />
     </div>
   );

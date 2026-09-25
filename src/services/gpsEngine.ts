@@ -65,6 +65,10 @@ export class GPSEngineFacade {
     workoutEngine.setActiveCourse(course);
   }
 
+  public setGhostRival(rival: any) {
+    workoutEngine.setGhostRival(rival);
+  }
+
   public startSimulation() {
     workoutEngine.startSimulation();
   }
