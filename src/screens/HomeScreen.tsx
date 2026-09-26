@@ -3,12 +3,13 @@ import { CourseRoute, Goal, UserProfile, Workout, WorkoutType } from '../types';
 import { formatDistance, formatDuration, formatPace } from '../utils/formatters';
 import { formatLocalTime } from '../utils/dateUtils';
 import { WeeklyBarChart } from '../components/charts/WeeklyBarChart';
-import { Play, Zap, Footprints, Target, ArrowRight, Clock, Navigation, Route, Swords, Trophy } from 'lucide-react';
+import { Play, Zap, Footprints, Target, ArrowRight, Clock, Navigation, Route, Swords, Trophy, Flame } from 'lucide-react';
 import { courseService } from '../services/courseService';
 import { CourseModal } from '../components/workout/CourseModal';
 import { ghostRivalService } from '../services/ghostRivalService';
 import { GhostRivalModal } from '../components/workout/GhostRivalModal';
 import { GhostRivalConfig } from '../types';
+import { SocialFeedScreen } from './SocialFeedScreen';
 
 interface HomeScreenProps {
   profile: UserProfile | null;
@@ -38,6 +39,7 @@ interface HomeScreenProps {
   onViewHistory: () => void;
   onViewGoals: () => void;
   onViewChallenges?: () => void;
+  onViewSocialFeed?: () => void;
   onSelectWorkout: (workout: Workout) => void;
 }
 
@@ -52,6 +54,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onViewHistory,
   onViewGoals,
   onViewChallenges,
+  onViewSocialFeed,
   onSelectWorkout,
 }) => {
   const [selectedActivity, setSelectedActivity] = useState<WorkoutType>(
@@ -248,7 +251,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       </div>
 
       {/* Run Goal Challenge Feature Banner */}
-      {onViewChallenges && (
+      {/* {onViewChallenges && (
         <div
           onClick={onViewChallenges}
           className="rounded-2xl bg-gradient-to-r from-orange-500/10 via-rose-500/10 to-amber-500/10 border border-orange-500/25 dark:border-orange-500/35 p-3.5 shadow-sm hover:border-orange-500/50 hover:shadow-md transition-all cursor-pointer group active:scale-[0.99]"
@@ -263,16 +266,40 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   <span className="text-xs font-black uppercase tracking-wider text-orange-600 dark:text-orange-400">
                     Run Goal Challenge
                   </span>
-                  <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-orange-500/20 text-orange-600 dark:text-orange-300">
-                    1v1 Races
-                  </span>
+
                 </div>
                 <p className="text-xs text-slate-600 dark:text-slate-300 font-medium mt-0.5 truncate">
                   Challenge a friend to a race & track live progress!
                 </p>
               </div>
             </div>
+          </div>
+        </div>
+      )} */}
 
+      {/* War Zone Community Social Feed Dedicated Page Card */}
+      {onViewSocialFeed && (
+        <div
+          onClick={onViewSocialFeed}
+          className="rounded-2xl bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-emerald-500/10 border border-emerald-500/25 dark:border-emerald-500/35 p-3.5 shadow-sm hover:border-emerald-500/50 hover:shadow-md transition-all cursor-pointer group active:scale-[0.99]"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white shadow-md shadow-emerald-500/30 group-hover:scale-105 transition-transform shrink-0">
+                <Flame size={20} className="fill-white" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-xs font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                    War Zone Social Feed
+                  </span>
+
+                </div>
+                <p className="text-xs text-slate-600 dark:text-slate-300 font-medium mt-0.5 truncate">
+                  View global activity!
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       )}

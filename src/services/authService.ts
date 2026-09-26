@@ -53,11 +53,14 @@ export const authService = {
       localStorage.removeItem(SETTINGS_CACHE_KEY);
       localStorage.removeItem('runwar_google_fit_state');
       localStorage.removeItem('runwar_google_fit_token_transfer');
+      // Clear social feed and reaction caches to prevent data leakage between sessions
+      localStorage.removeItem('runwar_community_posts_cache');
+      localStorage.removeItem('runwar_user_reactions_cache');
       // Clear all cached workouts to prevent account pollution while keeping setup flags intact
       const keysToRemove: string[] = [];
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i);
-        if (k && k.startsWith('runwar_cached_workouts')) {
+        if (k && (k.startsWith('runwar_cached_workouts') || k.startsWith('runwar_community_'))) {
           keysToRemove.push(k);
         }
       }

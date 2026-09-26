@@ -20,6 +20,7 @@ import { PrivacyScreen } from './screens/PrivacyScreen';
 import { ConnectedHealthScreen } from './screens/ConnectedHealthScreen';
 import { DailyActivityScreen } from './screens/DailyActivityScreen';
 import { ChallengesScreen } from './screens/ChallengesScreen';
+import { SocialFeedScreen } from './screens/SocialFeedScreen';
 import { RecoveryModal } from './components/ui/RecoveryModal';
 import { PWAInstallBanner } from './components/ui/PWAInstallBanner';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
@@ -930,6 +931,7 @@ export const App: React.FC = () => {
                 onViewHistory={() => setActiveTab('history')}
                 onViewGoals={() => setActiveTab('goals')}
                 onViewChallenges={() => setActiveTab('challenges')}
+                onViewSocialFeed={() => setActiveTab('social')}
                 onSelectWorkout={handleSelectWorkout}
               />
             )}
@@ -1017,6 +1019,15 @@ export const App: React.FC = () => {
                   sessionStorage.setItem('runwar_active_challenge_id', challenge.id);
                   handleStartRun('run');
                 }}
+                onBack={() => setActiveTab('home')}
+              />
+            )}
+
+            {activeTab === 'social' && (
+              <SocialFeedScreen
+                profile={profile}
+                userWorkouts={workouts}
+                onSelectWorkout={handleSelectWorkout}
                 onBack={() => setActiveTab('home')}
               />
             )}

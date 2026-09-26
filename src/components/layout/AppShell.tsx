@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Home, History, TrendingUp, User, Play, Calendar, Target, Trophy } from 'lucide-react';
+import { Home, History, TrendingUp, User, Play, Calendar, Target, Trophy, Flame } from 'lucide-react';
 import { TopHeader } from './TopHeader';
 import { UserProfile } from '../../types';
 
@@ -14,7 +14,8 @@ export type ActiveTab =
   | 'achievements'
   | 'records'
   | 'calendar'
-  | 'challenges';
+  | 'challenges'
+  | 'social';
 
 interface AppShellProps {
   activeTab: ActiveTab;

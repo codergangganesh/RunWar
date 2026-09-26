@@ -239,9 +239,7 @@ export const ChallengesScreen: React.FC<Props> = ({ currentUser, onStartRun, onB
               <div className="space-y-3">
                 {activeChallenges.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-16 gap-4">
-                    <div className="w-20 h-20 rounded-3xl bg-white dark:bg-white/[0.05] border border-slate-200/80 dark:border-white/10 flex items-center justify-center shadow-sm">
-                      <Trophy size={36} className="text-slate-300 dark:text-white/20" />
-                    </div>
+
                     <div className="text-center">
                       <h3 className="text-slate-800 dark:text-white/70 font-semibold">No active challenges</h3>
                       <p className="text-slate-500 dark:text-white/30 text-sm mt-1">Challenge a friend to a race!</p>
@@ -286,9 +284,7 @@ export const ChallengesScreen: React.FC<Props> = ({ currentUser, onStartRun, onB
               <div className="space-y-3">
                 {historyChallenges.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-16 gap-4">
-                    <div className="w-20 h-20 rounded-3xl bg-white dark:bg-white/[0.05] border border-slate-200/80 dark:border-white/10 flex items-center justify-center shadow-sm">
-                      <CheckCircle2 size={36} className="text-slate-300 dark:text-white/20" />
-                    </div>
+
                     <div className="text-center">
                       <h3 className="text-slate-800 dark:text-white/70 font-semibold">No challenge history</h3>
                       <p className="text-slate-500 dark:text-white/30 text-sm mt-1">Completed challenges will appear here</p>
