@@ -4,7 +4,7 @@ import {
   Flame, MessageSquare, Share2, Trophy, MapPin, Shield, Zap, Send,
   User, Award, Navigation, Plus, CheckCircle2, Download, ChevronLeft, RefreshCw, Lock, Globe, Users, X, Filter, Check,
   MoreVertical, Calendar, Clock, Timer, Trash2, Edit2, Flag, AlertTriangle,
-  ChevronDown, ChevronUp, Camera, Image, Sparkles, Swords, TrendingUp, Radio
+  ChevronDown, ChevronUp, Camera, Image, Sparkles, Swords, TrendingUp, Radio, Map
 } from 'lucide-react';
 import {
   socialService,
@@ -95,12 +95,12 @@ const RouteThumbnail: React.FC<{
   const uniqueId = React.useId().replace(/:/g, '_');
 
   return (
-    <div className={`relative overflow-hidden rounded-2xl bg-gradient-to-b from-slate-900 via-slate-950 to-slate-900 border border-emerald-500/25 shadow-inner ${className}`}>
+    <div className={`relative overflow-hidden rounded-2xl route-map-container bg-gradient-to-b from-slate-900 via-slate-950 to-slate-900 border border-emerald-500/25 dark:border-white/10 shadow-inner ${className}`}>
       {/* Background topographic grid pattern */}
-      <svg className="absolute inset-0 w-full h-full opacity-10" xmlns="http://www.w3.org/2000/svg">
+      <svg className="absolute inset-0 w-full h-full map-grid-pattern opacity-30 dark:opacity-10 pointer-events-none" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <pattern id={`grid_${uniqueId}`} width="20" height="20" patternUnits="userSpaceOnUse">
-            <path d="M 20 0 L 0 0 0 20" fill="none" stroke="white" strokeWidth="0.5" />
+            <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#059669" className="stroke-[#059669] dark:stroke-white" strokeWidth="0.6" />
           </pattern>
         </defs>
         <rect width="100%" height="100%" fill={`url(#grid_${uniqueId})`} />
@@ -122,7 +122,7 @@ const RouteThumbnail: React.FC<{
           fill="none"
           stroke="#10b981"
           strokeWidth="6"
-          opacity="0.3"
+          className="opacity-25 dark:opacity-30"
           strokeLinecap="round"
           strokeLinejoin="round"
         />
@@ -132,34 +132,229 @@ const RouteThumbnail: React.FC<{
           d={pathData}
           fill="none"
           stroke={`url(#routeGrad_${uniqueId})`}
-          strokeWidth="3.2"
+          strokeWidth="3.4"
           strokeLinecap="round"
           strokeLinejoin="round"
         />
 
         {/* Start Point Pin */}
-        <circle cx={startPt[0]} cy={startPt[1]} r="4.5" fill="#10b981" stroke="#ffffff" strokeWidth="1.5" />
+        <circle cx={startPt[0]} cy={startPt[1]} r="5" fill="#10b981" stroke="#ffffff" strokeWidth="1.5" />
         {/* Finish Point Pin */}
-        <circle cx={endPt[0]} cy={endPt[1]} r="4.5" fill="#f59e0b" stroke="#ffffff" strokeWidth="1.5" />
+        <circle cx={endPt[0]} cy={endPt[1]} r="5" fill="#f59e0b" stroke="#ffffff" strokeWidth="1.5" />
       </svg>
 
       {/* GPS Verified HUD Chip */}
-      <div className="absolute top-2 left-2 flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-md text-[10px] font-mono font-bold text-emerald-400 border border-emerald-500/30">
-        <Radio size={10} className="animate-pulse text-emerald-400" />
-        <span>GPS POLYLINE</span>
+      <div className="map-hud-badge absolute top-2 left-2 flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-white/95 dark:bg-black/60 backdrop-blur-sm border border-emerald-200 dark:border-white/10 shadow-xs text-[9px] font-bold text-emerald-800 dark:text-emerald-300">
+        <Radio
+          size={10}
+          strokeWidth={2.5}
+          className="animate-pulse text-emerald-600 dark:text-emerald-400"
+        />
+
+        {distanceKm > 0 && (
+          <span className="font-mono text-emerald-700 dark:text-emerald-400 border-l border-emerald-200 dark:border-white/20 pl-1.5 font-bold">
+            {distanceKm.toFixed(2)} km
+          </span>
+        )}
       </div>
 
       {/* Start / Finish Legend Chip */}
-      <div className="absolute bottom-2 right-2 flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-md text-[10px] font-mono text-slate-300 border border-white/10">
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+      <div className="map-hud-badge absolute bottom-2 right-2 flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/95 dark:bg-black/60 backdrop-blur-sm text-[8px] font-mono font-bold text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-white/10 shadow-xs">
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-xs"></span>
         <span>Start</span>
-        <span className="text-white/40">•</span>
-        <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+        <span className="text-slate-400 dark:text-white/30">•</span>
+        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shadow-xs"></span>
         <span>Finish</span>
       </div>
     </div>
   );
 };
+
+/**
+ * Interactive Vector Sector Route Map for Territory Zones
+ * Renders distinct circuit paths, start/finish beacons, elevation badges, and siege status
+ */
+const TerritoryRouteSnippet: React.FC<{
+  circuitType?: number;
+  status?: 'Secured' | 'Contested';
+  isUnderSiege?: boolean;
+  distanceKm: string | number;
+  elevationM?: number;
+  difficulty?: string;
+  coordinates?: any[];
+  className?: string;
+}> = ({
+  circuitType = 1,
+  status = 'Contested',
+  isUnderSiege = false,
+  distanceKm,
+  elevationM,
+  difficulty = 'Moderate',
+  coordinates,
+  className = '',
+}) => {
+    const uniqueId = React.useId().replace(/:/g, '_');
+
+    // Generate distinct circuit geometry depending on whether real GPS points exist or fallback circuit geometry
+    let points: [number, number][] = [];
+    let isRealGPS = false;
+
+    if (coordinates && coordinates.length >= 2) {
+      const lats = coordinates.map((c: any) => Number(c.latitude || c.lat || 0)).filter((n) => !isNaN(n) && n !== 0);
+      const lngs = coordinates.map((c: any) => Number(c.longitude || c.lng || c.lon || 0)).filter((n) => !isNaN(n) && n !== 0);
+
+      if (lats.length >= 2 && lngs.length >= 2) {
+        const minLat = Math.min(...lats);
+        const maxLat = Math.max(...lats);
+        const minLng = Math.min(...lngs);
+        const maxLng = Math.max(...lngs);
+
+        const latSpan = Math.max(0.0008, maxLat - minLat);
+        const lngSpan = Math.max(0.0008, maxLng - minLng);
+
+        const padX = 35;
+        const padY = 25;
+        const w = 330 - padX * 2;
+        const h = 135 - padY * 2;
+
+        points = coordinates.map((c: any) => {
+          const lat = Number(c.latitude || c.lat || 0);
+          const lng = Number(c.longitude || c.lng || c.lon || 0);
+          const x = padX + ((lng - minLng) / lngSpan) * w;
+          const y = padY + (1 - (lat - minLat) / latSpan) * h;
+          return [Math.round(x * 10) / 10, Math.round(y * 10) / 10];
+        });
+        isRealGPS = points.length >= 2;
+      }
+    }
+
+    // Fallback to geometric circuit templates if coordinates are empty
+    if (points.length < 2) {
+      if (circuitType === 1) {
+        points = [
+          [50, 85], [75, 45], [120, 30], [180, 25], [235, 40], [270, 75],
+          [250, 105], [190, 110], [130, 105], [80, 100], [50, 85]
+        ];
+      } else if (circuitType === 2) {
+        points = [
+          [35, 95], [70, 70], [115, 80], [165, 50], [215, 65], [260, 35], [295, 45]
+        ];
+      } else if (circuitType === 3) {
+        points = [
+          [35, 110], [75, 90], [55, 65], [110, 50], [145, 80], [190, 45],
+          [225, 70], [260, 30], [295, 20]
+        ];
+      } else {
+        points = [
+          [40, 35], [90, 50], [140, 95], [195, 105], [245, 60], [290, 70]
+        ];
+      }
+    }
+
+    const pathData = points.reduce((acc, pt, idx) => {
+      return idx === 0 ? `M ${pt[0]} ${pt[1]}` : `${acc} L ${pt[0]} ${pt[1]}`;
+    }, '');
+
+    const startPt = points[0];
+    const endPt = points[points.length - 1];
+
+    const glowColor = isUnderSiege ? '#ef4444' : status === 'Contested' ? '#f59e0b' : '#10b981';
+
+    return (
+      <div className={`relative overflow-hidden rounded-2xl route-map-container bg-gradient-to-b from-slate-900 via-slate-950 to-slate-900 border ${isUnderSiege ? 'border-amber-500/40 shadow-inner' : 'border-emerald-500/25 dark:border-white/10 shadow-inner'
+        } ${className}`}>
+        {/* Background Topographic Grid */}
+        <svg className="absolute inset-0 w-full h-full map-grid-pattern opacity-30 dark:opacity-10 pointer-events-none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <pattern id={`t_grid_${uniqueId}`} width="20" height="20" patternUnits="userSpaceOnUse">
+              <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#059669" className="stroke-[#059669] dark:stroke-white" strokeWidth="0.6" />
+            </pattern>
+          </defs>
+          <rect width="100%" height="100%" fill={`url(#t_grid_${uniqueId})`} />
+        </svg>
+
+        {/* Main Route SVG */}
+        <svg viewBox="0 0 330 135" className="w-full h-28 sm:h-32 drop-shadow-md">
+          <defs>
+            <linearGradient id={`t_grad_${uniqueId}`} x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor={isUnderSiege ? '#f59e0b' : '#10b981'} />
+              <stop offset="60%" stopColor={isUnderSiege ? '#ef4444' : '#06b6d4'} />
+              <stop offset="100%" stopColor={isUnderSiege ? '#dc2626' : '#3b82f6'} />
+            </linearGradient>
+          </defs>
+
+          {/* Ambient Path Glow */}
+          <path
+            d={pathData}
+            fill="none"
+            stroke={glowColor}
+            strokeWidth="6"
+            className="opacity-20 dark:opacity-30"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+
+          {/* Crisp Foreground Route */}
+          <path
+            d={pathData}
+            fill="none"
+            stroke={`url(#t_grad_${uniqueId})`}
+            strokeWidth="3.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+
+          {/* Start Pin */}
+          <circle cx={startPt[0]} cy={startPt[1]} r="6" fill="#10b981" stroke="#ffffff" strokeWidth="1.5" />
+          <circle cx={startPt[0]} cy={startPt[1]} r="2.5" fill="#ffffff" />
+
+          {/* End Pin */}
+          <circle cx={endPt[0]} cy={endPt[1]} r="6" fill={isUnderSiege ? '#ef4444' : '#06b6d4'} stroke="#ffffff" strokeWidth="1.5" />
+          <circle cx={endPt[0]} cy={endPt[1]} r="2.5" fill="#ffffff" />
+        </svg>
+
+        {/* Embedded Tactical HUD Badges */}
+        <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 pointer-events-none">
+          <div className="map-hud-badge px-2 py-0.5 rounded-full bg-white/95 dark:bg-black/60 backdrop-blur-md border border-slate-200 dark:border-white/10 text-[10px] font-bold text-slate-800 dark:text-white flex items-center gap-1 shadow-xs">
+            <Navigation size={10} className="text-emerald-600 dark:text-emerald-400" />
+            <span>{typeof distanceKm === 'number' ? `${distanceKm} km` : distanceKm}</span>
+          </div>
+          {isRealGPS && (
+            <div className="px-2 py-0.5 rounded-full bg-emerald-500/15 dark:bg-emerald-500/20 backdrop-blur-md border border-emerald-500/30 dark:border-emerald-400/40 text-[9px] font-black uppercase tracking-wider text-emerald-800 dark:text-emerald-300 flex items-center gap-1">
+              <Radio size={9} className="text-emerald-600 dark:text-emerald-400 animate-pulse" />
+              <span>GPS Track</span>
+            </div>
+          )}
+          {elevationM !== undefined && elevationM > 0 && (
+            <div className="map-hud-badge px-2 py-0.5 rounded-full bg-white/95 dark:bg-black/60 backdrop-blur-md border border-slate-200 dark:border-white/10 text-[10px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 shadow-xs">
+              <TrendingUp size={10} className="text-cyan-600 dark:text-cyan-400" />
+              <span>+{elevationM}m</span>
+            </div>
+          )}
+        </div>
+
+        <div className="absolute top-2.5 right-2.5 pointer-events-none">
+          <div className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider backdrop-blur-md border shadow-xs ${difficulty === 'Extreme'
+            ? 'bg-purple-500/15 dark:bg-purple-500/30 text-purple-700 dark:text-purple-300 border-purple-400/40'
+            : difficulty === 'Hard'
+              ? 'bg-amber-500/15 dark:bg-amber-500/30 text-amber-700 dark:text-amber-300 border-amber-400/40'
+              : 'bg-emerald-500/15 dark:bg-emerald-500/30 text-emerald-800 dark:text-emerald-300 border-emerald-400/40'
+            }`}>
+            {difficulty}
+          </div>
+        </div>
+
+        {/* Start / Finish Legend Chip */}
+        <div className="map-hud-badge absolute bottom-2 right-2 flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/95 dark:bg-black/60 backdrop-blur-md text-[9px] font-mono font-bold text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-white/10 shadow-xs pointer-events-none">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-xs"></span>
+          <span>Start</span>
+          <span className="text-slate-400 dark:text-white/40">•</span>
+          <span className={`w-1.5 h-1.5 rounded-full ${isUnderSiege ? 'bg-red-500' : 'bg-cyan-500'} shadow-xs`}></span>
+          <span>Finish</span>
+        </div>
+      </div>
+    );
+  };
 
 /**
  * High-fidelity Skeleton Card matching the post card geometry & layout
@@ -216,6 +411,38 @@ const FeedSkeletonCard: React.FC = () => {
   );
 };
 
+/**
+ * High-fidelity Skeleton Row matching the Leaderboard entry geometry & layout
+ */
+const LeaderboardSkeletonRow: React.FC = () => {
+  return (
+    <div className="p-3.5 sm:p-4 rounded-2xl border border-slate-200/80 dark:border-white/[0.08] bg-white dark:bg-white/[0.04] flex items-center justify-between gap-3 animate-pulse">
+      <div className="flex items-center gap-3 min-w-0 flex-1">
+        {/* Rank circle skeleton */}
+        <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-white/10 shrink-0" />
+
+        {/* Avatar circle skeleton */}
+        <div className="w-10 h-10 rounded-full bg-slate-200 dark:bg-white/10 shrink-0" />
+
+        {/* Athlete Name and Subtext */}
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <div className="h-4 w-28 sm:w-36 bg-slate-200 dark:bg-white/10 rounded-md" />
+          <div className="flex items-center gap-2">
+            <div className="h-3 w-16 bg-slate-100 dark:bg-white/[0.06] rounded-md" />
+            <div className="h-3 w-20 bg-slate-100 dark:bg-white/[0.06] rounded-md" />
+          </div>
+        </div>
+      </div>
+
+      {/* Metric Stat Skeleton */}
+      <div className="text-right shrink-0 space-y-1.5">
+        <div className="h-5 w-16 bg-slate-200 dark:bg-white/10 rounded-md ml-auto" />
+        <div className="h-3 w-12 bg-slate-100 dark:bg-white/[0.06] rounded-md ml-auto" />
+      </div>
+    </div>
+  );
+};
+
 export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
   profile,
   userWorkouts = [],
@@ -225,6 +452,7 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
   const [tab, setTab] = useState<SocialTab>('feed');
   const [posts, setPosts] = useState<FeedPost[]>(() => socialService.getFeedPosts());
   const [isLoadingFeed, setIsLoadingFeed] = useState<boolean>(true);
+  const [isLoadingLeaderboard, setIsLoadingLeaderboard] = useState<boolean>(true);
 
   // Leaderboard Filtering & Categorization State
   const [timeframe, setTimeframe] = useState<'week' | 'month' | 'all'>('week');
@@ -236,10 +464,12 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
   const [territories, setTerritories] = useState<TerritoryZone[]>(() =>
     socialService.calculateTerritories(userWorkouts, profile)
   );
+  const [expandedMapZoneIds, setExpandedMapZoneIds] = useState<{ [zoneId: string]: boolean }>({});
 
   const [commentInputs, setCommentInputs] = useState<{ [postId: string]: string }>({});
   const [expandedComments, setExpandedComments] = useState<{ [postId: string]: boolean }>({});
   const [expandedSplits, setExpandedSplits] = useState<{ [postId: string]: boolean }>({});
+  const [expandedPostMaps, setExpandedPostMaps] = useState<{ [postId: string]: boolean }>({});
   const [activePostMenu, setActivePostMenu] = useState<string | null>(null);
 
   // Modals & Sheets State
@@ -252,6 +482,12 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
     streak: number;
     difficulty?: string;
     elevationM?: number;
+    bountyXp?: number;
+    isUnderSiege?: boolean;
+    circuitType?: number;
+    coordinates?: any[];
+    splitsTarget?: { km: number; pace: string }[];
+    isRealUserWorkout?: boolean;
   } | null>(null);
 
   // Full Edit Post State with all creation options
@@ -300,6 +536,7 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
       } finally {
         if (isMounted) {
           setIsLoadingFeed(false);
+          setIsLoadingLeaderboard(false);
         }
       }
     };
@@ -330,11 +567,39 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
     };
   }, [profile, userWorkouts, timeframe, leaderboardCategory]);
 
-  const toggleComments = (postId: string) => {
+  const toggleComments = async (postId: string) => {
+    const isExpanding = !expandedComments[postId];
     setExpandedComments((prev: Record<string, boolean>) => ({
       ...prev,
-      [postId]: !prev[postId],
+      [postId]: isExpanding,
     }));
+
+    if (isExpanding) {
+      try {
+        const freshComments = await socialService.fetchCommentsForPost(postId, profile);
+        if (freshComments && Array.isArray(freshComments)) {
+          setPosts((prevPosts) =>
+            prevPosts.map((p) => {
+              if (p.id === postId) {
+                const freshIds = new Set(freshComments.map((c) => c.id));
+                const merged = [
+                  ...freshComments,
+                  ...(p.comments || []).filter((c) => !freshIds.has(c.id)),
+                ].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+                return {
+                  ...p,
+                  comments: merged,
+                  commentsCount: merged.length,
+                };
+              }
+              return p;
+            })
+          );
+        }
+      } catch (err) {
+        console.warn('Could not refresh post comments:', err);
+      }
+    }
   };
 
   // Field extraction helper for workout objects
@@ -390,19 +655,14 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
     setPosts(updated);
   };
 
-  // Add Comment with Self-Interaction Guard
+  // Add Comment Handler (supports comments from any athlete and creator replies)
   const handleAddComment = async (postId: string) => {
     const text = commentInputs[postId];
     if (!text || !text.trim()) return;
 
-    const targetPost = posts.find((p) => p.id === postId);
-    if (targetPost && socialService.isPostAuthor(targetPost, profile)) {
-      return;
-    }
-
     const updated = await socialService.addComment(postId, text, profile);
     setPosts(updated);
-    setCommentInputs({ ...commentInputs, [postId]: '' });
+    setCommentInputs((prev) => ({ ...prev, [postId]: '' }));
     setExpandedComments((prev: Record<string, boolean>) => ({ ...prev, [postId]: true }));
   };
 
@@ -565,6 +825,14 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
       targetPaceSeconds: 275,
       difficulty: 'Moderate' as const,
       elevationM: 48,
+      bountyXp: 350,
+      isUnderSiege: true,
+      circuitType: 1,
+      splitsTarget: [
+        { km: 1, pace: '4:40 /km' },
+        { km: 2, pace: '4:35 /km' },
+        { km: 3, pace: '4:30 /km' },
+      ],
     };
 
     setChallengeModalSector({
@@ -575,6 +843,12 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
       streak: matchingZone.defenseStreakDays,
       difficulty: matchingZone.difficulty,
       elevationM: matchingZone.elevationM,
+      bountyXp: matchingZone.bountyXp || 350,
+      isUnderSiege: matchingZone.isUnderSiege,
+      circuitType: matchingZone.circuitType || 1,
+      coordinates: matchingZone.route_coordinates,
+      splitsTarget: matchingZone.splitsTarget,
+      isRealUserWorkout: matchingZone.isRealUserWorkout,
     });
   };
 
@@ -596,6 +870,7 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
   // Refresh feed and leaderboard from InsForge Cloud DB
   const handleRefresh = async () => {
     setRefreshing(true);
+    setIsLoadingLeaderboard(true);
     try {
       const [cloudPosts, cloudLeaderboard] = await Promise.all([
         socialService.getFeedPostsAsync(profile),
@@ -607,6 +882,7 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
     } catch (err) {
       console.warn('Failed to refresh social feed & leaderboard:', err);
     } finally {
+      setIsLoadingLeaderboard(false);
       setTimeout(() => setRefreshing(false), 300);
     }
   };
@@ -803,16 +1079,16 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
             {/* Tab 1: Activity Feed */}
             <button
               onClick={() => setTab('feed')}
-              className={`flex items-center justify-center gap-1 px-2 py-1.5 sm:py-2 rounded-full text-[11px] sm:text-xs font-semibold transition-all cursor-pointer min-w-0 ${tab === 'feed'
-                ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-600/20'
+              className={`flex items-center justify-center gap-1.5 px-3 py-1.5 sm:py-2 rounded-full text-[11px] sm:text-xs font-bold transition-all cursor-pointer min-w-0 ${tab === 'feed'
+                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/25 ring-1 ring-emerald-500/30'
                 : 'bg-white dark:bg-white/[0.06] border border-slate-200 dark:border-white/10 text-slate-700 dark:text-white/70 hover:border-emerald-400'
                 }`}
             >
               <span className="truncate">Feed</span>
               <span
-                className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold shrink-0 ${tab === 'feed'
-                  ? 'bg-emerald-200 text-emerald-950'
-                  : 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400'
+                className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold shrink-0 ${tab === 'feed'
+                  ? 'bg-white/20 text-white'
+                  : 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-400'
                   }`}
               >
                 {visiblePosts.length}
@@ -822,16 +1098,16 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
             {/* Tab 2: Leaderboard */}
             <button
               onClick={() => setTab('leaderboard')}
-              className={`flex items-center justify-center gap-1 px-2 py-1.5 sm:py-2 rounded-full text-[11px] sm:text-xs font-semibold transition-all cursor-pointer min-w-0 ${tab === 'leaderboard'
-                ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-600/20'
+              className={`flex items-center justify-center gap-1.5 px-3 py-1.5 sm:py-2 rounded-full text-[11px] sm:text-xs font-bold transition-all cursor-pointer min-w-0 ${tab === 'leaderboard'
+                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/25 ring-1 ring-emerald-500/30'
                 : 'bg-white dark:bg-white/[0.06] border border-slate-200 dark:border-white/10 text-slate-700 dark:text-white/70 hover:border-emerald-400'
                 }`}
             >
               <span className="truncate">Rankings</span>
               <span
-                className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold shrink-0 ${tab === 'leaderboard'
-                  ? 'bg-emerald-200 text-emerald-950'
-                  : 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400'
+                className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold shrink-0 ${tab === 'leaderboard'
+                  ? 'bg-white/20 text-white'
+                  : 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-400'
                   }`}
               >
                 {visibleLeaderboard.length}
@@ -841,16 +1117,16 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
             {/* Tab 3: Territories */}
             <button
               onClick={() => setTab('territories')}
-              className={`flex items-center justify-center gap-1 px-2 py-1.5 sm:py-2 rounded-full text-[11px] sm:text-xs font-semibold transition-all cursor-pointer min-w-0 ${tab === 'territories'
-                ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-600/20'
+              className={`flex items-center justify-center gap-1.5 px-3 py-1.5 sm:py-2 rounded-full text-[11px] sm:text-xs font-bold transition-all cursor-pointer min-w-0 ${tab === 'territories'
+                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/25 ring-1 ring-emerald-500/30'
                 : 'bg-white dark:bg-white/[0.06] border border-slate-200 dark:border-white/10 text-slate-700 dark:text-white/70 hover:border-emerald-400'
                 }`}
             >
               <span className="truncate">Territories</span>
               <span
-                className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold shrink-0 ${tab === 'territories'
-                  ? 'bg-emerald-200 text-emerald-950'
-                  : 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400'
+                className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold shrink-0 ${tab === 'territories'
+                  ? 'bg-white/20 text-white'
+                  : 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-400'
                   }`}
               >
                 {visibleTerritories.length}
@@ -1215,7 +1491,7 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
                       </p>
                     )}
 
-                    {/* PHOTO ATTACHMENT WITH STATS OVERLAY */}
+                    {/* PHOTO ATTACHMENT WITH STATS OVERLAY + MAP ICON */}
                     {post.photoUrl && (
                       <div className="relative overflow-hidden rounded-2xl border border-slate-200 dark:border-white/10 group shadow-md">
                         <img
@@ -1224,116 +1500,195 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
                           className="w-full h-56 sm:h-64 object-cover group-hover:scale-[1.02] transition-transform duration-500"
                         />
                         {post.hasPhotoStatsOverlay && (
-                          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/55 to-transparent p-3.5 sm:p-4 text-white">
+                          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/90 to-transparent p-3.5 sm:p-4 text-white">
                             <div className="flex items-end justify-between gap-2">
                               <div>
                                 <div className="flex items-center gap-1.5 mb-1">
-                                  <div className="w-5 h-5 rounded-md bg-emerald-500 flex items-center justify-center shadow-xs">
-                                    <Flame size={12} className="text-white fill-white" />
-                                  </div>
-                                  <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400">
+
+                                  <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400 drop-shadow-sm">
                                     RUNWAR STATS STAMP
                                   </span>
                                 </div>
-                                <div className="text-2xl sm:text-3xl font-black font-mono tracking-tight leading-none text-white drop-shadow-md">
-                                  {metrics.distFormatted} <span className="text-sm font-bold text-emerald-400">KM</span>
+                                <div
+                                  className="text-2xl sm:text-3xl font-black font-mono tracking-tight leading-none text-white drop-shadow-lg stats-overlay-white"
+                                  style={{ color: '#ffffff' }}
+                                >
+                                  {metrics.distFormatted}{' '}
+                                  <span
+                                    className="text-sm font-bold text-white drop-shadow-sm stats-overlay-white"
+                                    style={{ color: '#ffffff' }}
+                                  >
+                                    KM
+                                  </span>
                                 </div>
                               </div>
                               <div className="flex items-center gap-3 text-right">
                                 <div>
-                                  <div className="text-[10px] uppercase tracking-wider text-white/60 font-semibold">Pace</div>
-                                  <div className="text-xs sm:text-sm font-black font-mono text-white">{metrics.paceFormatted} /km</div>
+                                  <div
+                                    className="text-[10px] uppercase tracking-wider text-white font-semibold drop-shadow-sm stats-overlay-white"
+                                    style={{ color: '#ffffff' }}
+                                  >
+                                    Pace
+                                  </div>
+                                  <div
+                                    className="text-xs sm:text-sm font-black font-mono text-white drop-shadow-md stats-overlay-white"
+                                    style={{ color: '#ffffff' }}
+                                  >
+                                    {metrics.paceFormatted} /km
+                                  </div>
                                 </div>
-                                <div className="w-px h-6 bg-white/20" />
+                                <div className="w-px h-6 bg-white/40" />
                                 <div>
-                                  <div className="text-[10px] uppercase tracking-wider text-white/60 font-semibold">Duration</div>
-                                  <div className="text-xs sm:text-sm font-black font-mono text-white">{metrics.durFormatted}</div>
+                                  <div
+                                    className="text-[10px] uppercase tracking-wider text-white font-semibold drop-shadow-sm stats-overlay-white"
+                                    style={{ color: '#ffffff' }}
+                                  >
+                                    Duration
+                                  </div>
+                                  <div
+                                    className="text-xs sm:text-sm font-black font-mono text-white drop-shadow-md stats-overlay-white"
+                                    style={{ color: '#ffffff' }}
+                                  >
+                                    {metrics.durFormatted}
+                                  </div>
                                 </div>
                               </div>
                             </div>
                           </div>
                         )}
+
+                        {/* Map Toggle Icon inside Photo (top-right) */}
+                        {post.workout?.route_coordinates && post.workout.route_coordinates.length >= 2 && (
+                          <button
+                            type="button"
+                            onClick={() => setExpandedPostMaps((prev) => ({ ...prev, [post.id]: !prev[post.id] }))}
+                            className={`absolute top-2.5 right-2.5 p-2 rounded-xl border backdrop-blur-md transition-all cursor-pointer z-10 ${expandedPostMaps[post.id]
+                              ? 'bg-emerald-500 text-white border-emerald-500 shadow-md'
+                              : 'bg-black/50 border-white/20 text-white/90 hover:bg-black/70'
+                              }`}
+                            title={expandedPostMaps[post.id] ? 'Hide Route Map' : 'View Route Map'}
+                            aria-label="Toggle route map"
+                          >
+                            <Map size={16} />
+                          </button>
+                        )}
                       </div>
                     )}
 
-                    {/* MICRO GPS ROUTE MAP / THUMBNAIL */}
-                    <RouteThumbnail
-                      coordinates={post.workout?.route_coordinates}
-                      distanceKm={metrics.distMeters / 1000}
-                    />
-
-                    {/* Workout Performance Card (Mint/Teal Inner Container) */}
-                    <div
-                      onClick={() => onSelectWorkout && onSelectWorkout(post.workout)}
-                      className="bg-[#f2faf7] dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-500/20 rounded-2xl p-4 sm:p-5 space-y-3.5 cursor-pointer hover:border-emerald-300 dark:hover:border-emerald-500/40 transition-all"
-                    >
-                      {/* Inner Header: Type & Date */}
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <svg className="w-5 h-5 text-emerald-800 dark:text-emerald-300 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <circle cx="17" cy="4" r="2" />
-                            <path d="M15 8l-3 4-3-2-4 3" />
-                            <path d="M12 12l2 4 4 1" />
-                            <path d="M9 14l-2 5" />
-                          </svg>
-                          <span className="text-xs sm:text-sm font-black tracking-wide text-emerald-900 dark:text-emerald-200 uppercase">
-                            {sessionTitle}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 font-medium">
-                          <Calendar size={14} className="text-emerald-800 dark:text-emerald-400 shrink-0" />
-                          <span>{formattedDate}</span>
-                        </div>
+                    {/* ROUTE MAP: Hidden by default, toggled via map icon */}
+                    {expandedPostMaps[post.id] && (
+                      <div className="animate-fade-in">
+                        <RouteThumbnail
+                          coordinates={post.workout?.route_coordinates}
+                          distanceKm={metrics.distMeters / 1000}
+                        />
                       </div>
+                    )}
 
-                      {/* Main Metrics Grid */}
-                      <div className="grid grid-cols-3 divide-x divide-emerald-200/60 dark:divide-white/[0.08] pt-3.5 border-t border-emerald-200/50 dark:border-white/[0.06]">
-                        {/* Metric 1: Distance */}
-                        <div className="flex items-center gap-2 sm:gap-3 justify-center sm:justify-start px-1 sm:px-3">
+                    {/* Workout Performance Card — ONLY when NO photo is attached */}
+                    {!post.photoUrl && (
+                      <>
+                        {/* Map toggle icon (top-right, outside the card) when no photo */}
+                        {post.workout?.route_coordinates && post.workout.route_coordinates.length >= 2 && !expandedPostMaps[post.id] && (
+                          <div className="flex justify-end -mb-1">
+                            <button
+                              type="button"
+                              onClick={() => setExpandedPostMaps((prev) => ({ ...prev, [post.id]: !prev[post.id] }))}
+                              className="p-1.5 rounded-xl border bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-white/10 transition-all cursor-pointer"
+                              title="View Route Map"
+                              aria-label="Toggle route map"
+                            >
+                              <Map size={16} />
+                            </button>
+                          </div>
+                        )}
+                        {post.workout?.route_coordinates && post.workout.route_coordinates.length >= 2 && expandedPostMaps[post.id] && (
+                          <div className="flex justify-end -mb-1">
+                            <button
+                              type="button"
+                              onClick={() => setExpandedPostMaps((prev) => ({ ...prev, [post.id]: !prev[post.id] }))}
+                              className="p-1.5 rounded-xl border bg-emerald-500 text-white border-emerald-500 shadow-xs transition-all cursor-pointer"
+                              title="Hide Route Map"
+                              aria-label="Toggle route map"
+                            >
+                              <Map size={16} />
+                            </button>
+                          </div>
+                        )}
 
-                          <MapPin size={17} />
-
-                          <div>
-                            <div className="text-lg sm:text-xl font-black text-slate-900 dark:text-white leading-tight">
-                              {metrics.distFormatted}
+                        <div
+                          onClick={() => onSelectWorkout && onSelectWorkout(post.workout)}
+                          className="bg-[#f2faf7] dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-500/20 rounded-2xl p-4 sm:p-5 space-y-3.5 cursor-pointer hover:border-emerald-300 dark:hover:border-emerald-500/40 transition-all"
+                        >
+                          {/* Inner Header: Type & Date */}
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <svg className="w-5 h-5 text-emerald-800 dark:text-emerald-300 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                <circle cx="17" cy="4" r="2" />
+                                <path d="M15 8l-3 4-3-2-4 3" />
+                                <path d="M12 12l2 4 4 1" />
+                                <path d="M9 14l-2 5" />
+                              </svg>
+                              <span className="text-xs sm:text-sm font-black tracking-wide text-emerald-900 dark:text-emerald-200 uppercase">
+                                {sessionTitle}
+                              </span>
                             </div>
-                            <div className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium whitespace-nowrap">
-                              km distance
+                            <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 font-medium">
+                              <Calendar size={14} className="text-emerald-800 dark:text-emerald-400 shrink-0" />
+                              <span>{formattedDate}</span>
+                            </div>
+                          </div>
+
+                          {/* Main Metrics Grid */}
+                          <div className="grid grid-cols-3 divide-x divide-emerald-200/60 dark:divide-white/[0.08] pt-3.5 border-t border-emerald-200/50 dark:border-white/[0.06]">
+                            {/* Metric 1: Distance */}
+                            <div className="flex items-center gap-2 sm:gap-3 justify-center sm:justify-start px-1 sm:px-3">
+
+                              <MapPin size={17} />
+
+                              <div>
+                                <div className="text-lg sm:text-xl font-black text-slate-900 dark:text-white leading-tight">
+                                  {metrics.distFormatted}
+                                </div>
+                                <div className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium whitespace-nowrap">
+                                  km distance
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Metric 2: Average Pace */}
+                            <div className="flex items-center gap-2 sm:gap-3 justify-center sm:justify-start px-1 sm:px-3">
+
+                              <Clock size={17} />
+
+                              <div>
+                                <div className="text-lg sm:text-xl font-black text-slate-900 dark:text-white leading-tight">
+                                  {metrics.paceFormatted}
+                                </div>
+                                <div className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium whitespace-nowrap">
+                                  avg pace /km
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Metric 3: Time */}
+                            <div className="flex items-center gap-2 sm:gap-3 justify-center sm:justify-start px-1 sm:px-3">
+
+                              <Timer size={17} />
+
+                              <div>
+                                <div className="text-lg sm:text-xl font-black text-slate-900 dark:text-white leading-tight">
+                                  {metrics.durFormatted}
+                                </div>
+                                <div className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium whitespace-nowrap">
+                                  duration
+                                </div>
+                              </div>
                             </div>
                           </div>
                         </div>
-
-                        {/* Metric 2: Average Pace */}
-                        <div className="flex items-center gap-2 sm:gap-3 justify-center sm:justify-start px-1 sm:px-3">
-
-                          <Clock size={17} />
-
-                          <div>
-                            <div className="text-lg sm:text-xl font-black text-slate-900 dark:text-white leading-tight">
-                              {metrics.paceFormatted}
-                            </div>
-                            <div className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium whitespace-nowrap">
-                              avg pace /km
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Metric 3: Time */}
-                        <div className="flex items-center gap-2 sm:gap-3 justify-center sm:justify-start px-1 sm:px-3">
-
-                          <Timer size={17} />
-
-                          <div>
-                            <div className="text-lg sm:text-xl font-black text-slate-900 dark:text-white leading-tight">
-                              {metrics.durFormatted}
-                            </div>
-                            <div className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium whitespace-nowrap">
-                              duration
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                      </>
+                    )}
 
                     {/* KM SPLITS & ELEVATION ACCORDION */}
                     {post.splits && post.splits.length > 0 && (
@@ -1535,50 +1890,48 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
                         )}
 
                         {/* Add Comment Input & Quick Mention Chips */}
-                        {!isPostOwner && (
-                          <div className="space-y-1.5 pt-0.5">
-                            <div className="flex items-center gap-1.5">
-                              <input
-                                type="text"
-                                value={commentInputs[post.id] || ''}
-                                onChange={(e) => setCommentInputs({ ...commentInputs, [post.id]: e.target.value })}
-                                onKeyDown={(e) => e.key === 'Enter' && handleAddComment(post.id)}
-                                placeholder="Write a comment or tag @runner..."
-                                className="flex-1 bg-slate-50 dark:bg-white/[0.04] border border-slate-200 dark:border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-white/30 focus:outline-none focus:border-emerald-500 transition-all"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => handleAddComment(post.id)}
-                                disabled={!commentInputs[post.id]?.trim()}
-                                className="p-1.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold rounded-xl hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all shrink-0 shadow-xs cursor-pointer"
-                                title="Post comment"
-                              >
-                                <Send size={13} />
-                              </button>
-                            </div>
-
-                            {/* Quick Squad Mention Chips */}
-                            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
-                              <span className="text-[10px] text-slate-400 shrink-0 font-medium">Tag:</span>
-                              {['@AlexRivers', '@SarahChen', '@MarcusVance'].map((tag) => (
-                                <button
-                                  key={tag}
-                                  type="button"
-                                  onClick={() => {
-                                    const current = commentInputs[post.id] || '';
-                                    setCommentInputs({
-                                      ...commentInputs,
-                                      [post.id]: current ? `${current} ${tag}` : tag,
-                                    });
-                                  }}
-                                  className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 dark:bg-white/[0.06] hover:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-slate-200 dark:border-white/10 shrink-0 cursor-pointer"
-                                >
-                                  {tag}
-                                </button>
-                              ))}
-                            </div>
+                        <div className="space-y-1.5 pt-0.5">
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="text"
+                              value={commentInputs[post.id] || ''}
+                              onChange={(e) => setCommentInputs({ ...commentInputs, [post.id]: e.target.value })}
+                              onKeyDown={(e) => e.key === 'Enter' && handleAddComment(post.id)}
+                              placeholder={isPostOwner ? "Reply to comments or tag @runner..." : "Write a comment or tag @runner..."}
+                              className="flex-1 bg-slate-50 dark:bg-white/[0.04] border border-slate-200 dark:border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-white/30 focus:outline-none focus:border-emerald-500 transition-all"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleAddComment(post.id)}
+                              disabled={!commentInputs[post.id]?.trim()}
+                              className="p-1.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold rounded-xl hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all shrink-0 shadow-xs cursor-pointer"
+                              title="Post comment"
+                            >
+                              <Send size={13} />
+                            </button>
                           </div>
-                        )}
+
+                          {/* Quick Squad Mention Chips */}
+                          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+                            <span className="text-[10px] text-slate-400 shrink-0 font-medium">Tag:</span>
+                            {['@AlexRivers', '@SarahChen', '@MarcusVance'].map((tag) => (
+                              <button
+                                key={tag}
+                                type="button"
+                                onClick={() => {
+                                  const current = commentInputs[post.id] || '';
+                                  setCommentInputs({
+                                    ...commentInputs,
+                                    [post.id]: current ? `${current} ${tag}` : tag,
+                                  });
+                                }}
+                                className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 dark:bg-white/[0.06] hover:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-slate-200 dark:border-white/10 shrink-0 cursor-pointer"
+                              >
+                                {tag}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1677,7 +2030,15 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
 
             {/* LEADERBOARD LIST */}
             <div className="space-y-2">
-              {visibleLeaderboard.length === 0 ? (
+              {isLoadingLeaderboard ? (
+                <div className="space-y-2">
+                  <LeaderboardSkeletonRow />
+                  <LeaderboardSkeletonRow />
+                  <LeaderboardSkeletonRow />
+                  <LeaderboardSkeletonRow />
+                  <LeaderboardSkeletonRow />
+                </div>
+              ) : visibleLeaderboard.length === 0 ? (
                 <div className="py-12 text-center text-xs text-slate-500 dark:text-white/40">
                   No leaderboard runners found for "{feedFilter}" filter.
                 </div>
@@ -1778,7 +2139,7 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
           <div className="space-y-3 pt-1">
 
 
-            <div className="space-y-2.5">
+            <div className="space-y-3.5">
               {visibleTerritories.length === 0 ? (
                 <div className="py-12 text-center text-xs text-slate-500 dark:text-white/40">
                   No territories found for "{feedFilter}" filter.
@@ -1787,59 +2148,109 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
                 visibleTerritories.map((zone) => (
                   <div
                     key={zone.id}
-                    className="bg-white dark:bg-white/[0.04] border border-slate-200/80 dark:border-white/[0.08] rounded-2xl p-4 space-y-3 hover:border-emerald-400/50 transition-all shadow-xs"
+                    className="bg-white dark:bg-white/[0.04] border border-slate-200/80 dark:border-white/[0.08] rounded-2xl p-4 sm:p-5 space-y-3.5 transition-all shadow-xs"
                   >
+                    {/* Row 1: Sector Name, Distance, Status Badge & Map Icon */}
                     <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-bold text-sm text-slate-900 dark:text-white truncate">
-                            {zone.name}
-                          </span>
-                          <span
-                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${zone.status === 'Contested'
-                              ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/40'
-                              : 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/40'
-                              }`}
-                          >
-                            {zone.status}
-                          </span>
-                        </div>
-                        <div className="text-[11px] text-slate-500 dark:text-white/40 mt-1 truncate">
-                          Commander:{' '}
-                          <span
-                            onClick={() => handleOpenAthleteProfile({ userName: zone.holder })}
-                            className="text-slate-800 dark:text-slate-200 font-semibold cursor-pointer hover:underline"
-                          >
-                            {zone.holder}
-                          </span>{' '}
-                          ({zone.pace})
-                        </div>
-                      </div>
-
-                      <div className="text-right shrink-0">
-                        <span className="text-xs font-mono text-emerald-600 dark:text-emerald-400 font-black">
+                      <div className="flex items-baseline gap-2.5 min-w-0">
+                        <h3 className="font-extrabold text-base sm:text-lg text-slate-900 dark:text-white truncate leading-tight">
+                          {zone.name}
+                        </h3>
+                        <span className="font-mono text-xs font-semibold text-slate-400 dark:text-white/40 shrink-0 whitespace-nowrap">
                           {zone.km}
                         </span>
-                        {zone.elevationM && (
-                          <div className="text-[10px] text-slate-400">+{zone.elevationM}m Elev</div>
-                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span
+                          className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${zone.status === 'Secured'
+                            ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                            : 'bg-slate-100 dark:bg-white/[0.06] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-white/10'
+                            }`}
+                        >
+                          {zone.status}
+                        </span>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedMapZoneIds((prev) => ({ ...prev, [zone.id]: !prev[zone.id] }))
+                          }
+                          className={`p-2 rounded-xl border transition-all cursor-pointer ${expandedMapZoneIds[zone.id]
+                            ? 'bg-emerald-500 text-white border-emerald-500 shadow-xs'
+                            : 'bg-slate-100 dark:bg-white/[0.06] border-slate-200 dark:border-white/10 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                            }`}
+                          title={expandedMapZoneIds[zone.id] ? 'Hide Route Map' : 'View Route Map'}
+                          aria-label="Toggle map view"
+                        >
+                          <Map size={16} />
+                        </button>
                       </div>
                     </div>
 
-                    {/* Zone Defense Streak & Direct Contest Action */}
-                    <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-white/[0.05]">
-                      <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 font-semibold">
-                        <Shield size={13} className="text-amber-500" />
-                        <span>{zone.defenseStreakDays}-Day Defense Streak 🔥</span>
+                    {/* Row 2: Commander + Pace side-by-side */}
+                    <div className="flex items-center gap-0">
+                      {/* Commander Column */}
+                      <div className="flex items-center gap-2.5 pr-4 border-r border-slate-200/60 dark:border-white/[0.08]">
+                        <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-white/[0.06] flex items-center justify-center text-slate-500 dark:text-slate-400 shrink-0">
+                          <User size={16} />
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-slate-400 dark:text-white/40 font-medium leading-none">Commander</div>
+                          <span
+                            onClick={() => handleOpenAthleteProfile({ userName: zone.holder })}
+                            className="text-sm font-bold text-slate-900 dark:text-white cursor-pointer hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors leading-tight"
+                          >
+                            {zone.holder}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Pace Column */}
+                      <div className="flex items-center gap-2.5 pl-4">
+                        <div className="w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-500 shrink-0">
+                          <Timer size={16} />
+                        </div>
+                        <div>
+                          <span className="text-lg font-black font-mono text-emerald-500 leading-none">
+                            {zone.pace.replace(' /km', '').replace('/km', '')}
+                          </span>
+                          <div className="text-[10px] text-slate-400 dark:text-white/40 font-medium leading-none">/km</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* ROUTE MAP: HIDDEN BY DEFAULT, SHOWN ONLY WHEN MAP ICON CLICKED */}
+                    {expandedMapZoneIds[zone.id] && (
+                      <div className="animate-fade-in">
+                        <TerritoryRouteSnippet
+                          circuitType={zone.circuitType}
+                          status={zone.status}
+                          isUnderSiege={zone.isUnderSiege}
+                          distanceKm={zone.km}
+                          elevationM={zone.elevationM}
+                          difficulty={zone.difficulty}
+                          coordinates={zone.route_coordinates}
+                        />
+                      </div>
+                    )}
+
+                    {/* Row 3: Target Pace + Contest Button */}
+                    <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-white/[0.06]">
+                      <div className="flex items-center gap-2 text-slate-400 dark:text-white/40">
+                        <Navigation size={14} className="text-slate-400 dark:text-white/30" />
+                        <span className="text-xs font-medium">
+                          Target: beat {zone.pace}
+                        </span>
                       </div>
 
                       <button
                         type="button"
                         onClick={() => handleOpenChallenge(zone.name, zone.holder)}
-                        className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:opacity-90 text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
+                        className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs shadow-md shadow-emerald-500/20 active:scale-95 transition-all cursor-pointer flex items-center gap-1.5"
                       >
-                        <Swords size={12} />
-                        <span>Contest Sector</span>
+
+                        <span>Contest</span>
                       </button>
                     </div>
                   </div>
@@ -2004,68 +2415,87 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
         </div>
       )}
 
-      {/* TERRITORY CHALLENGE MODAL */}
+      {/* TERRITORY CHALLENGE BOTTOM SHEET (MINIMAL & CLEAN) */}
       {challengeModalSector && (
         <div
-          className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm select-none animate-fade-in"
+          className="fixed inset-0 z-[99999] flex items-end justify-center select-none"
           onClick={(e) => {
             if (e.target === e.currentTarget) setChallengeModalSector(null);
           }}
         >
-          <div className="w-full max-w-sm bg-white dark:bg-[#0f0f1a] border border-slate-200 dark:border-white/10 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4 text-center animate-slide-up">
-            <div className="w-14 h-14 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-500 flex items-center justify-center mx-auto shadow-md">
-              <Swords size={28} />
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-fade-in"
+            onClick={() => setChallengeModalSector(null)}
+          />
+
+          {/* Bottom Sheet Drawer */}
+          <div className="relative z-10 w-full max-w-lg bg-white dark:bg-[#0f0f1a] text-slate-900 dark:text-white border-t border-x border-slate-200 dark:border-white/10 rounded-t-[32px] shadow-2xl p-5 sm:p-6 space-y-4 max-h-[85vh] overflow-y-auto animate-slide-up">
+            {/* Grab Handle */}
+            <div className="flex flex-col items-center -mt-1 pb-1 cursor-grab">
+              <div className="w-12 h-1.5 rounded-full bg-slate-300 dark:bg-white/20" />
             </div>
 
-            <div>
-              <div className="text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400">
-                TERRITORY CONTEST CHALLENGE
+            {/* Header: Title, Distance & Close Button */}
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h3 className="font-extrabold text-base sm:text-lg text-slate-900 dark:text-white truncate">
+                    {challengeModalSector.name}
+                  </h3>
+                  <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-white/10 shrink-0">
+                    {challengeModalSector.km}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-white/60 mt-1">
+                  Commander: <span className="font-semibold text-slate-800 dark:text-slate-200">{challengeModalSector.commander}</span>
+                </p>
               </div>
-              <h3 className="font-extrabold text-lg text-slate-900 dark:text-white mt-0.5">
-                {challengeModalSector.name}
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-white/50 mt-1">
-                Held by Commander <strong>{challengeModalSector.commander}</strong> ({challengeModalSector.streak}d streak)
-              </p>
+
+              <button
+                type="button"
+                onClick={() => setChallengeModalSector(null)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10 transition-colors cursor-pointer shrink-0"
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
             </div>
 
-            {/* Target Criteria */}
-            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.04] border border-slate-200 dark:border-white/10 space-y-2 text-left">
+            {/* Clean Minimal Target Pace Info */}
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.04] border border-slate-200/80 dark:border-white/[0.08] space-y-2">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-slate-400 font-medium">Segment Distance:</span>
-                <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                  {challengeModalSector.km}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-slate-400 font-medium">Commander Pace:</span>
+                <span className="text-slate-500 dark:text-white/50 font-medium">Commander Pace</span>
                 <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
                   {challengeModalSector.pace}
                 </span>
               </div>
-              <div className="flex items-center justify-between text-xs pt-1.5 border-t border-slate-200/60 dark:border-white/[0.06]">
-                <span className="text-emerald-600 dark:text-emerald-400 font-bold">Pace Target to Win:</span>
-                <span className="font-mono font-black text-emerald-600 dark:text-emerald-400">
+              <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-200/60 dark:border-white/[0.06]">
+                <span className="text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1.5">
+
+                  <span>Target to Win:</span>
+                </span>
+                <span className="font-mono font-extrabold text-sm text-emerald-600 dark:text-emerald-400">
                   &lt; {challengeModalSector.pace}
                 </span>
               </div>
             </div>
 
             {/* Action Buttons */}
-            <div className="flex items-center gap-2 pt-2">
+            <div className="flex items-center gap-2.5 pt-1">
               <button
                 type="button"
                 onClick={() => setChallengeModalSector(null)}
-                className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10 transition-all cursor-pointer"
+                className="flex-1 py-3 rounded-2xl border border-slate-200 dark:border-white/10 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/10 transition-all cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleLaunchChallenge}
-                className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-xs font-bold hover:opacity-90 transition-all shadow-md shadow-emerald-500/25 flex items-center justify-center gap-1.5 cursor-pointer"
+                className="flex-1 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold shadow-md shadow-emerald-500/20 active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center gap-1.5"
               >
-                <Zap size={14} />
+
                 <span>Launch Run</span>
               </button>
             </div>
@@ -2243,7 +2673,7 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
                       className="accent-emerald-500 w-4 h-4 rounded"
                     />
                     <span className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">
-                      🔥 Burn Stats Overlay on Photo (Distance, Pace & Watermark)
+                      Burn Stats Overlay on Photo (Distance, Pace & Watermark)
                     </span>
                   </label>
                 )}

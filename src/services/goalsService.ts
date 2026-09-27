@@ -42,12 +42,22 @@ export const goalsService = {
         .eq('user_id', normalizedId)
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        if (error.message && error.message.trim().length > 0) {
+          console.warn('Failed to fetch goals from cloud, using cache:', error.message);
+        }
+        return getLocalGoals();
+      }
       const goals = (data as Goal[]) || [];
-      saveLocalGoals(goals);
-      return goals;
-    } catch (err) {
-      console.warn('Failed to fetch goals from cloud, using cache:', err);
+      if (goals.length > 0) {
+        saveLocalGoals(goals);
+        return goals;
+      }
+      return getLocalGoals();
+    } catch (err: any) {
+      if (err?.message && err.message.trim().length > 0) {
+        console.warn('Failed to fetch goals from cloud, using cache:', err.message);
+      }
       return getLocalGoals();
     }
   },

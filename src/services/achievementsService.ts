@@ -223,12 +223,34 @@ export const achievementsService = {
         .select('*, achievement:achievements(*)')
         .eq('user_id', normalizedId);
 
-      if (error) throw error;
+      if (error) {
+        if (error.message && error.message.trim().length > 0) {
+          console.warn('Failed to fetch user achievements from cloud, using cache:', error.message);
+        }
+        const local = getLocalUserAchievements();
+        const allAch = await this.getAllAchievements();
+        const map = new Map(allAch.map((a) => [a.id, a]));
+        return local.map((ua) => ({
+          ...ua,
+          achievement: ua.achievement || map.get(ua.achievement_id),
+        }));
+      }
       const achievements = (data as UserAchievement[]) || [];
-      saveLocalUserAchievements(achievements);
-      return achievements;
-    } catch (err) {
-      console.warn('Failed to fetch user achievements from cloud, using cache:', err);
+      if (achievements.length > 0) {
+        saveLocalUserAchievements(achievements);
+        return achievements;
+      }
+      const local = getLocalUserAchievements();
+      const allAch = await this.getAllAchievements();
+      const map = new Map(allAch.map((a) => [a.id, a]));
+      return local.map((ua) => ({
+        ...ua,
+        achievement: ua.achievement || map.get(ua.achievement_id),
+      }));
+    } catch (err: any) {
+      if (err?.message && err.message.trim().length > 0) {
+        console.warn('Failed to fetch user achievements from cloud, using cache:', err.message);
+      }
       const local = getLocalUserAchievements();
       const allAch = await this.getAllAchievements();
       const map = new Map(allAch.map((a) => [a.id, a]));

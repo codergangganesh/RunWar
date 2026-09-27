@@ -40,12 +40,22 @@ export const recordsService = {
         .select('*')
         .eq('user_id', normalizedId);
 
-      if (error) throw error;
+      if (error) {
+        if (error.message && error.message.trim().length > 0) {
+          console.warn('Failed to fetch PRs from cloud, using cache:', error.message);
+        }
+        return getLocalPRs();
+      }
       const records = (data as PersonalRecord[]) || [];
-      saveLocalPRs(records);
-      return records;
-    } catch (err) {
-      console.warn('Failed to fetch PRs from cloud, using cache:', err);
+      if (records.length > 0) {
+        saveLocalPRs(records);
+        return records;
+      }
+      return getLocalPRs();
+    } catch (err: any) {
+      if (err?.message && err.message.trim().length > 0) {
+        console.warn('Failed to fetch PRs from cloud, using cache:', err.message);
+      }
       return getLocalPRs();
     }
   },

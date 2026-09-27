@@ -204,6 +204,11 @@ export const App: React.FC = () => {
     }
   }, []);
 
+  const handleRefreshHistory = useCallback(async () => {
+    const activeId = currentUser?.id || authService.getCachedUser()?.id || 'guest_user';
+    await loadAppData(activeId, true);
+  }, [currentUser?.id, loadAppData]);
+
   // Theme State: Dark / Light Mode
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     const saved = localStorage.getItem('runwar_theme');
@@ -953,10 +958,7 @@ export const App: React.FC = () => {
                 profile={profile}
                 isLoading={isDataLoading}
                 error={dataError}
-                onRefresh={async () => {
-                  const activeId = currentUser?.id || authService.getCachedUser()?.id || 'guest_user';
-                  await loadAppData(activeId);
-                }}
+                onRefresh={handleRefreshHistory}
                 onSelectWorkout={handleSelectWorkout}
                 onStartRun={() => handleStartRun('run')}
                 onDeleteWorkout={handleWorkoutDeleted}

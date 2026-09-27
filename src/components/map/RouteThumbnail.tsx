@@ -100,7 +100,7 @@ export const RouteThumbnail: React.FC<RouteThumbnailProps> = ({
 
   return (
     <div
-      className={`relative overflow-hidden bg-slate-900/90 dark:bg-slate-950 border border-slate-800/80 shadow-inner flex items-center justify-center ${className}`}
+      className={`relative overflow-hidden route-map-container bg-slate-900/90 dark:bg-slate-950 border border-slate-800/80 shadow-inner flex items-center justify-center ${className}`}
     >
       {/* Subtle grid pattern background */}
       <div

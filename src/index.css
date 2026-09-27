@@ -199,13 +199,46 @@ html.light div[class*="bg-slate-800"]:not(button):not(.accent-badge) {
   box-shadow: 0 4px 20px -2px rgba(16, 185, 129, 0.08) !important;
 }
 
-/* Remove Dark Gradient Overlays from Container Cards */
-html.light div[class*="bg-gradient-to-b"]:not(button):not([class*="from-emerald-500"]),
-html.light div[class*="bg-gradient-to-br"]:not(button):not([class*="from-emerald-950"]):not([class*="from-emerald-500"]),
-html.light div[class*="bg-gradient-to-tr"]:not(button):not([class*="from-emerald-500"]) {
+/* Remove Dark Gradient Overlays from Container Cards (excludes route maps) */
+html.light div[class*="bg-gradient-to-b"]:not(button):not([class*="from-emerald-500"]):not(.route-map-container):not(.route-thumbnail),
+html.light div[class*="bg-gradient-to-br"]:not(button):not([class*="from-emerald-950"]):not([class*="from-emerald-500"]):not(.route-map-container):not(.route-thumbnail),
+html.light div[class*="bg-gradient-to-tr"]:not(button):not([class*="from-emerald-500"]):not(.route-map-container):not(.route-thumbnail) {
   background-image: none !important;
   background-color: #ffffff !important;
   border-color: #d1fae5 !important;
+}
+
+/* Route Map & GPS Thumbnails in Light Mode */
+html.light .route-map-container,
+html.light .route-thumbnail {
+  background-color: #f1f9f5 !important;
+  background-image: linear-gradient(180deg, #eaf6f0 0%, #f6fcf9 55%, #e8f5ee 100%) !important;
+  border-color: #a7f3d0 !important;
+  box-shadow: inset 0 2px 8px rgba(16, 185, 129, 0.08), 0 2px 8px -2px rgba(16, 185, 129, 0.08) !important;
+}
+
+html.light .route-map-container svg.map-grid-pattern path,
+html.light .route-thumbnail svg.map-grid-pattern path {
+  stroke: #059669 !important;
+  opacity: 0.22 !important;
+}
+
+html.light .route-map-container .map-hud-badge,
+html.light .route-thumbnail .map-hud-badge {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+  border-color: #d1fae5 !important;
+  color: #064e3b !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06) !important;
+}
+
+html.light .route-map-container .map-hud-badge span,
+html.light .route-thumbnail .map-hud-badge span {
+  color: #064e3b !important;
+}
+
+html.light .route-map-container .map-hud-badge svg,
+html.light .route-thumbnail .map-hud-badge svg {
+  color: #059669 !important;
 }
 
 /* Welcome Banner / First-time user banner in Light Mode */
@@ -236,36 +269,102 @@ html.light div.grid > div[class*="bg-slate-900"] {
   color: #064e3b !important;
 }
 
-/* Typography in Light Mode */
-html.light h1,
-html.light h2,
-html.light h3,
-html.light h4,
-html.light .text-white,
-html.light div[class*="text-white"],
-html.light span[class*="text-white"] {
+/* Typography in Light Mode (excludes intentional dark overlays and photo stamps) */
+html.light h1:not(.photo-stats-overlay *):not([class*="from-black"] *):not([data-theme-preserve="dark"] *),
+html.light h2:not(.photo-stats-overlay *):not([class*="from-black"] *):not([data-theme-preserve="dark"] *),
+html.light h3:not(.photo-stats-overlay *):not([class*="from-black"] *):not([data-theme-preserve="dark"] *),
+html.light h4:not(.photo-stats-overlay *):not([class*="from-black"] *):not([data-theme-preserve="dark"] *),
+html.light .text-white:not(.photo-stats-overlay):not(.photo-stats-overlay *):not([class*="from-black"] *):not([data-theme-preserve="dark"] *):not(button):not(button *),
+html.light div[class*="text-white"]:not(.photo-stats-overlay):not(.photo-stats-overlay *):not([class*="from-black"] *):not([data-theme-preserve="dark"] *):not(button *),
+html.light span[class*="text-white"]:not(.photo-stats-overlay):not(.photo-stats-overlay *):not([class*="from-black"] *):not([data-theme-preserve="dark"] *):not(button *) {
   color: #064e3b !important;
 }
 
-html.light .text-slate-100,
-html.light .text-slate-200,
-html.light div[class*="text-slate-100"],
-html.light span[class*="text-slate-100"] {
+html.light .text-slate-100:not(.photo-stats-overlay *):not([class*="from-black"] *):not([data-theme-preserve="dark"] *),
+html.light .text-slate-200:not(.photo-stats-overlay *):not([class*="from-black"] *):not([data-theme-preserve="dark"] *),
+html.light div[class*="text-slate-100"]:not(.photo-stats-overlay *):not([class*="from-black"] *):not([data-theme-preserve="dark"] *),
+html.light span[class*="text-slate-100"]:not(.photo-stats-overlay *):not([class*="from-black"] *):not([data-theme-preserve="dark"] *) {
   color: #064e3b !important;
 }
 
-html.light .text-slate-300,
-html.light .text-slate-400,
-html.light div[class*="text-slate-300"],
-html.light div[class*="text-slate-400"],
-html.light span[class*="text-slate-300"],
-html.light span[class*="text-slate-400"] {
+html.light .text-slate-300:not(.photo-stats-overlay *):not([class*="from-black"] *):not([data-theme-preserve="dark"] *),
+html.light .text-slate-400:not(.photo-stats-overlay *):not([class*="from-black"] *):not([data-theme-preserve="dark"] *),
+html.light div[class*="text-slate-300"]:not(.photo-stats-overlay *):not([class*="from-black"] *):not([data-theme-preserve="dark"] *),
+html.light div[class*="text-slate-400"]:not(.photo-stats-overlay *):not([class*="from-black"] *):not([data-theme-preserve="dark"] *),
+html.light span[class*="text-slate-300"]:not(.photo-stats-overlay *):not([class*="from-black"] *):not([data-theme-preserve="dark"] *),
+html.light span[class*="text-slate-400"]:not(.photo-stats-overlay *):not([class*="from-black"] *):not([data-theme-preserve="dark"] *) {
   color: #065f46 !important;
 }
 
-html.light .text-slate-500,
-html.light span[class*="text-slate-500"] {
+html.light .text-slate-500:not(.photo-stats-overlay *):not([class*="from-black"] *):not([data-theme-preserve="dark"] *),
+html.light span[class*="text-slate-500"]:not(.photo-stats-overlay *):not([class*="from-black"] *):not([data-theme-preserve="dark"] *) {
   color: #047857 !important;
+}
+
+/* ========================================================
+   CRITICAL: Photo Stats Overlay & Dark Surface Preservations
+   Guarantees clear, crisp pure-white text & vibrant accents on 
+   dark image overlays/stamps in BOTH Light Mode and Dark Mode.
+   ======================================================== */
+html.light .photo-stats-overlay,
+html.light .photo-stats-overlay *,
+html.light div[class*="from-black"],
+html.light div[class*="from-black"] *,
+html.light [data-theme-preserve="dark"],
+html.light [data-theme-preserve="dark"] *,
+html.light .stats-overlay-white {
+  color: #ffffff !important;
+}
+
+html.light .photo-stats-overlay .text-emerald-400,
+html.light .photo-stats-overlay span[class*="text-emerald-400"],
+html.light div[class*="from-black"] .text-emerald-400,
+html.light div[class*="from-black"] span[class*="text-emerald-400"],
+html.light [data-theme-preserve="dark"] .text-emerald-400,
+html.light .stats-overlay-accent {
+  color: #34d399 !important;
+}
+
+html.light .photo-stats-overlay .text-white\/60,
+html.light div[class*="from-black"] .text-white\/60 {
+  color: rgba(255, 255, 255, 0.75) !important;
+}
+
+html.light .photo-stats-overlay .text-white\/40,
+html.light div[class*="from-black"] .text-white\/40 {
+  color: rgba(255, 255, 255, 0.5) !important;
+}
+
+html.light .photo-stats-overlay .bg-white\/40,
+html.light div[class*="from-black"] .bg-white\/40 {
+  background-color: rgba(255, 255, 255, 0.4) !important;
+}
+
+html.light .photo-stats-overlay .bg-emerald-500,
+html.light div[class*="from-black"] .bg-emerald-500 {
+  background-color: #10b981 !important;
+}
+
+html.light .photo-stats-overlay svg,
+html.light div[class*="from-black"] svg {
+  color: #ffffff !important;
+}
+
+html.light .photo-stats-overlay .fill-white,
+html.light div[class*="from-black"] .fill-white {
+  fill: #ffffff !important;
+}
+
+/* Preset photo preview pills in modals */
+html.light span[class*="bg-black"],
+html.light span[class*="bg-black/60"] {
+  color: #ffffff !important;
+}
+
+/* Map toggle icon inside photo attachment */
+html.light button[class*="bg-black"],
+html.light button[class*="bg-black"] svg {
+  color: #ffffff !important;
 }
 
 /* Headline Brand Gradients in Light Mode */
@@ -309,21 +408,26 @@ html.light button.bg-slate-800:hover {
   color: #064e3b !important;
 }
 
-/* Primary Action Buttons (Start Run, Save, Filters Apply) */
+/* Primary Action Buttons (Start Run, Save, Filters Apply, Tab Pills) */
 html.light button[class*="from-emerald-500"],
 html.light button.bg-emerald-500,
-html.light button[class*="bg-emerald-500"] {
+html.light button[class*="bg-emerald-500"],
+html.light button.bg-emerald-600,
+html.light button[class*="bg-emerald-600"] {
   background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
   background-image: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+  background-color: #059669 !important;
   color: #ffffff !important;
   border-color: transparent !important;
-  box-shadow: 0 6px 20px -2px rgba(16, 185, 129, 0.45) !important;
+  box-shadow: 0 4px 14px -2px rgba(16, 185, 129, 0.45) !important;
 }
 
 html.light button[class*="from-emerald-500"] span,
 html.light button[class*="from-emerald-500"] svg,
 html.light button.bg-emerald-500 span,
-html.light button.bg-emerald-500 svg {
+html.light button.bg-emerald-500 svg,
+html.light button.bg-emerald-600 span,
+html.light button[class*="bg-emerald-600"] span {
   color: #ffffff !important;
   fill: currentColor !important;
 }
@@ -419,8 +523,7 @@ html.light nav .border-slate-950 {
 }
 
 /* Weekly Progress Chart in Light Mode */
-html.light div[class*="bg-slate-800/60"],
-html.light div[class*="bg-slate-950"] .rounded-full {
+html.light div[class*="bg-slate-800/60"] {
   background-color: #d1fae5 !important;
 }
 

@@ -68,14 +68,20 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
     setDisplayCount(10);
   }, [filterType, sortBy]);
 
-  // Always refresh latest workouts from InsForge on mount & on sync/purge events
+  // Keep onRefresh in a ref to avoid infinite re-render loop
+  const onRefreshRef = React.useRef(onRefresh);
   useEffect(() => {
-    if (onRefresh) {
-      onRefresh().catch(() => { });
+    onRefreshRef.current = onRefresh;
+  }, [onRefresh]);
+
+  // Always refresh latest workouts on mount & on sync/purge events
+  useEffect(() => {
+    if (onRefreshRef.current) {
+      onRefreshRef.current().catch(() => { });
     }
 
     const handleSync = () => {
-      if (onRefresh) onRefresh().catch(() => { });
+      if (onRefreshRef.current) onRefreshRef.current().catch(() => { });
     };
 
     window.addEventListener('runwar:sync_completed', handleSync);
@@ -84,7 +90,7 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
       window.removeEventListener('runwar:sync_completed', handleSync);
       window.removeEventListener('runwar:workouts_purged', handleSync);
     };
-  }, [onRefresh]);
+  }, []);
 
   const distanceUnit = profile?.distance_unit || 'km';
   const paceUnit = profile?.pace_unit || 'min_km';

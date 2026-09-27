@@ -392,7 +392,13 @@ export const authService = {
         .eq('user_id', normalizedId)
         .maybeSingle();
 
-      if (error) throw error;
+      if (error) {
+        if (error.message && error.message.trim().length > 0) {
+          console.warn('Failed to fetch profile from DB, checking cache:', error.message);
+        }
+        const cached = localStorage.getItem(PROFILE_CACHE_KEY);
+        return cached ? JSON.parse(cached) : null;
+      }
       if (data) {
         const cached = localStorage.getItem(PROFILE_CACHE_KEY);
         const cachedProfile = cached ? JSON.parse(cached) : {};
@@ -405,8 +411,10 @@ export const authService = {
         return profileWithMeta;
       }
       return null;
-    } catch (err) {
-      console.warn('Failed to fetch profile from DB, checking cache:', err);
+    } catch (err: any) {
+      if (err?.message && err.message.trim().length > 0) {
+        console.warn('Failed to fetch profile from DB, checking cache:', err.message);
+      }
       const cached = localStorage.getItem(PROFILE_CACHE_KEY);
       return cached ? JSON.parse(cached) : null;
     }

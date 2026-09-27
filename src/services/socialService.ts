@@ -7,7 +7,7 @@
 
 import { insforge } from '../lib/insforge';
 import { Workout, UserProfile } from '../types';
-import { formatPaceRaw } from '../utils/formatters';
+import { formatPaceRaw, formatDistance } from '../utils/formatters';
 import { getLocalDateKey } from '../utils/dateUtils';
 import { authService, normalizeUserId } from './authService';
 
@@ -100,6 +100,14 @@ export interface TerritoryZone {
   targetPaceSeconds?: number;
   difficulty?: 'Easy' | 'Moderate' | 'Hard' | 'Extreme';
   elevationM?: number;
+  bountyXp?: number;
+  isUnderSiege?: boolean;
+  circuitType?: number;
+  route_coordinates?: any[];
+  splitsTarget?: { km: number; pace: string }[];
+  isRealUserWorkout?: boolean;
+  workoutId?: string;
+  runDate?: string;
 }
 
 const FEED_STORAGE_KEY = 'runwar_community_posts_cache';
@@ -113,6 +121,46 @@ export const isUUID = (val?: string | null): boolean => {
     (trimmed.includes('-') && trimmed.length >= 32)
   );
 };
+
+/**
+ * Standardize and clean any raw comment object from PostgreSQL community_posts JSONB or relational table
+ */
+export function normalizeComment(
+  raw: any,
+  fallbackPostId: string,
+  currentUserId?: string | null,
+  currentProfile?: UserProfile | null
+): FeedComment | null {
+  if (!raw) return null;
+  const id = String(raw.id || raw._id || crypto.randomUUID());
+  const postId = String(raw.postId || raw.post_id || fallbackPostId);
+  const rawUserId = raw.userId || raw.user_id || raw.authorId;
+  const cUserId = normalizeUserId(rawUserId || 'anon');
+  const isCommentAuthor = Boolean(currentUserId && cUserId === currentUserId);
+
+  let cName = raw.userName || raw.user_name || raw.name;
+  if (!cName || isUUID(cName) || cName === 'anon') {
+    cName = isCommentAuthor
+      ? (currentProfile?.name || currentProfile?.username || 'You')
+      : 'Athlete';
+  }
+
+  const text = String(raw.text || raw.content || raw.comment || '').trim();
+  if (!text) return null;
+
+  const rawTime = raw.createdAt || raw.created_at || raw.timestamp;
+  const createdAt = rawTime ? new Date(rawTime).toISOString() : new Date().toISOString();
+
+  return {
+    id,
+    postId,
+    userId: cUserId,
+    userName: cName,
+    userAvatar: raw.userAvatar || raw.user_avatar || (isCommentAuthor ? currentProfile?.avatar_url : undefined),
+    text,
+    createdAt,
+  };
+}
 
 /**
  * Accurately calculate consecutive active days in user's local timezone based on actual running history
@@ -140,8 +188,8 @@ export function calculateExactStreak(
   let checkDate = activeDates.has(todayKey)
     ? new Date()
     : activeDates.has(yesterdayKey)
-    ? yesterday
-    : null;
+      ? yesterday
+      : null;
 
   if (checkDate) {
     const cursor = new Date(checkDate);
@@ -252,10 +300,10 @@ export const socialService = {
 
   /**
    * Helper to determine whether an athlete can comment on a post
-   * Authors cannot comment on their own posts.
+   * Community members and post creators can comment and reply.
    */
   canComment(post: FeedPost, profile?: UserProfile | null): boolean {
-    return !this.isPostAuthor(post, profile);
+    return true;
   },
 
   /**
@@ -285,7 +333,7 @@ export const socialService = {
         if (authUser?.id && isUUID(authUser.id)) {
           currentUserId = authUser.id;
         }
-      } catch {}
+      } catch { }
     }
     currentUserId = normalizeUserId(currentUserId || cachedUser?.id);
 
@@ -301,29 +349,44 @@ export const socialService = {
         .limit(50);
 
       if (!error && rawPosts && Array.isArray(rawPosts)) {
-        // 2. Fetch current user's reactions in bulk to populate hasFiredUp accurately
+        // 2. Fetch comments and reactions for all loaded posts from normalized relational tables
         const postIds = rawPosts.map((r: any) => r.id);
-        const userReactions = new Set<string>();
 
-        if (currentUserId && currentUserId !== 'guest_user' && postIds.length > 0) {
+        let allComments: any[] = [];
+        if (postIds.length > 0) {
+          try {
+            const { data: commentsData } = await insforge.database
+              .from('community_comments')
+              .select('*')
+              .in('post_id', postIds)
+              .order('created_at', { ascending: true });
+            if (commentsData && Array.isArray(commentsData)) {
+              allComments = commentsData;
+            }
+          } catch (cErr) {
+            console.warn('Could not fetch cloud comments:', cErr);
+          }
+        }
+
+        let allReactions: any[] = [];
+        if (postIds.length > 0) {
           try {
             const { data: reactionsData } = await insforge.database
               .from('community_reactions')
-              .select('post_id')
-              .eq('user_id', currentUserId);
-
+              .select('post_id, user_id, reaction_type')
+              .in('post_id', postIds);
             if (reactionsData && Array.isArray(reactionsData)) {
-              reactionsData.forEach((r: any) => userReactions.add(r.post_id));
+              allReactions = reactionsData;
             }
           } catch (rErr) {
-            console.warn('Could not fetch user reactions:', rErr);
+            console.warn('Could not fetch cloud reactions:', rErr);
           }
         }
 
         // 3. Map into strongly typed FeedPost models
         const cloudPosts: FeedPost[] = rawPosts.map((r: any) => {
           const isAuthor = currentUserId && normalizeUserId(r.user_id) === currentUserId;
-          const userHasFired = isAuthor ? false : userReactions.has(r.id);
+          const matchingLocalPost = localPosts.find((lp) => lp.id === r.id);
 
           let resolvedUserName = r.user_name;
           if (!resolvedUserName || isUUID(resolvedUserName)) {
@@ -343,6 +406,75 @@ export const socialService = {
           if (isAuthor && !resolvedUserAvatar && currentProfile?.avatar_url) {
             resolvedUserAvatar = currentProfile.avatar_url;
           }
+
+          // 1. Comments stored directly on community_posts row (canonical storage)
+          let postDirectComments: any[] = [];
+          if (Array.isArray(r.comments)) {
+            postDirectComments = r.comments;
+          } else if (typeof r.comments === 'string' && r.comments.trim().length > 0) {
+            try {
+              const parsed = JSON.parse(r.comments);
+              if (Array.isArray(parsed)) postDirectComments = parsed;
+            } catch {}
+          }
+
+          // 2. Comments from relational table (if any)
+          const relationalComments = allComments.filter((c: any) => c.post_id === r.id);
+
+          // 3. Normalize all cloud comments
+          const allCloudRaw = [...postDirectComments, ...relationalComments];
+          const cloudPostComments: FeedComment[] = [];
+          const seenCloudIds = new Set<string>();
+
+          for (const c of allCloudRaw) {
+            const normalized = normalizeComment(c, r.id, currentUserId, currentProfile);
+            if (normalized && !seenCloudIds.has(normalized.id)) {
+              seenCloudIds.add(normalized.id);
+              cloudPostComments.push(normalized);
+            }
+          }
+
+          // 4. Merge local comments that might not have reached cloud yet
+          const localPostComments = (matchingLocalPost?.comments || [])
+            .map((c) => normalizeComment(c, r.id, currentUserId, currentProfile))
+            .filter(Boolean) as FeedComment[];
+
+          const mergedComments = [
+            ...cloudPostComments,
+            ...localPostComments.filter((lc) => !seenCloudIds.has(lc.id)),
+          ].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+          // Map relational reactions for this post (Fire, Respect, Beast, Salute)
+          const postReactions = allReactions.filter((rx: any) => rx.post_id === r.id);
+          const counts: ReactionCounts = {
+            fire: postReactions.filter((rx: any) => rx.reaction_type === 'fire' || rx.reaction_type === 'fire_up').length,
+            respect: postReactions.filter((rx: any) => rx.reaction_type === 'respect').length,
+            beast: postReactions.filter((rx: any) => rx.reaction_type === 'beast').length,
+            salute: postReactions.filter((rx: any) => rx.reaction_type === 'salute').length,
+          };
+
+          // If local post has optimistic reaction counts that are higher, merge them
+          if (matchingLocalPost?.reactions) {
+            counts.fire = Math.max(counts.fire, matchingLocalPost.reactions.fire || 0);
+            counts.respect = Math.max(counts.respect, matchingLocalPost.reactions.respect || 0);
+            counts.beast = Math.max(counts.beast, matchingLocalPost.reactions.beast || 0);
+            counts.salute = Math.max(counts.salute, matchingLocalPost.reactions.salute || 0);
+          }
+
+          const totalReactions = counts.fire + counts.respect + counts.beast + counts.salute;
+
+          // Determine current user's reaction
+          const myReactionRow = currentUserId && currentUserId !== 'guest_user'
+            ? postReactions.find((rx: any) => normalizeUserId(rx.user_id) === currentUserId)
+            : null;
+          let userReaction: ReactionType | null = myReactionRow
+            ? (myReactionRow.reaction_type === 'fire_up' ? 'fire' : (myReactionRow.reaction_type as ReactionType))
+            : (matchingLocalPost?.userReaction || null);
+
+          if (isAuthor) {
+            userReaction = null;
+          }
+          const hasFiredUp = userReaction !== null;
 
           return {
             id: r.id,
@@ -371,26 +503,12 @@ export const socialService = {
               title: r.workout_title || 'Outdoor Run',
             },
             caption: r.caption,
-            fireUpsCount: Math.max(0, Number(r.fire_ups_count || 0)),
-            hasFiredUp: userHasFired,
-            commentsCount: Math.max(0, Number(r.comments_count || (r.comments ? r.comments.length : 0))),
-            comments: Array.isArray(r.comments) ? r.comments.map((c: any) => {
-              const cUserId = c.userId || c.user_id || 'anon';
-              const isCommentAuthor = currentUserId && normalizeUserId(cUserId) === currentUserId;
-              let cName = c.userName || c.user_name;
-              if (!cName || isUUID(cName)) {
-                cName = isCommentAuthor ? (currentProfile?.name || currentProfile?.username || 'You') : 'Athlete';
-              }
-              return {
-                id: c.id || `c_${Math.random()}`,
-                postId: r.id,
-                userId: cUserId,
-                userName: cName,
-                userAvatar: c.userAvatar || c.user_avatar || (isCommentAuthor ? currentProfile?.avatar_url : undefined),
-                text: c.text || c.content || '',
-                createdAt: c.createdAt || c.created_at || r.created_at,
-              };
-            }) : [],
+            fireUpsCount: Math.max(totalReactions, Number(r.fire_ups_count || 0)),
+            reactions: counts,
+            userReaction,
+            hasFiredUp,
+            commentsCount: mergedComments.length,
+            comments: mergedComments,
             createdAt: r.created_at,
             locationName: r.location_name || 'Global Sector',
             territoryClaimed: r.territory_claimed,
@@ -747,34 +865,37 @@ export const socialService = {
   },
 
   /**
-   * Fetch comments for a specific post from normalized relational table
+   * Fetch comments for a specific post from cloud DB with local fallback
    */
-  async fetchCommentsForPost(postId: string): Promise<FeedComment[]> {
+  async fetchCommentsForPost(postId: string, currentProfile?: UserProfile | null): Promise<FeedComment[]> {
     try {
       const { data, error } = await insforge.database
-        .from('community_comments')
-        .select('*')
-        .eq('post_id', postId)
-        .order('created_at', { ascending: true });
+        .from('community_posts')
+        .select('id, comments')
+        .eq('id', postId)
+        .maybeSingle();
 
-      if (!error && Array.isArray(data)) {
-        return data.map((c: any) => ({
-          id: c.id,
-          postId: c.post_id,
-          userId: c.user_id,
-          userName: c.user_name || 'Athlete',
-          userAvatar: c.user_avatar,
-          text: c.content,
-          createdAt: c.created_at,
-        }));
+      if (!error && data) {
+        let commentsList: any[] = [];
+        if (Array.isArray(data.comments)) {
+          commentsList = data.comments;
+        } else if (typeof data.comments === 'string' && data.comments.trim().length > 0) {
+          try {
+            const parsed = JSON.parse(data.comments);
+            if (Array.isArray(parsed)) commentsList = parsed;
+          } catch {}
+        }
+        return commentsList
+          .map((c: any) => normalizeComment(c, postId, null, currentProfile))
+          .filter(Boolean) as FeedComment[];
       }
     } catch (e) {
-      console.warn('Failed to load comments from cloud:', e);
+      console.warn('Failed to load comments from cloud community_posts:', e);
     }
 
     const posts = this.getFeedPosts();
     const p = posts.find((x) => x.id === postId);
-    return p ? p.comments : [];
+    return p ? (p.comments || []) : [];
   },
 
   /**
@@ -828,46 +949,46 @@ export const socialService = {
 
     const workoutData: Workout = (workout
       ? {
-          ...workout,
-          photo_url: photoUrl || (workout as any).photo_url || null,
-          has_photo_stats_overlay: Boolean(hasPhotoStatsOverlay && photoUrl),
-        }
+        ...workout,
+        photo_url: photoUrl || (workout as any).photo_url || null,
+        has_photo_stats_overlay: Boolean(hasPhotoStatsOverlay && photoUrl),
+      }
       : {
-          id: `w_post_${Date.now()}`,
-          user_id: resolvedUserId,
-          type: 'run',
-          title: 'Community Check-in',
-          started_at: new Date().toISOString(),
-          ended_at: new Date().toISOString(),
-          duration_seconds: 0,
-          distance_meters: 0,
-          average_pace: 0,
-          average_speed: 0,
-          max_speed: 0,
-          calories: 0,
-          elevation_gain: 0,
-          elevation_loss: 0,
-          status: 'completed',
-          route_coordinates: [],
-          splits: [],
-          created_at: new Date().toISOString(),
-          photo_url: photoUrl || null,
-          has_photo_stats_overlay: Boolean(hasPhotoStatsOverlay && photoUrl),
-        }) as Workout;
+        id: `w_post_${Date.now()}`,
+        user_id: resolvedUserId,
+        type: 'run',
+        title: 'Community Check-in',
+        started_at: new Date().toISOString(),
+        ended_at: new Date().toISOString(),
+        duration_seconds: 0,
+        distance_meters: 0,
+        average_pace: 0,
+        average_speed: 0,
+        max_speed: 0,
+        calories: 0,
+        elevation_gain: 0,
+        elevation_loss: 0,
+        status: 'completed',
+        route_coordinates: [],
+        splits: [],
+        created_at: new Date().toISOString(),
+        photo_url: photoUrl || null,
+        has_photo_stats_overlay: Boolean(hasPhotoStatsOverlay && photoUrl),
+      }) as Workout;
 
     // Build splits from workout if available
     const kmCount = Math.max(1, Math.floor(distM / 1000));
     const splits: KmSplit[] = (workoutData.splits && workoutData.splits.length > 0)
       ? workoutData.splits.map((s, idx) => ({
-          km: idx + 1,
-          pace: formatPaceRaw(s.pace, 'min_km'),
-          elevation_diff: s.elevation_diff || 0,
-        }))
+        km: idx + 1,
+        pace: formatPaceRaw(s.pace, 'min_km'),
+        elevation_diff: s.elevation_diff || 0,
+      }))
       : Array.from({ length: kmCount }, (_, i) => ({
-          km: i + 1,
-          pace: formatPaceRaw(workoutData.average_pace || 300, 'min_km'),
-          elevation_diff: Math.round((Math.random() - 0.5) * 8),
-        }));
+        km: i + 1,
+        pace: formatPaceRaw(workoutData.average_pace || 300, 'min_km'),
+        elevation_diff: Math.round((Math.random() - 0.5) * 8),
+      }));
 
     const authorDisplayName =
       profile?.name ||
@@ -986,12 +1107,12 @@ export const socialService = {
     const updated = posts.map((p) =>
       p.id === postId
         ? {
-            ...p,
-            reactions: nextReactions,
-            userReaction: nextReaction,
-            fireUpsCount: totalReactions,
-            hasFiredUp: nextReaction !== null,
-          }
+          ...p,
+          reactions: nextReactions,
+          userReaction: nextReaction,
+          fireUpsCount: totalReactions,
+          hasFiredUp: nextReaction !== null,
+        }
         : p
     );
     this.saveCachedPosts(updated);
@@ -999,18 +1120,24 @@ export const socialService = {
     try {
       const cachedUser = authService.getCachedUser();
       const currentUserId = normalizeUserId(profile?.user_id || profile?.id || cachedUser?.id);
-      if (nextReaction) {
-        await insforge.database.from('community_reactions').upsert([{
-          post_id: postId,
-          user_id: currentUserId,
-          reaction_type: nextReaction,
-        }]);
-      } else {
+      if (currentUserId && currentUserId !== 'guest_user' && isUUID(currentUserId)) {
+        // Delete any existing reaction by this user on this post
         await insforge.database
           .from('community_reactions')
           .delete()
           .eq('post_id', postId)
           .eq('user_id', currentUserId);
+
+        // If a new reaction was selected, insert it with a valid UUID
+        if (nextReaction) {
+          await insforge.database.from('community_reactions').insert([{
+            id: crypto.randomUUID(),
+            post_id: postId,
+            user_id: currentUserId,
+            reaction_type: nextReaction,
+            created_at: new Date().toISOString(),
+          }]);
+        }
       }
     } catch (err) {
       console.warn('Reaction cloud sync error:', err);
@@ -1027,7 +1154,7 @@ export const socialService = {
   },
 
   /**
-   * Add comment to a post with strict Self-Interaction Guard and Relational Persistence
+   * Add comment to a post with cloud persistence to community_posts.comments
    */
   async addComment(postId: string, text: string, profile: UserProfile | null): Promise<FeedPost[]> {
     if (!text || !text.trim()) return this.getFeedPosts();
@@ -1036,31 +1163,53 @@ export const socialService = {
     const targetPost = posts.find((p) => p.id === postId);
     if (!targetPost) return posts;
 
-    if (this.isPostAuthor(targetPost, profile)) {
-      console.warn('Post authors cannot comment on their own workouts.');
-      return posts;
+    // Resolve current active user ID (authenticating against InsForge session if available)
+    let currentUserId = (insforge.auth as any)?.currentUser?.id;
+    if (!currentUserId) {
+      try {
+        const { data: authData } = await insforge.auth.getCurrentUser();
+        const authUser = (authData as any)?.user || authData;
+        if (authUser?.id) currentUserId = authUser.id;
+      } catch {}
     }
+    if (!currentUserId) {
+      const cachedUser = authService.getCachedUser();
+      currentUserId = profile?.user_id || profile?.id || cachedUser?.id;
+    }
+    currentUserId = normalizeUserId(currentUserId);
 
-    const cachedUser = authService.getCachedUser();
-    const currentUserId = normalizeUserId(profile?.user_id || profile?.id || cachedUser?.id);
+    const commenterName =
+      profile?.name?.trim() ||
+      profile?.username?.trim() ||
+      authService.getCachedUser()?.name ||
+      authService.getCachedUser()?.email?.split('@')[0] ||
+      'Athlete';
 
+    const commenterAvatar =
+      profile?.avatar_url ||
+      authService.getCachedUser()?.avatar_url ||
+      undefined;
+
+    const commentUuid = crypto.randomUUID();
     const newComment: FeedComment = {
-      id: `comment_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      id: commentUuid,
       postId,
       userId: currentUserId,
-      userName: profile?.name || profile?.username || 'Athlete',
-      userAvatar: profile?.avatar_url || undefined,
+      userName: commenterName,
+      userAvatar: commenterAvatar,
       text: text.trim(),
       createdAt: new Date().toISOString(),
     };
 
+    // 1. Optimistically update local posts state and cache
     const updated = posts.map((p) => {
       if (p.id === postId) {
-        const nextComments = [...(p.comments || []), newComment];
+        const existing = (p.comments || []).filter((c) => c.id !== newComment.id);
+        const nextComments = [...existing, newComment];
         return {
           ...p,
           comments: nextComments,
-          commentsCount: (p.commentsCount || 0) + 1,
+          commentsCount: nextComments.length,
         };
       }
       return p;
@@ -1068,19 +1217,60 @@ export const socialService = {
 
     this.saveCachedPosts(updated);
 
+    // 2. Persist to cloud community_posts.comments (the canonical storage for comments)
     try {
-      await insforge.database.from('community_comments').insert([{
-        id: newComment.id,
-        post_id: postId,
-        user_id: currentUserId,
-        user_name: newComment.userName,
-        user_avatar: newComment.userAvatar || null,
-        content: newComment.text,
-        created_at: newComment.createdAt,
-      }]);
-    } catch (err) {
-      console.warn('InsForge Cloud comment insert failed:', err);
+      const { data: cloudRow, error: fetchErr } = await insforge.database
+        .from('community_posts')
+        .select('id, comments')
+        .eq('id', postId)
+        .maybeSingle();
+
+      if (!fetchErr && cloudRow) {
+        let currentCloudComments: any[] = [];
+        if (Array.isArray(cloudRow.comments)) {
+          currentCloudComments = cloudRow.comments;
+        } else if (typeof cloudRow.comments === 'string' && cloudRow.comments.trim().length > 0) {
+          try {
+            const parsed = JSON.parse(cloudRow.comments);
+            if (Array.isArray(parsed)) currentCloudComments = parsed;
+          } catch {}
+        }
+
+        const filteredCloud = currentCloudComments.filter((c: any) => c.id !== commentUuid);
+        const nextCloudComments = [...filteredCloud, newComment];
+
+        const { error: updateErr } = await insforge.database
+          .from('community_posts')
+          .update({
+            comments: nextCloudComments,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', postId);
+
+        if (updateErr) {
+          console.warn('Failed to update comments on community_posts:', updateErr);
+        }
+      } else {
+        console.warn('Could not fetch post from cloud to append comment:', fetchErr);
+      }
+    } catch (cloudErr) {
+      console.warn('Cloud comment sync error:', cloudErr);
     }
+
+    // 3. Also try relational community_comments insert if table is ever created
+    try {
+      if (currentUserId && isUUID(currentUserId)) {
+        await insforge.database.from('community_comments').insert([{
+          id: commentUuid,
+          post_id: postId,
+          user_id: currentUserId,
+          user_name: newComment.userName,
+          user_avatar: newComment.userAvatar || null,
+          content: newComment.text,
+          created_at: newComment.createdAt,
+        }]);
+      }
+    } catch {}
 
     return updated;
   },
@@ -1093,7 +1283,7 @@ export const socialService = {
     const targetPost = posts.find((p) => p.id === postId);
     if (!targetPost) return posts;
 
-    const comment = targetPost.comments.find((c) => c.id === commentId);
+    const comment = targetPost.comments?.find((c) => c.id === commentId);
     if (!comment) return posts;
 
     if (!this.canModerateComment(targetPost, comment, profile)) {
@@ -1103,11 +1293,11 @@ export const socialService = {
 
     const updated = posts.map((p) => {
       if (p.id === postId) {
-        const filtered = p.comments.filter((c) => c.id !== commentId);
+        const filtered = (p.comments || []).filter((c) => c.id !== commentId);
         return {
           ...p,
           comments: filtered,
-          commentsCount: Math.max(0, (p.commentsCount || 1) - 1),
+          commentsCount: Math.max(0, filtered.length),
         };
       }
       return p;
@@ -1116,10 +1306,38 @@ export const socialService = {
     this.saveCachedPosts(updated);
 
     try {
-      await insforge.database.from('community_comments').delete().eq('id', commentId);
-    } catch (err) {
-      console.warn('Failed to delete comment on cloud:', err);
+      const { data: cloudRow } = await insforge.database
+        .from('community_posts')
+        .select('id, comments')
+        .eq('id', postId)
+        .maybeSingle();
+
+      if (cloudRow) {
+        let currentCloudComments: any[] = [];
+        if (Array.isArray(cloudRow.comments)) {
+          currentCloudComments = cloudRow.comments;
+        } else if (typeof cloudRow.comments === 'string' && cloudRow.comments.trim().length > 0) {
+          try {
+            const parsed = JSON.parse(cloudRow.comments);
+            if (Array.isArray(parsed)) currentCloudComments = parsed;
+          } catch {}
+        }
+        const filteredCloud = currentCloudComments.filter((c: any) => c.id !== commentId);
+        await insforge.database
+          .from('community_posts')
+          .update({
+            comments: filteredCloud,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', postId);
+      }
+    } catch (e) {
+      console.warn('Failed to delete comment from community_posts:', e);
     }
+
+    try {
+      await insforge.database.from('community_comments').delete().eq('id', commentId);
+    } catch {}
 
     return updated;
   },
@@ -1194,15 +1412,15 @@ export const socialService = {
         const kmCount = Math.max(1, Math.floor(distM / 1000));
         updatedSplits = (updatedWorkout.splits && updatedWorkout.splits.length > 0)
           ? updatedWorkout.splits.map((s, idx) => ({
-              km: idx + 1,
-              pace: formatPaceRaw(s.pace, 'min_km'),
-              elevation_diff: s.elevation_diff || 0,
-            }))
+            km: idx + 1,
+            pace: formatPaceRaw(s.pace, 'min_km'),
+            elevation_diff: s.elevation_diff || 0,
+          }))
           : Array.from({ length: kmCount }, (_, i) => ({
-              km: i + 1,
-              pace: formatPaceRaw(updatedWorkout.average_pace || 300, 'min_km'),
-              elevation_diff: 0,
-            }));
+            km: i + 1,
+            pace: formatPaceRaw(updatedWorkout.average_pace || 300, 'min_km'),
+            elevation_diff: 0,
+          }));
       } else {
         // Workout detached: convert to general text/photo post
         updatedWorkout = {
@@ -1327,34 +1545,46 @@ export const socialService = {
   subscribeToFeed(
     onPostChange: (event: { eventType: 'INSERT' | 'UPDATE' | 'DELETE'; post?: FeedPost; id?: string }) => void
   ): () => void {
+    const unsubscribers: (() => void)[] = [];
     try {
       if (insforge.realtime && typeof insforge.realtime.subscribe === 'function') {
-        const channelName = 'community_posts';
-        insforge.realtime.subscribe(channelName).catch(() => {});
+        const channels = ['community_posts', 'community_comments', 'community_reactions'];
+        channels.forEach((channelName) => {
+          insforge.realtime.subscribe(channelName).catch(() => { });
+        });
 
         const handler = (msg: any) => {
-          if (msg?.channel === channelName || msg?.table === 'community_posts') {
+          const table = msg?.table || msg?.channel;
+          if (
+            table === 'community_posts' ||
+            table === 'community_comments' ||
+            table === 'community_reactions'
+          ) {
             const eventType = (msg?.eventType || msg?.event || 'INSERT') as 'INSERT' | 'UPDATE' | 'DELETE';
             const record = msg?.payload?.new || msg?.payload || msg?.data;
             onPostChange({
               eventType,
-              id: record?.id || msg?.id,
+              id: record?.id || record?.post_id || msg?.id,
             });
           }
         };
 
         insforge.realtime.on('message', handler);
-        return () => {
+        unsubscribers.push(() => {
           try {
             insforge.realtime.off('message', handler);
-            insforge.realtime.unsubscribe(channelName);
-          } catch {}
-        };
+            channels.forEach((channelName) => {
+              insforge.realtime.unsubscribe(channelName);
+            });
+          } catch { }
+        });
       }
     } catch (e) {
       console.warn('Realtime feed subscription skipped:', e);
     }
-    return () => {};
+    return () => {
+      unsubscribers.forEach((fn) => fn());
+    };
   },
 
   /**
@@ -1375,7 +1605,7 @@ export const socialService = {
     try {
       const p = localStorage.getItem('runwar_cached_profile');
       if (p) cachedProfile = JSON.parse(p);
-    } catch {}
+    } catch { }
 
     const candidateIds = new Set<string>();
     [
@@ -1543,10 +1773,10 @@ export const socialService = {
     for (const athlete of athleteMap.values()) {
       const filteredWorkouts = cutoffDate
         ? athlete.workouts.filter((w) => {
-            if (!w.started_at) return true;
-            const d = new Date(w.started_at);
-            return !isNaN(d.getTime()) && d >= cutoffDate!;
-          })
+          if (!w.started_at) return true;
+          const d = new Date(w.started_at);
+          return !isNaN(d.getTime()) && d >= cutoffDate!;
+        })
         : athlete.workouts;
 
       const totalDistanceMeters = filteredWorkouts.reduce((sum, w) => sum + Number(w.distance_meters || 0), 0);
@@ -1568,9 +1798,14 @@ export const socialService = {
       const streakDays = calculateExactStreak(athlete.workouts);
 
       let territoriesHeld = 0;
-      if (totalDistanceKm >= 35) territoriesHeld = 3;
-      else if (totalDistanceKm >= 20) territoriesHeld = 2;
-      else if (totalDistanceKm >= 10) territoriesHeld = 1;
+      if (athlete.isCurrentUser) {
+        const validRuns = athlete.workouts.filter((w) => Number(w.distance_meters || 0) > 0);
+        territoriesHeld = Math.min(4, validRuns.length);
+      } else {
+        if (totalDistanceKm >= 35) territoriesHeld = 3;
+        else if (totalDistanceKm >= 20) territoriesHeld = 2;
+        else if (totalDistanceKm >= 10) territoriesHeld = 1;
+      }
 
       entries.push({
         rank: 1,
@@ -1673,62 +1908,173 @@ export const socialService = {
   },
 
   /**
-   * Dynamically generate Territory Zones with defense streak days, target pace, and difficulty
+   * Dynamically generate Territory Zones based on REAL user workout data!
+   * - Real completed workouts become real defended sectors with genuine distances, paces, dates, and GPS route coordinates.
+   * - If user has fewer than 4 recorded workouts, open milestone challenge sectors are provided to conquer.
    */
   calculateTerritories(workouts: Workout[], profile?: UserProfile | null): TerritoryZone[] {
-    const userKm = workouts.reduce((sum, w) => sum + (Number(w.distance_meters || 0) / 1000), 0);
-    const userName = profile?.name || 'Athlete';
+    const validWorkouts = (workouts || []).filter(
+      (w) => (w.status === 'completed' || !w.status) && Number(w.distance_meters || 0) > 0
+    );
+    const userName = profile?.name?.trim() || profile?.username?.trim() || 'Athlete';
 
-    return [
+    const territories: TerritoryZone[] = [];
+
+    // Sort valid real workouts by most recent first
+    const sortedWorkouts = [...validWorkouts].sort((a, b) => {
+      const timeA = new Date(a.started_at || a.created_at || 0).getTime();
+      const timeB = new Date(b.started_at || b.created_at || 0).getTime();
+      return timeB - timeA;
+    });
+
+    // Pick up to 4 unique runs
+    const realRuns = sortedWorkouts.slice(0, 4);
+
+    realRuns.forEach((w, idx) => {
+      const distanceMeters = Number(w.distance_meters || 0);
+      const distanceKmNum = distanceMeters / 1000;
+      const distanceKmStr = `${distanceKmNum.toFixed(2)} km`;
+      const avgPaceStr = w.average_pace && w.average_pace > 0 ? `${formatPaceRaw(w.average_pace)} /km` : '5:00 /km';
+
+      const runDateObj = new Date(w.started_at || w.created_at || Date.now());
+      const diffMs = Date.now() - runDateObj.getTime();
+      const defenseStreakDays = Math.max(1, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+      const isUnderSiege = defenseStreakDays >= 3; // After 3 days without defense, zone enters siege
+
+      const difficulty: 'Easy' | 'Moderate' | 'Hard' | 'Extreme' =
+        distanceKmNum >= 10 ? 'Extreme' : distanceKmNum >= 5 ? 'Hard' : distanceKmNum >= 3 ? 'Moderate' : 'Easy';
+
+      const elevationM = Math.round(w.elevation_gain || 0);
+      const bountyXp = Math.round(distanceKmNum * 70) + (isUnderSiege ? 250 : 150);
+
+      // Real kilometer splits if recorded during workout
+      const splitsTarget =
+        w.splits && w.splits.length > 0
+          ? w.splits.slice(0, 6).map((s) => ({
+            km: s.split_number,
+            pace: `${formatPaceRaw(s.pace)} /km`,
+          }))
+          : undefined;
+
+      // Authentic sector naming based on workout title or real distance category
+      const rawTitle = w.title?.trim();
+      const sectorName = rawTitle
+        ? (rawTitle.toLowerCase().includes('sector') || rawTitle.toLowerCase().includes('circuit') ? rawTitle : `Sector: ${rawTitle}`)
+        : `${distanceKmNum >= 10 ? 'Endurance District' : distanceKmNum >= 5 ? 'Metro 5K Circuit' : 'Urban Sector'} (${distanceKmStr})`;
+
+      territories.push({
+        id: `tz_real_${w.id || idx}`,
+        name: sectorName,
+        holder: userName,
+        pace: avgPaceStr,
+        status: 'Secured',
+        km: distanceKmStr,
+        defenseStreakDays,
+        targetPaceSeconds: Math.max(120, Math.round((w.average_pace || 300) * 0.95)),
+        difficulty,
+        elevationM,
+        bountyXp,
+        isUnderSiege,
+        circuitType: (idx % 4) + 1,
+        route_coordinates: w.route_coordinates && w.route_coordinates.length >= 2 ? w.route_coordinates : undefined,
+        splitsTarget,
+        isRealUserWorkout: true,
+        workoutId: w.id,
+        runDate: runDateObj.toISOString(),
+      });
+    });
+
+    // Milestone challenge templates for unfilled slots (so user always has 4 sectors to interact with or contest)
+    const milestoneTemplates = [
       {
-        id: 'tz_1',
-        name: 'Central Sector Loop',
-        holder: userKm > 10 ? userName : 'Unclaimed Zone',
-        pace: userKm > 10 ? '4:45 /km' : '4:35 /km',
-        status: userKm > 10 ? 'Secured' : 'Contested',
-        km: '3.2 km',
-        defenseStreakDays: userKm > 10 ? 1 : 0,
-        targetPaceSeconds: 275,
-        difficulty: 'Moderate',
-        elevationM: 48,
-      },
-      {
-        id: 'tz_2',
-        name: 'Waterfront Sprint Segment',
-        holder: userKm > 20 ? userName : 'Unclaimed Zone',
-        pace: userKm > 20 ? '4:30 /km' : '4:28 /km',
-        status: userKm > 20 ? 'Secured' : 'Contested',
-        km: '1.8 km',
-        defenseStreakDays: userKm > 20 ? 1 : 0,
-        targetPaceSeconds: 268,
-        difficulty: 'Hard',
+        id: 'tz_challenge_1',
+        name: 'Starter Sprint Loop',
+        holder: 'Unclaimed Zone',
+        pace: '5:30 /km',
+        status: 'Contested' as const,
+        km: '1.50 km',
+        defenseStreakDays: 0,
+        targetPaceSeconds: 330,
+        difficulty: 'Easy' as const,
         elevationM: 15,
+        bountyXp: 200,
+        isUnderSiege: true,
+        circuitType: 1,
+        splitsTarget: [
+          { km: 1, pace: '5:30 /km' },
+        ],
       },
       {
-        id: 'tz_3',
-        name: 'Skyline Trail Challenge',
-        holder: userKm > 35 ? userName : 'Unclaimed Zone',
-        pace: userKm > 35 ? '5:10 /km' : '5:20 /km',
-        status: userKm > 35 ? 'Secured' : 'Contested',
-        km: '5.0 km',
-        defenseStreakDays: userKm > 35 ? 1 : 0,
-        targetPaceSeconds: 320,
-        difficulty: 'Extreme',
-        elevationM: 145,
+        id: 'tz_challenge_2',
+        name: 'Downtown 3K Circuit',
+        holder: 'Unclaimed Zone',
+        pace: '5:15 /km',
+        status: 'Contested' as const,
+        km: '3.00 km',
+        defenseStreakDays: 0,
+        targetPaceSeconds: 315,
+        difficulty: 'Moderate' as const,
+        elevationM: 25,
+        bountyXp: 300,
+        isUnderSiege: true,
+        circuitType: 2,
+        splitsTarget: [
+          { km: 1, pace: '5:20 /km' },
+          { km: 2, pace: '5:15 /km' },
+          { km: 3, pace: '5:10 /km' },
+        ],
       },
       {
-        id: 'tz_4',
-        name: 'Harbor Gateway Dash',
+        id: 'tz_challenge_3',
+        name: 'Metro 5K Championship Ring',
         holder: 'Unclaimed Zone',
         pace: '5:00 /km',
-        status: 'Contested',
-        km: '2.5 km',
+        status: 'Contested' as const,
+        km: '5.00 km',
         defenseStreakDays: 0,
         targetPaceSeconds: 300,
-        difficulty: 'Easy',
-        elevationM: 20,
-      }
+        difficulty: 'Hard' as const,
+        elevationM: 40,
+        bountyXp: 450,
+        isUnderSiege: true,
+        circuitType: 3,
+        splitsTarget: [
+          { km: 1, pace: '5:05 /km' },
+          { km: 2, pace: '5:00 /km' },
+          { km: 3, pace: '5:00 /km' },
+          { km: 4, pace: '4:55 /km' },
+          { km: 5, pace: '4:50 /km' },
+        ],
+      },
+      {
+        id: 'tz_challenge_4',
+        name: '10K Endurance District',
+        holder: 'Unclaimed Zone',
+        pace: '4:50 /km',
+        status: 'Contested' as const,
+        km: '10.00 km',
+        defenseStreakDays: 0,
+        targetPaceSeconds: 290,
+        difficulty: 'Extreme' as const,
+        elevationM: 75,
+        bountyXp: 600,
+        isUnderSiege: true,
+        circuitType: 4,
+        splitsTarget: [
+          { km: 1, pace: '4:55 /km' },
+          { km: 5, pace: '4:50 /km' },
+          { km: 10, pace: '4:45 /km' },
+        ],
+      },
     ];
+
+    // Fill remaining slots up to 4
+    for (const milestone of milestoneTemplates) {
+      if (territories.length >= 4) break;
+      territories.push(milestone);
+    }
+
+    return territories;
   },
 
   /**
@@ -1784,7 +2130,7 @@ export const socialService = {
     try {
       const p = localStorage.getItem('runwar_cached_profile');
       if (p) cachedProfile = JSON.parse(p);
-    } catch {}
+    } catch { }
 
     const candidateIds = new Set<string>();
     [

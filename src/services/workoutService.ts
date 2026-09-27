@@ -649,11 +649,13 @@ export const workoutService = {
         if (!error && Array.isArray(data)) {
           const deletedIds = this.getDeletedWorkoutIds();
           cloudWorkouts = data.map(normalizeWorkout).filter((w) => !deletedIds.has(w.id));
-        } else if (error) {
-          console.warn('Cloud fetch workouts error from InsForge:', error);
+        } else if (error && error.message && error.message.trim().length > 0) {
+          console.warn('Cloud fetch workouts error from InsForge:', error.message);
         }
-      } catch (err) {
-        console.warn('Cloud fetch workouts warning, falling back to cache:', err);
+      } catch (err: any) {
+        if (err?.message && err.message.trim().length > 0) {
+          console.warn('Cloud fetch workouts warning, falling back to cache:', err.message);
+        }
       }
     }
 
