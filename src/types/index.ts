@@ -183,6 +183,8 @@ export interface Workout {
   source_provider?: HealthProviderType;
   external_record_id?: string | null;
   heart_rate_avg?: number | null;
+  photo_url?: string | null;
+  has_photo_stats_overlay?: boolean;
   created_at: string;
 }
 

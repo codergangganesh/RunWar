@@ -48,6 +48,7 @@ export interface FeedPost {
   photoUrl?: string;
   hasPhotoStatsOverlay?: boolean;
   splits?: KmSplit[];
+  isLocalAuthor?: boolean;
 }
 
 export interface FeedComment {
@@ -162,8 +163,11 @@ export const socialService = {
   /**
    * Universal helper to check if a user is the author of a post
    */
-  isPostAuthor(post: FeedPost | { userId?: string; userName?: string }, profile?: UserProfile | null): boolean {
+  isPostAuthor(post: FeedPost | { userId?: string; userName?: string; isLocalAuthor?: boolean }, profile?: UserProfile | null): boolean {
     if (!post) return false;
+    if ((post as any).isLocalAuthor) return true;
+
+    const candidateIds = new Set<string>();
     const cachedUser = authService.getCachedUser();
     let cachedProfile: UserProfile | null = null;
     try {
@@ -171,7 +175,11 @@ export const socialService = {
       if (pStr) cachedProfile = JSON.parse(pStr);
     } catch { }
 
-    const candidateIds = new Set<string>();
+    const insforgeAuthId = (insforge.auth as any)?.currentUser?.id;
+    if (insforgeAuthId) {
+      candidateIds.add(insforgeAuthId);
+      candidateIds.add(normalizeUserId(insforgeAuthId));
+    }
 
     if (profile?.user_id) {
       candidateIds.add(profile.user_id);
@@ -226,8 +234,8 @@ export const socialService = {
       return true;
     }
 
-    // Fallback: If no candidate ID exists on client and post is from guest or me
-    if (candidateIds.size === 0 && (post.userId === 'guest_user' || post.userId === 'user_me' || post.userId === 'me')) {
+    // Fallback: If post is from guest or me
+    if (post.userId === 'guest_user' || post.userId === 'user_me' || post.userId === 'me') {
       return true;
     }
 
@@ -269,7 +277,20 @@ export const socialService = {
    */
   async getFeedPostsAsync(currentProfile?: UserProfile | null): Promise<FeedPost[]> {
     const cachedUser = authService.getCachedUser();
-    const currentUserId = normalizeUserId(currentProfile?.user_id || currentProfile?.id || cachedUser?.id);
+    let currentUserId = currentProfile?.user_id || currentProfile?.id;
+    if (!currentUserId || !isUUID(currentUserId)) {
+      try {
+        const { data: authData } = await insforge.auth.getCurrentUser();
+        const authUser = (authData as any)?.user || authData;
+        if (authUser?.id && isUUID(authUser.id)) {
+          currentUserId = authUser.id;
+        }
+      } catch {}
+    }
+    currentUserId = normalizeUserId(currentUserId || cachedUser?.id);
+
+    // Read current local cache so we never drop user-created posts
+    const localPosts = this.getFeedPosts();
 
     try {
       // 1. Fetch posts ordered by latest first
@@ -277,7 +298,7 @@ export const socialService = {
         .from('community_posts')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(40);
+        .limit(50);
 
       if (!error && rawPosts && Array.isArray(rawPosts)) {
         // 2. Fetch current user's reactions in bulk to populate hasFiredUp accurately
@@ -300,7 +321,7 @@ export const socialService = {
         }
 
         // 3. Map into strongly typed FeedPost models
-        const posts: FeedPost[] = rawPosts.map((r: any) => {
+        const cloudPosts: FeedPost[] = rawPosts.map((r: any) => {
           const isAuthor = currentUserId && normalizeUserId(r.user_id) === currentUserId;
           const userHasFired = isAuthor ? false : userReactions.has(r.id);
 
@@ -379,14 +400,57 @@ export const socialService = {
           };
         });
 
-        this.saveCachedPosts(posts);
-        return posts;
+        const cloudPostIds = new Set(cloudPosts.map((p) => p.id));
+
+        // Preserve local posts authored by this user that are not in cloudPosts!
+        // This guarantees that private, squad, or un-synced posts NEVER disappear on refresh.
+        const localAuthorPosts = localPosts.filter((lp) => {
+          if (cloudPostIds.has(lp.id)) return false;
+          return this.isPostAuthor(lp, currentProfile);
+        });
+
+        // Background sync: Attempt to push unsynced local posts to InsForge cloud
+        if (localAuthorPosts.length > 0 && currentUserId && isUUID(currentUserId)) {
+          localAuthorPosts.forEach(async (unsynced) => {
+            try {
+              const validWorkoutUuid = unsynced.workout?.id && isUUID(unsynced.workout.id) ? unsynced.workout.id : null;
+              const payloadWorkoutData = {
+                ...(unsynced.workout || {}),
+                photo_url: unsynced.photoUrl || (unsynced.workout as any)?.photo_url || null,
+                has_photo_stats_overlay: Boolean(unsynced.hasPhotoStatsOverlay && unsynced.photoUrl),
+              };
+              await insforge.database.from('community_posts').upsert([{
+                id: unsynced.id,
+                user_id: currentUserId,
+                user_name: unsynced.userName,
+                user_avatar: unsynced.userAvatar || null,
+                user_badge: unsynced.userBadge || 'Athlete',
+                workout_id: validWorkoutUuid,
+                workout_data: payloadWorkoutData,
+                caption: unsynced.caption,
+                fire_ups_count: unsynced.fireUpsCount || 0,
+                comments: [],
+                location_name: unsynced.locationName,
+                visibility: unsynced.visibility || 'public',
+                created_at: unsynced.createdAt,
+              }], { onConflict: 'id' });
+            } catch (syncErr) {
+              console.warn('Background sync error for local post:', syncErr);
+            }
+          });
+        }
+
+        const mergedPosts = [...localAuthorPosts, ...cloudPosts];
+        this.saveCachedPosts(mergedPosts);
+        return mergedPosts;
+      } else {
+        console.warn('InsForge Cloud Feed fetch error, keeping local posts:', error);
       }
     } catch (err) {
       console.warn('InsForge Cloud Feed fetch fallback to cache:', err);
     }
 
-    return this.getFeedPosts();
+    return localPosts;
   },
 
   /**
@@ -638,7 +702,7 @@ export const socialService = {
   },
 
   /**
-   * Fetch social feed posts synchronously from cache, with rich seed fallback
+   * Fetch social feed posts synchronously from cache (real user posts only, no mock seeds)
    */
   getFeedPosts(): FeedPost[] {
     try {
@@ -646,26 +710,29 @@ export const socialService = {
       if (stored) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          const cachedUser = authService.getCachedUser();
-          return parsed.map((p: FeedPost) => {
-            let cleanName = p.userName;
-            if (!cleanName || isUUID(cleanName)) {
-              const isMe = this.isPostAuthor(p);
-              cleanName = isMe ? (cachedUser?.name || 'You') : 'War Runner';
-            }
-            return {
-              ...p,
-              userName: cleanName,
-            };
-          });
+          // Strictly filter out any mock seed posts so fake data is never displayed
+          const cleanParsed = parsed.filter((p: FeedPost) => !p.id.startsWith('seed_post_'));
+          if (cleanParsed.length > 0) {
+            const cachedUser = authService.getCachedUser();
+            return cleanParsed.map((p: FeedPost) => {
+              let cleanName = p.userName;
+              if (!cleanName || isUUID(cleanName)) {
+                const isMe = this.isPostAuthor(p);
+                cleanName = isMe ? (cachedUser?.name || 'You') : 'War Runner';
+              }
+              return {
+                ...p,
+                userName: cleanName,
+              };
+            });
+          }
         }
       }
     } catch (e) {
       console.error('Failed to read social feed cache', e);
     }
-    const seed = this.getDefaultSeedPosts();
-    this.saveCachedPosts(seed);
-    return seed;
+    // Return empty array instead of mock seed posts so skeleton loading can display
+    return [];
   },
 
   /**
@@ -723,7 +790,28 @@ export const socialService = {
     hasPhotoStatsOverlay?: boolean
   ): Promise<FeedPost> {
     const cachedUser = authService.getCachedUser();
-    const resolvedUserId = normalizeUserId(profile?.user_id || profile?.id || cachedUser?.id);
+    let resolvedUserId = normalizeUserId(profile?.user_id || profile?.id);
+
+    // Resolve active InsForge session user ID if not already a UUID
+    if (!resolvedUserId || !isUUID(resolvedUserId)) {
+      const authId = (insforge.auth as any)?.currentUser?.id;
+      if (authId && isUUID(authId)) {
+        resolvedUserId = authId;
+      } else {
+        try {
+          const { data: authData } = await insforge.auth.getCurrentUser();
+          const authUser = (authData as any)?.user || authData;
+          if (authUser?.id && isUUID(authUser.id)) {
+            resolvedUserId = authUser.id;
+          }
+        } catch { }
+      }
+    }
+
+    if (!resolvedUserId) {
+      resolvedUserId = normalizeUserId(cachedUser?.id || 'guest_user');
+    }
+
     const posts = this.getFeedPosts();
 
     if (workout?.id) {
@@ -738,26 +826,34 @@ export const socialService = {
     const distM = Number(workout?.distance_meters || 0);
     const distKm = (distM / 1000).toFixed(2);
 
-    const workoutData: Workout = workout || {
-      id: `w_post_${Date.now()}`,
-      user_id: resolvedUserId,
-      type: 'run',
-      title: 'Community Check-in',
-      started_at: new Date().toISOString(),
-      ended_at: new Date().toISOString(),
-      duration_seconds: 0,
-      distance_meters: 0,
-      average_pace: 0,
-      average_speed: 0,
-      max_speed: 0,
-      calories: 0,
-      elevation_gain: 0,
-      elevation_loss: 0,
-      status: 'completed',
-      route_coordinates: [],
-      splits: [],
-      created_at: new Date().toISOString(),
-    };
+    const workoutData: Workout = (workout
+      ? {
+          ...workout,
+          photo_url: photoUrl || (workout as any).photo_url || null,
+          has_photo_stats_overlay: Boolean(hasPhotoStatsOverlay && photoUrl),
+        }
+      : {
+          id: `w_post_${Date.now()}`,
+          user_id: resolvedUserId,
+          type: 'run',
+          title: 'Community Check-in',
+          started_at: new Date().toISOString(),
+          ended_at: new Date().toISOString(),
+          duration_seconds: 0,
+          distance_meters: 0,
+          average_pace: 0,
+          average_speed: 0,
+          max_speed: 0,
+          calories: 0,
+          elevation_gain: 0,
+          elevation_loss: 0,
+          status: 'completed',
+          route_coordinates: [],
+          splits: [],
+          created_at: new Date().toISOString(),
+          photo_url: photoUrl || null,
+          has_photo_stats_overlay: Boolean(hasPhotoStatsOverlay && photoUrl),
+        }) as Workout;
 
     // Build splits from workout if available
     const kmCount = Math.max(1, Math.floor(distM / 1000));
@@ -773,11 +869,23 @@ export const socialService = {
           elevation_diff: Math.round((Math.random() - 0.5) * 8),
         }));
 
+    const authorDisplayName =
+      profile?.name ||
+      profile?.username ||
+      cachedUser?.name ||
+      cachedUser?.email?.split('@')[0] ||
+      'War Runner';
+
+    const authorAvatar =
+      profile?.avatar_url ||
+      cachedUser?.avatar_url ||
+      undefined;
+
     const newPost: FeedPost = {
       id: `post_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
       userId: resolvedUserId,
-      userName: profile?.name || profile?.username || 'War Runner',
-      userAvatar: profile?.avatar_url || undefined,
+      userName: authorDisplayName,
+      userAvatar: authorAvatar,
       userBadge: profile?.fitness_goal || 'Athlete',
       workout: workoutData,
       caption: caption || (distM > 0 ? `Just completed a ${distKm} km ${workoutData.type}!` : 'Checking in with the RunWar community! 🔥'),
@@ -792,30 +900,37 @@ export const socialService = {
       photoUrl,
       hasPhotoStatsOverlay: Boolean(hasPhotoStatsOverlay && photoUrl),
       splits,
+      isLocalAuthor: true,
     };
 
-    const updated = [newPost, ...posts];
+    // Persist immediately in local feed cache with deduplication
+    const updated = [newPost, ...posts.filter((p) => p.id !== newPost.id)];
     this.saveCachedPosts(updated);
 
-    try {
-      const validWorkoutUuid = workoutData?.id && isUUID(workoutData.id) ? workoutData.id : null;
-      await insforge.database.from('community_posts').insert([{
-        id: newPost.id,
-        user_id: newPost.userId,
-        user_name: newPost.userName,
-        user_avatar: newPost.userAvatar,
-        user_badge: newPost.userBadge,
-        workout_id: validWorkoutUuid,
-        workout_data: workoutData,
-        caption: newPost.caption,
-        fire_ups_count: 0,
-        comments_count: 0,
-        location_name: newPost.locationName,
-        visibility: newPost.visibility,
-        created_at: newPost.createdAt,
-      }]);
-    } catch (err) {
-      console.warn('InsForge Cloud insert fallback to local storage:', err);
+    // Persist to InsForge Cloud Database
+    if (resolvedUserId && isUUID(resolvedUserId)) {
+      try {
+        const validWorkoutUuid = workoutData?.id && isUUID(workoutData.id) ? workoutData.id : null;
+        await insforge.database.from('community_posts').upsert([{
+          id: newPost.id,
+          user_id: resolvedUserId,
+          user_name: newPost.userName,
+          user_avatar: newPost.userAvatar || null,
+          user_badge: newPost.userBadge || 'Athlete',
+          workout_id: validWorkoutUuid,
+          workout_data: workoutData,
+          caption: newPost.caption,
+          fire_ups_count: 0,
+          comments: [],
+          location_name: newPost.locationName,
+          visibility: newPost.visibility,
+          created_at: newPost.createdAt,
+        }], { onConflict: 'id' });
+      } catch (err) {
+        console.warn('InsForge Cloud insert fallback to local storage:', err);
+      }
+    } else {
+      console.log('Post created in local storage session (guest or non-UUID user id)');
     }
 
     return newPost;
@@ -1012,10 +1127,12 @@ export const socialService = {
   /**
    * Delete a community post (strictly restricted to post author)
    */
-  async deletePost(postId: string, profile: UserProfile | null): Promise<boolean> {
+  async deletePost(postOrId: FeedPost | string, profile: UserProfile | null): Promise<boolean> {
+    const postId = typeof postOrId === 'string' ? postOrId : postOrId.id;
     const posts = this.getFeedPosts();
-    const target = posts.find((p) => p.id === postId);
-    if (!target || !this.isPostAuthor(target, profile)) {
+    const target = (typeof postOrId === 'object' ? postOrId : null) || posts.find((p) => p.id === postId);
+
+    if (target && !this.isPostAuthor(target, profile)) {
       console.warn('Only the post author can delete this post.');
       return false;
     }
@@ -1028,7 +1145,11 @@ export const socialService = {
         .from('community_posts')
         .delete()
         .eq('id', postId);
-      return !error;
+      if (error) {
+        console.warn('InsForge database delete error:', error);
+        return false;
+      }
+      return true;
     } catch (err) {
       console.warn('Failed to delete post from cloud:', err);
       return false;

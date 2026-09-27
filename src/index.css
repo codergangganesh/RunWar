@@ -466,3 +466,13 @@ html.light div[class*="rounded-t-[36px]"] .border-slate-800 {
   animation: slide-left 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateY(-12px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}

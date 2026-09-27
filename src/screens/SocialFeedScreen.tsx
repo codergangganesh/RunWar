@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Flame, MessageSquare, Share2, Trophy, MapPin, Shield, Zap, Send,
   User, Award, Navigation, Plus, CheckCircle2, Download, ChevronLeft, RefreshCw, Lock, Globe, Users, X, Filter, Check,
@@ -160,6 +161,61 @@ const RouteThumbnail: React.FC<{
   );
 };
 
+/**
+ * High-fidelity Skeleton Card matching the post card geometry & layout
+ */
+const FeedSkeletonCard: React.FC = () => {
+  return (
+    <div className="bg-white dark:bg-white/[0.04] rounded-[28px] p-5 sm:p-6 shadow-sm space-y-4 border border-slate-100 dark:border-white/[0.08] backdrop-blur-md animate-pulse">
+      {/* Header Skeleton */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-3.5 min-w-0 flex-1">
+          {/* Avatar circle skeleton */}
+          <div className="w-12 h-12 rounded-full bg-slate-200 dark:bg-white/10 shrink-0" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <div className="h-4 w-32 sm:w-44 bg-slate-200 dark:bg-white/10 rounded-lg" />
+            <div className="flex items-center gap-2">
+              <div className="h-3 w-16 bg-slate-100 dark:bg-white/[0.06] rounded-full" />
+              <div className="h-3 w-28 bg-slate-100 dark:bg-white/[0.06] rounded-md" />
+            </div>
+          </div>
+        </div>
+        {/* Kebab menu placeholder */}
+        <div className="w-10 h-10 rounded-2xl bg-slate-100 dark:bg-white/[0.06] shrink-0" />
+      </div>
+
+      {/* Caption Skeleton */}
+      <div className="space-y-2 pt-1">
+        <div className="h-3.5 w-4/5 bg-slate-200 dark:bg-white/10 rounded-md" />
+        <div className="h-3.5 w-3/5 bg-slate-100 dark:bg-white/[0.06] rounded-md" />
+      </div>
+
+      {/* Route Map / Workout HUD Box Skeleton */}
+      <div className="w-full h-44 sm:h-52 rounded-2xl bg-slate-100 dark:bg-white/[0.05] relative overflow-hidden flex flex-col justify-between p-3.5 border border-slate-200/50 dark:border-white/[0.05]">
+        <div className="h-5 w-24 bg-slate-200/80 dark:bg-white/10 rounded-full" />
+        <div className="h-5 w-32 bg-slate-200/80 dark:bg-white/10 rounded-full self-end" />
+      </div>
+
+      {/* Metric Stat Chips Skeleton */}
+      <div className="grid grid-cols-3 gap-2">
+        <div className="h-10 rounded-xl bg-slate-100 dark:bg-white/[0.05]" />
+        <div className="h-10 rounded-xl bg-slate-100 dark:bg-white/[0.05]" />
+        <div className="h-10 rounded-xl bg-slate-100 dark:bg-white/[0.05]" />
+      </div>
+
+      {/* Footer Reaction Bar Skeleton */}
+      <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-white/[0.06]">
+        <div className="flex items-center gap-1.5">
+          <div className="h-8 w-14 rounded-full bg-slate-100 dark:bg-white/[0.05]" />
+          <div className="h-8 w-14 rounded-full bg-slate-100 dark:bg-white/[0.05]" />
+          <div className="h-8 w-14 rounded-full bg-slate-100 dark:bg-white/[0.05]" />
+        </div>
+        <div className="h-8 w-20 rounded-full bg-slate-100 dark:bg-white/[0.05]" />
+      </div>
+    </div>
+  );
+};
+
 export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
   profile,
   userWorkouts = [],
@@ -168,6 +224,7 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
 }) => {
   const [tab, setTab] = useState<SocialTab>('feed');
   const [posts, setPosts] = useState<FeedPost[]>(() => socialService.getFeedPosts());
+  const [isLoadingFeed, setIsLoadingFeed] = useState<boolean>(true);
 
   // Leaderboard Filtering & Categorization State
   const [timeframe, setTimeframe] = useState<'week' | 'month' | 'all'>('week');
@@ -240,6 +297,10 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
         }
       } catch (err) {
         console.warn('Error fetching live social data:', err);
+      } finally {
+        if (isMounted) {
+          setIsLoadingFeed(false);
+        }
       }
     };
 
@@ -375,8 +436,8 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
           editVisibility === 'friends'
             ? 'Squad (Friends)'
             : editVisibility === 'private'
-            ? 'Private (Only Me)'
-            : 'Global';
+              ? 'Private (Only Me)'
+              : 'Global';
         setReportToast(`Post updated — audience set to ${audienceName}`);
         setTimeout(() => setReportToast(null), 2000);
 
@@ -416,7 +477,21 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
       if (ok) {
         setPosts((prev) => prev.filter((p) => p.id !== postToDelete));
         setPostToDelete(null);
+        setReportToast('Post deleted');
+        setTimeout(() => setReportToast(null), 2000);
+
+        // Refresh live leaderboard in background
+        socialService.getLeaderboardAsync(userWorkouts, profile, timeframe, leaderboardCategory).then((updatedLb) => {
+          setLeaderboard(updatedLb);
+        });
+      } else {
+        setReportToast('Failed to delete post');
+        setTimeout(() => setReportToast(null), 2000);
       }
+    } catch (err: any) {
+      console.error('Failed to delete post:', err);
+      setReportToast('Failed to delete post');
+      setTimeout(() => setReportToast(null), 2000);
     } finally {
       setDeletingPost(false);
     }
@@ -550,20 +625,24 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
         sharePhotoUrl || undefined,
         shareBurnStats
       );
-      setPosts([newPost, ...posts]);
+      setPosts((prev) => [newPost, ...prev.filter((p) => p.id !== newPost.id)]);
       setShowShareModal(false);
       setSelectedWorkoutToShare(null);
       setShareCaption('');
       setSharePhotoUrl('');
 
-      // If active filter would hide newly published post, reset filter to 'all'
-      if (
-        feedFilter !== 'all' &&
-        ((feedFilter === 'public' && shareVisibility !== 'public') ||
-          (feedFilter === 'friends' && shareVisibility !== 'friends') ||
-          (feedFilter === 'private' && shareVisibility !== 'private'))
-      ) {
-        setFeedFilter('all');
+      const audienceLabel =
+        shareVisibility === 'private'
+          ? 'Only Me (Private)'
+          : shareVisibility === 'friends'
+            ? 'Squad'
+            : 'Global';
+      setReportToast(`Post published to ${audienceLabel}`);
+      setTimeout(() => setReportToast(null), 2000);
+
+      // If active filter would hide newly published post, switch filter to match the post's audience
+      if (feedFilter !== 'all' && feedFilter !== shareVisibility) {
+        setFeedFilter(shareVisibility);
       }
 
       // Refresh live leaderboard in background
@@ -687,15 +766,34 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
         </button>
       </div>
 
-      {/* Global Toast Notification — Top Center Minimal */}
-      {reportToast && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[99999] animate-slide-down">
-          <div className="bg-slate-900 dark:bg-slate-800 text-white px-5 py-2.5 rounded-full shadow-lg flex items-center gap-2 text-[13px] font-medium whitespace-nowrap">
-            <Check size={14} className="text-emerald-400 shrink-0" />
-            <span>{reportToast}</span>
-          </div>
-        </div>
-      )}
+      {/* Global Toast — portal to body, top center, light/dark aware */}
+      {reportToast &&
+        (() => {
+          const isDark = document.documentElement.classList.contains('dark');
+          return createPortal(
+            <div style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 2147483647, display: 'flex', justifyContent: 'center', paddingTop: 16, pointerEvents: 'none' }}>
+              <div style={{
+                background: isDark ? '#1e293b' : '#0f172a',
+                color: '#fff',
+                padding: '10px 20px',
+                borderRadius: 999,
+                fontSize: 13,
+                fontWeight: 500,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                boxShadow: isDark ? '0 8px 30px rgba(0,0,0,0.5)' : '0 8px 30px rgba(0,0,0,0.2)',
+                border: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.05)',
+                pointerEvents: 'auto',
+                animation: 'toastIn 0.25s ease-out',
+              }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#34d399" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                <span>{reportToast}</span>
+              </div>
+            </div>,
+            document.body
+          );
+        })()}
 
       {/* Tabs Bar & Global Filter Bar — Screen-Fit Layout (No Horizontal Scrolling) */}
       <div className="px-3 sm:px-5 py-2.5 bg-white/70 dark:bg-slate-950/40 border-b border-slate-200/60 dark:border-white/[0.05]">
@@ -729,7 +827,7 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
                 : 'bg-white dark:bg-white/[0.06] border border-slate-200 dark:border-white/10 text-slate-700 dark:text-white/70 hover:border-emerald-400'
                 }`}
             >
-              <span className="truncate">Leaderboard</span>
+              <span className="truncate">Rankings</span>
               <span
                 className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold shrink-0 ${tab === 'leaderboard'
                   ? 'bg-emerald-200 text-emerald-950'
@@ -835,7 +933,13 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
         {/* TAB 1: SOCIAL FEED */}
         {tab === 'feed' && (
           <div className="space-y-4">
-            {visiblePosts.length === 0 ? (
+            {isLoadingFeed ? (
+              <div className="space-y-4">
+                <FeedSkeletonCard />
+                <FeedSkeletonCard />
+                <FeedSkeletonCard />
+              </div>
+            ) : visiblePosts.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
                 <div>
                   <h3 className="text-slate-800 dark:text-white font-bold text-base">
@@ -991,19 +1095,18 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
                                 </span>
                               )}
 
-                              <span className={`flex items-center gap-1 font-semibold shrink-0 ${
-                                post.visibility === 'private'
-                                  ? 'text-amber-600 dark:text-amber-400'
-                                  : post.visibility === 'friends'
+                              <span className={`flex items-center gap-1 font-semibold shrink-0 ${post.visibility === 'private'
+                                ? 'text-amber-600 dark:text-amber-400'
+                                : post.visibility === 'friends'
                                   ? 'text-blue-600 dark:text-blue-400'
                                   : 'text-emerald-600 dark:text-emerald-400'
-                              }`}>
+                                }`}>
                                 <MapPin size={12} className="shrink-0" />
                                 {post.visibility === 'private'
                                   ? 'Private Sector'
                                   : post.visibility === 'friends'
-                                  ? 'Squad Sector'
-                                  : (post.locationName && post.locationName !== 'Private Sector' && post.locationName !== 'Squad Sector' ? post.locationName : 'Global Sector')}
+                                    ? 'Squad Sector'
+                                    : (post.locationName && post.locationName !== 'Private Sector' && post.locationName !== 'Squad Sector' ? post.locationName : 'Global Sector')}
                               </span>
 
                               <span className="shrink-0 text-slate-700 dark:text-slate-300 font-medium">
@@ -1241,7 +1344,7 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
                           className="w-full px-3.5 py-2.5 flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100/70 dark:hover:bg-white/[0.05] transition-all cursor-pointer"
                         >
                           <span className="flex items-center gap-1.5">
-                            <Zap size={14} className="text-amber-500" />
+
                             <span>View Km Splits & Elevation ({post.splits.length} km)</span>
                           </span>
                           <span className="flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400">
@@ -2056,11 +2159,10 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
                         <div
                           key={w.id}
                           onClick={() => setEditSelectedWorkout(isSelected ? null : w)}
-                          className={`p-3 rounded-2xl border cursor-pointer transition-all flex items-center justify-between text-xs ${
-                            isSelected
-                              ? 'bg-emerald-500/15 border-emerald-500 text-slate-900 dark:text-white font-bold shadow-xs'
-                              : 'bg-slate-50 dark:bg-white/[0.04] border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-white/20'
-                          }`}
+                          className={`p-3 rounded-2xl border cursor-pointer transition-all flex items-center justify-between text-xs ${isSelected
+                            ? 'bg-emerald-500/15 border-emerald-500 text-slate-900 dark:text-white font-bold shadow-xs'
+                            : 'bg-slate-50 dark:bg-white/[0.04] border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-white/20'
+                            }`}
                         >
                           <div className="min-w-0 pr-2">
                             <div className="font-bold text-slate-900 dark:text-white truncate">{m.title}</div>
@@ -2118,11 +2220,10 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
                       key={preset.label}
                       type="button"
                       onClick={() => setEditPhotoUrl(preset.url)}
-                      className={`relative rounded-xl overflow-hidden h-14 border transition-all cursor-pointer ${
-                        editPhotoUrl === preset.url
-                          ? 'border-emerald-500 ring-2 ring-emerald-500/30'
-                          : 'border-slate-200 dark:border-white/10 opacity-70 hover:opacity-100'
-                      }`}
+                      className={`relative rounded-xl overflow-hidden h-14 border transition-all cursor-pointer ${editPhotoUrl === preset.url
+                        ? 'border-emerald-500 ring-2 ring-emerald-500/30'
+                        : 'border-slate-200 dark:border-white/10 opacity-70 hover:opacity-100'
+                        }`}
                     >
                       <img src={preset.url} alt={preset.label} className="w-full h-full object-cover" />
                       <span className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[9px] font-bold text-center py-0.5">
@@ -2157,33 +2258,30 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
                   <button
                     type="button"
                     onClick={() => setEditVisibility('public')}
-                    className={`py-2 px-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
-                      editVisibility === 'public'
-                        ? 'bg-emerald-500 text-white border-emerald-500 shadow-sm shadow-emerald-500/25 ring-2 ring-emerald-500/20'
-                        : 'bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/60 hover:border-slate-300'
-                    }`}
+                    className={`py-2 px-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${editVisibility === 'public'
+                      ? 'bg-emerald-500 text-white border-emerald-500 shadow-sm shadow-emerald-500/25 ring-2 ring-emerald-500/20'
+                      : 'bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/60 hover:border-slate-300'
+                      }`}
                   >
                     <Globe size={14} /> Global
                   </button>
                   <button
                     type="button"
                     onClick={() => setEditVisibility('friends')}
-                    className={`py-2 px-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
-                      editVisibility === 'friends'
-                        ? 'bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-500/25 ring-2 ring-blue-500/20'
-                        : 'bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/60 hover:border-slate-300'
-                    }`}
+                    className={`py-2 px-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${editVisibility === 'friends'
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-500/25 ring-2 ring-blue-500/20'
+                      : 'bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/60 hover:border-slate-300'
+                      }`}
                   >
                     <Users size={14} /> Squad
                   </button>
                   <button
                     type="button"
                     onClick={() => setEditVisibility('private')}
-                    className={`py-2 px-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
-                      editVisibility === 'private'
-                        ? 'bg-amber-600 text-white border-amber-600 shadow-sm shadow-amber-500/25 ring-2 ring-amber-500/20'
-                        : 'bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/60 hover:border-slate-300'
-                    }`}
+                    className={`py-2 px-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${editVisibility === 'private'
+                      ? 'bg-amber-600 text-white border-amber-600 shadow-sm shadow-amber-500/25 ring-2 ring-amber-500/20'
+                      : 'bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/60 hover:border-slate-300'
+                      }`}
                   >
                     <Lock size={14} /> Private
                   </button>
@@ -2260,39 +2358,71 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
         </div>
       )}
 
-      {/* DELETE POST CONFIRMATION MODAL */}
-      {postToDelete && (
-        <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
-          <div className="w-full max-w-sm bg-white dark:bg-[#0f0f1a] border border-slate-200 dark:border-white/10 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4 text-center">
-            <div className="w-12 h-12 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-500 flex items-center justify-center mx-auto">
-              <AlertTriangle size={24} />
+      {/* DELETE POST CONFIRMATION MODAL — Portaled to document.body for cross-device consistency */}
+      {postToDelete &&
+        createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 2147483646,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 16,
+            }}
+            className="bg-black/70 backdrop-blur-sm select-none animate-fade-in"
+            onClick={(e) => {
+              if (e.target === e.currentTarget && !deletingPost) {
+                setPostToDelete(null);
+              }
+            }}
+          >
+            <div className="w-full max-w-sm bg-white dark:bg-[#0f0f1a] border border-slate-200 dark:border-white/10 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4 text-center">
+              <div className="w-12 h-12 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-500 flex items-center justify-center mx-auto">
+                <AlertTriangle size={24} />
+              </div>
+              <div>
+                <h3 className="font-bold text-base text-slate-900 dark:text-white">Delete Post?</h3>
+                <p className="text-xs text-slate-500 dark:text-white/50 mt-1">
+                  Are you sure you want to delete this workout post? This action cannot be undone.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  disabled={deletingPost}
+                  onClick={() => setPostToDelete(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10 disabled:opacity-40 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={deletingPost}
+                  onClick={handleConfirmDeletePost}
+                  className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-md shadow-red-600/30 disabled:opacity-60 flex items-center justify-center gap-1.5 cursor-pointer transition-all"
+                >
+                  {deletingPost ? (
+                    <>
+                      <svg className="animate-spin h-3.5 w-3.5 text-white" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                      </svg>
+                      <span>Deleting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 size={13} />
+                      <span>Delete</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
-            <div>
-              <h3 className="font-bold text-base text-slate-900 dark:text-white">Delete Post?</h3>
-              <p className="text-xs text-slate-500 dark:text-white/50 mt-1">
-                Are you sure you want to delete this workout post? This action cannot be undone.
-              </p>
-            </div>
-            <div className="flex items-center gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setPostToDelete(null)}
-                className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={deletingPost}
-                onClick={handleConfirmDeletePost}
-                className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-md shadow-red-600/30 disabled:opacity-50"
-              >
-                {deletingPost ? 'Deleting...' : 'Delete'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
 
       {/* CREATE POST BOTTOM SHEET DRAWER WITH PHOTO & STATS OVERLAY */}
       {showShareModal && (
@@ -2482,33 +2612,30 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
                   <button
                     type="button"
                     onClick={() => setShareVisibility('public')}
-                    className={`py-2 px-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
-                      shareVisibility === 'public'
-                        ? 'bg-emerald-500 text-white border-emerald-500 shadow-sm shadow-emerald-500/25 ring-2 ring-emerald-500/20'
-                        : 'bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/60 hover:border-slate-300'
-                    }`}
+                    className={`py-2 px-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${shareVisibility === 'public'
+                      ? 'bg-emerald-500 text-white border-emerald-500 shadow-sm shadow-emerald-500/25 ring-2 ring-emerald-500/20'
+                      : 'bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/60 hover:border-slate-300'
+                      }`}
                   >
                     <Globe size={14} /> Global
                   </button>
                   <button
                     type="button"
                     onClick={() => setShareVisibility('friends')}
-                    className={`py-2 px-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
-                      shareVisibility === 'friends'
-                        ? 'bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-500/25 ring-2 ring-blue-500/20'
-                        : 'bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/60 hover:border-slate-300'
-                    }`}
+                    className={`py-2 px-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${shareVisibility === 'friends'
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-500/25 ring-2 ring-blue-500/20'
+                      : 'bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/60 hover:border-slate-300'
+                      }`}
                   >
                     <Users size={14} /> Squad
                   </button>
                   <button
                     type="button"
                     onClick={() => setShareVisibility('private')}
-                    className={`py-2 px-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
-                      shareVisibility === 'private'
-                        ? 'bg-amber-600 text-white border-amber-600 shadow-sm shadow-amber-500/25 ring-2 ring-amber-500/20'
-                        : 'bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/60 hover:border-slate-300'
-                    }`}
+                    className={`py-2 px-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${shareVisibility === 'private'
+                      ? 'bg-amber-600 text-white border-amber-600 shadow-sm shadow-amber-500/25 ring-2 ring-amber-500/20'
+                      : 'bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/60 hover:border-slate-300'
+                      }`}
                   >
                     <Lock size={14} /> Private
                   </button>
