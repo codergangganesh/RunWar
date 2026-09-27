@@ -10,6 +10,7 @@ import { Workout, UserProfile } from '../types';
 import { formatPaceRaw, formatDistance } from '../utils/formatters';
 import { getLocalDateKey } from '../utils/dateUtils';
 import { authService, normalizeUserId } from './authService';
+import { workoutService } from './workoutService';
 
 export type ReactionType = 'fire' | 'respect' | 'beast' | 'salute';
 
@@ -476,13 +477,20 @@ export const socialService = {
           }
           const hasFiredUp = userReaction !== null;
 
+          let feedWorkout = r.workout_data;
+          if (typeof feedWorkout === 'string') {
+            try {
+              feedWorkout = JSON.parse(feedWorkout);
+            } catch {}
+          }
+
           return {
             id: r.id,
             userId: r.user_id,
             userName: resolvedUserName,
             userAvatar: resolvedUserAvatar || undefined,
             userBadge: r.user_badge || 'Athlete',
-            workout: r.workout_data ? r.workout_data : {
+            workout: feedWorkout ? feedWorkout : {
               id: r.workout_id || r.id,
               user_id: r.user_id,
               type: r.workout_type || 'run',
@@ -547,7 +555,7 @@ export const socialService = {
                 workout_data: payloadWorkoutData,
                 caption: unsynced.caption,
                 fire_ups_count: unsynced.fireUpsCount || 0,
-                comments: [],
+                comments_count: unsynced.commentsCount || 0,
                 location_name: unsynced.locationName,
                 visibility: unsynced.visibility || 'public',
                 created_at: unsynced.createdAt,
@@ -576,11 +584,56 @@ export const socialService = {
    */
   async getPostById(postId: string, currentProfile?: UserProfile | null): Promise<FeedPost | null> {
     if (!postId || !postId.trim()) return null;
-    const cleanId = postId.trim();
+    let cleanId = postId.trim();
+    try {
+      cleanId = decodeURIComponent(cleanId);
+    } catch {}
 
     // 1. Check local cache first for zero-latency retrieval
     const localPosts = this.getFeedPosts();
-    const cachedPost = localPosts.find((p) => p.id === cleanId);
+    let cachedPost = localPosts.find((p) => p.id === cleanId || p.workout?.id === cleanId);
+
+    // If not in clean parsed feed, check raw local storage
+    if (!cachedPost) {
+      try {
+        const rawFeed = localStorage.getItem(FEED_STORAGE_KEY);
+        if (rawFeed) {
+          const parsed = JSON.parse(rawFeed);
+          if (Array.isArray(parsed)) {
+            cachedPost = parsed.find((p: any) => p?.id === cleanId || p?.workout?.id === cleanId);
+          }
+        }
+      } catch {}
+    }
+
+    // If still not found, check local workouts cache
+    if (!cachedPost) {
+      try {
+        const cachedWorkouts = workoutService.getCachedWorkouts();
+        const matchedWorkout = cachedWorkouts.find((w) => w.id === cleanId || cleanId.includes(w.id));
+        if (matchedWorkout) {
+          const authorName = currentProfile?.name || 'War Runner';
+          cachedPost = {
+            id: matchedWorkout.id,
+            userId: matchedWorkout.user_id,
+            userName: authorName,
+            userAvatar: currentProfile?.avatar_url || undefined,
+            userBadge: currentProfile?.fitness_goal || 'Athlete',
+            workout: matchedWorkout,
+            caption: matchedWorkout.title || 'Workout on RunWar',
+            fireUpsCount: 0,
+            reactions: { fire: 0, respect: 0, beast: 0, salute: 0 },
+            userReaction: null,
+            hasFiredUp: false,
+            commentsCount: 0,
+            comments: [],
+            createdAt: matchedWorkout.created_at || new Date().toISOString(),
+            locationName: 'Global Sector',
+            visibility: 'public',
+          };
+        }
+      } catch {}
+    }
 
     const cachedUser = authService.getCachedUser();
     let currentUserId = currentProfile?.user_id || currentProfile?.id;
@@ -597,13 +650,76 @@ export const socialService = {
 
     // 2. Query InsForge Cloud database for fresh data
     try {
-      const { data: r, error } = await insforge.database
+      let r: any = null;
+      const { data: postData, error: postErr } = await insforge.database
         .from('community_posts')
         .select('*')
         .eq('id', cleanId)
         .maybeSingle();
 
-      if (!error && r) {
+      if (!postErr && postData) {
+        r = postData;
+      } else {
+        // Fallback: check if cleanId matches a workout_id in community_posts
+        try {
+          const { data: workoutPostData } = await insforge.database
+            .from('community_posts')
+            .select('*')
+            .eq('workout_id', cleanId)
+            .maybeSingle();
+          if (workoutPostData) {
+            r = workoutPostData;
+          }
+        } catch {}
+      }
+
+      // Fallback: if not found in community_posts, check workouts table directly
+      if (!r) {
+        try {
+          const { data: dbWorkout } = await insforge.database
+            .from('workouts')
+            .select('*')
+            .eq('id', cleanId)
+            .maybeSingle();
+          if (dbWorkout) {
+            let authorName = 'War Runner';
+            let authorAvatar = undefined;
+            if (dbWorkout.user_id && isUUID(dbWorkout.user_id)) {
+              try {
+                const { data: authorProf } = await insforge.database
+                  .from('profiles')
+                  .select('name, username, avatar_url')
+                  .eq('user_id', dbWorkout.user_id)
+                  .maybeSingle();
+                if (authorProf) {
+                  authorName = authorProf.name || authorProf.username || 'War Runner';
+                  authorAvatar = authorProf.avatar_url || undefined;
+                }
+              } catch {}
+            }
+            return {
+              id: dbWorkout.id,
+              userId: dbWorkout.user_id,
+              userName: authorName,
+              userAvatar: authorAvatar,
+              userBadge: 'Athlete',
+              workout: dbWorkout,
+              caption: dbWorkout.title || 'Workout on RunWar',
+              fireUpsCount: 0,
+              reactions: { fire: 0, respect: 0, beast: 0, salute: 0 },
+              userReaction: null,
+              hasFiredUp: false,
+              commentsCount: 0,
+              comments: [],
+              createdAt: dbWorkout.created_at || new Date().toISOString(),
+              locationName: 'Global Sector',
+              visibility: 'public',
+            };
+          }
+        } catch {}
+      }
+
+      if (r) {
         // Fetch comments
         let allComments: any[] = [];
         try {
@@ -646,6 +762,18 @@ export const socialService = {
         }
 
         let resolvedUserAvatar = r.user_avatar;
+        if (!resolvedUserAvatar && r.user_id && isUUID(r.user_id)) {
+          try {
+            const { data: authorProf } = await insforge.database
+              .from('profiles')
+              .select('avatar_url, name, username')
+              .eq('user_id', r.user_id)
+              .maybeSingle();
+            if (authorProf?.avatar_url) {
+              resolvedUserAvatar = authorProf.avatar_url;
+            }
+          } catch {}
+        }
         if (isAuthor && !resolvedUserAvatar && currentProfile?.avatar_url) {
           resolvedUserAvatar = currentProfile.avatar_url;
         }
@@ -711,32 +839,61 @@ export const socialService = {
         }
         const hasFiredUp = userReaction !== null;
 
+        let resolvedWorkout = r.workout_data;
+        if (typeof resolvedWorkout === 'string') {
+          try {
+            resolvedWorkout = JSON.parse(resolvedWorkout);
+          } catch {}
+        }
+
+        // If workout details or coordinates are incomplete and workout_id exists, fetch directly from workouts table
+        if (r.workout_id && isUUID(r.workout_id) && (!resolvedWorkout || !resolvedWorkout.distance_meters || !resolvedWorkout.route_coordinates?.length)) {
+          try {
+            const { data: dbWorkout } = await insforge.database
+              .from('workouts')
+              .select('*')
+              .eq('id', r.workout_id)
+              .maybeSingle();
+            if (dbWorkout) {
+              resolvedWorkout = {
+                ...dbWorkout,
+                ...(resolvedWorkout || {}),
+                route_coordinates: dbWorkout.route_coordinates || resolvedWorkout?.route_coordinates || [],
+              };
+            }
+          } catch {}
+        }
+
+        if (!resolvedWorkout) {
+          resolvedWorkout = {
+            id: r.workout_id || r.id,
+            user_id: r.user_id,
+            type: r.workout_type || 'run',
+            started_at: r.started_at || r.created_at,
+            ended_at: r.ended_at || r.created_at,
+            duration_seconds: r.duration_seconds || 1800,
+            distance_meters: r.distance_meters || 5000,
+            average_pace: r.average_pace || 360,
+            average_speed: r.average_speed || (r.distance_meters && r.duration_seconds ? ((r.distance_meters / 1000) / (r.duration_seconds / 3600)) : 10),
+            max_speed: r.max_speed || 12,
+            calories: r.calories || 350,
+            elevation_gain: r.elevation_gain || 0,
+            elevation_loss: r.elevation_loss || 0,
+            status: 'completed',
+            route_coordinates: [],
+            splits: [],
+            created_at: r.created_at,
+            title: r.workout_title || 'Outdoor Run',
+          };
+        }
+
         const cloudPost: FeedPost = {
           id: r.id,
           userId: r.user_id,
           userName: resolvedUserName,
           userAvatar: resolvedUserAvatar || undefined,
           userBadge: r.user_badge || 'Athlete',
-          workout: r.workout_data ? r.workout_data : {
-            id: r.workout_id || r.id,
-            user_id: r.user_id,
-            type: r.workout_type || 'run',
-            started_at: r.created_at,
-            ended_at: r.created_at,
-            duration_seconds: r.duration_seconds || 1800,
-            distance_meters: r.distance_meters || 5000,
-            average_pace: r.average_pace || 360,
-            average_speed: 10,
-            max_speed: 12,
-            calories: r.calories || 350,
-            elevation_gain: 30,
-            elevation_loss: 30,
-            status: 'completed',
-            route_coordinates: [],
-            splits: [],
-            created_at: r.created_at,
-            title: r.workout_title || 'Outdoor Run',
-          },
+          workout: resolvedWorkout,
           caption: r.caption,
           fireUpsCount: Math.max(totalReactions, Number(r.fire_ups_count || 0)),
           reactions: counts,
@@ -748,8 +905,8 @@ export const socialService = {
           locationName: r.location_name || 'Global Sector',
           territoryClaimed: r.territory_claimed,
           visibility: r.visibility || 'public',
-          photoUrl: r.photo_url || r.workout_data?.photo_url || undefined,
-          hasPhotoStatsOverlay: Boolean(r.has_photo_stats_overlay ?? r.workout_data?.has_photo_stats_overlay),
+          photoUrl: r.photo_url || resolvedWorkout?.photo_url || undefined,
+          hasPhotoStatsOverlay: Boolean(r.has_photo_stats_overlay ?? resolvedWorkout?.has_photo_stats_overlay),
         };
 
         // Cache update
@@ -822,6 +979,54 @@ export const socialService = {
       twitterUrl: `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`,
       telegramUrl: `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`,
     };
+  },
+
+  /**
+   * Extract the shared post ID from any URL format:
+   * - Query param: ?post=...
+   * - Hash param: #post-... or #/?post=... or #[#&?]post=...
+   * - Path param: /post/:id
+   */
+  getPostIdFromUrl(): string | null {
+    if (typeof window === 'undefined') return null;
+    try {
+      // 1. Direct search param ?post=...
+      const searchParams = new URLSearchParams(window.location.search);
+      const postQuery = searchParams.get('post');
+      if (postQuery && postQuery.trim().length > 0) {
+        return decodeURIComponent(postQuery.trim());
+      }
+
+      // 2. Hash params e.g. #post-... or #/?post=... or #post=...
+      if (window.location.hash) {
+        const hash = window.location.hash;
+        if (hash.startsWith('#post-')) {
+          return decodeURIComponent(hash.replace('#post-', '').trim());
+        }
+        const qIndex = hash.indexOf('?');
+        if (qIndex !== -1) {
+          const hashParams = new URLSearchParams(hash.substring(qIndex));
+          const hashPost = hashParams.get('post');
+          if (hashPost && hashPost.trim().length > 0) {
+            return decodeURIComponent(hashPost.trim());
+          }
+        }
+        const match = hash.match(/[#&?]post=([^&]+)/);
+        if (match && match[1]) {
+          return decodeURIComponent(match[1].trim());
+        }
+      }
+
+      // 3. Pathname check e.g. /post/:id
+      const pathParts = window.location.pathname.split('/').filter(Boolean);
+      const postIdx = pathParts.indexOf('post');
+      if (postIdx !== -1 && pathParts[postIdx + 1]) {
+        return decodeURIComponent(pathParts[postIdx + 1].trim());
+      }
+    } catch (err) {
+      console.warn('Error extracting postId from URL:', err);
+    }
+    return null;
   },
 
   /**
@@ -1295,7 +1500,7 @@ export const socialService = {
           workout_data: workoutData,
           caption: newPost.caption,
           fire_ups_count: 0,
-          comments: [],
+          comments_count: 0,
           location_name: newPost.locationName,
           visibility: newPost.visibility,
           created_at: newPost.createdAt,
@@ -2536,4 +2741,6 @@ export const socialService = {
     };
   }
 };
+
+export const getPostIdFromUrl = (): string | null => socialService.getPostIdFromUrl();
 

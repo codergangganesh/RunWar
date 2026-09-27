@@ -1,3 +1,4 @@
+import { Eye } from 'lucide-react';
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -774,7 +775,7 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
       try {
         await navigator.clipboard.writeText(details.url);
         copied = true;
-      } catch {}
+      } catch { }
     }
 
     if (!copied && typeof document !== 'undefined') {
@@ -788,7 +789,7 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
         document.execCommand('copy');
         document.body.removeChild(textarea);
         copied = true;
-      } catch {}
+      } catch { }
     }
 
     setReportToast('Link copied to clipboard! 📋');
@@ -1494,6 +1495,23 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
                               className="w-full px-3.5 py-2 text-left flex items-center gap-2 hover:bg-slate-100 dark:hover:bg-white/[0.06] text-slate-800 dark:text-white cursor-pointer"
                             >
                               <Download size={14} className="text-emerald-600" /> Export GPX File
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActivePostMenu(null);
+                                if (onSelectPost) onSelectPost(post);
+                              }}
+                              className="w-full px-3.5 py-2 text-left flex items-center gap-2 hover:bg-slate-100 dark:hover:bg-white/[0.06] cursor-pointer"
+                            >
+                              <Eye
+                                size={15}
+                                strokeWidth={2.2}
+                                className="text-emerald-600 dark:text-[#00d09c]"
+                              />
+                              <span className="font-bold text-black dark:text-white">
+                                View Sharable Card
+                              </span>
                             </button>
                             <button
                               type="button"

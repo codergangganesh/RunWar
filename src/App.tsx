@@ -22,7 +22,7 @@ import { DailyActivityScreen } from './screens/DailyActivityScreen';
 import { ChallengesScreen } from './screens/ChallengesScreen';
 import { SocialFeedScreen } from './screens/SocialFeedScreen';
 import { PostDetailScreen } from './screens/PostDetailScreen';
-import { FeedPost } from './services/socialService';
+import { FeedPost, getPostIdFromUrl } from './services/socialService';
 import { RecoveryModal } from './components/ui/RecoveryModal';
 import { PWAInstallBanner } from './components/ui/PWAInstallBanner';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
@@ -84,29 +84,17 @@ export const App: React.FC = () => {
   })();
 
   // Navigation & Screen States
-  const [activePostId, setActivePostId] = useState<string | null>(() => {
-    try {
-      const params = new URLSearchParams(window.location.search);
-      const postParam = params.get('post');
-      if (postParam) return postParam;
-      if (window.location.hash.startsWith('#post-')) {
-        return window.location.hash.replace('#post-', '');
-      }
-    } catch {}
-    return null;
-  });
+  const initialPostIdFromUrl = getPostIdFromUrl();
+  const [activePostId, setActivePostId] = useState<string | null>(initialPostIdFromUrl);
   const [activePost, setActivePost] = useState<FeedPost | null>(null);
 
   const [screen, setScreen] = useState<ScreenState>(() => {
     if (initialActiveWorkout) {
       return 'active_run';
     }
-    try {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('post') || window.location.hash.startsWith('#post-')) {
-        return 'post_detail';
-      }
-    } catch {}
+    if (initialPostIdFromUrl) {
+      return 'post_detail';
+    }
     return 'splash';
   });
   const [activeTab, setActiveTab] = useState<ActiveTab>('home');
@@ -367,8 +355,12 @@ export const App: React.FC = () => {
           if (userProfile) setProfile(userProfile);
           workoutService.syncPendingWorkouts(user.id).catch(() => {});
           await loadAppData(user.id, true);
+          const currentPostId = getPostIdFromUrl();
           const setupComplete = authService.isProfileSetupComplete(user.id, userProfile);
-          if (!setupComplete) {
+          if (currentPostId) {
+            setActivePostId(currentPostId);
+            setScreen('post_detail');
+          } else if (!setupComplete) {
             setScreen('profile_setup');
           } else {
             setScreen((prev) => (prev === 'splash' || prev === 'welcome' ? 'main' : prev));
@@ -383,8 +375,12 @@ export const App: React.FC = () => {
               : await authService.getProfile(cached.id);
             if (userProfile) setProfile(userProfile);
             await loadAppData(cached.id, true);
+            const currentPostId = getPostIdFromUrl();
             const cachedSetupComplete = authService.isProfileSetupComplete(cached.id, userProfile);
-            if (!cachedSetupComplete) {
+            if (currentPostId) {
+              setActivePostId(currentPostId);
+              setScreen('post_detail');
+            } else if (!cachedSetupComplete) {
               setScreen('profile_setup');
             } else {
               setScreen((prev) => (prev === 'splash' || prev === 'welcome' ? 'main' : prev));
@@ -392,17 +388,29 @@ export const App: React.FC = () => {
           } else {
             setCurrentUser(null);
             authService.clearCachedUser();
-            setScreen((prev) => (prev === 'splash' ? 'welcome' : prev));
+            const currentPostId = getPostIdFromUrl();
+            if (currentPostId) {
+              setActivePostId(currentPostId);
+              setScreen('post_detail');
+            } else {
+              setScreen((prev) => (prev === 'splash' ? 'welcome' : prev));
+            }
           }
         }
       } catch (e) {
         console.warn('Auth check error:', e);
-        const cached = authService.getCachedUser();
-        if (cached?.id) {
-          setCurrentUser(cached);
-          setScreen((prev) => (prev === 'splash' || prev === 'welcome' ? 'main' : prev));
+        const currentPostId = getPostIdFromUrl();
+        if (currentPostId) {
+          setActivePostId(currentPostId);
+          setScreen('post_detail');
         } else {
-          setScreen((prev) => (prev === 'splash' ? 'welcome' : prev));
+          const cached = authService.getCachedUser();
+          if (cached?.id) {
+            setCurrentUser(cached);
+            setScreen((prev) => (prev === 'splash' || prev === 'welcome' ? 'main' : prev));
+          } else {
+            setScreen((prev) => (prev === 'splash' ? 'welcome' : prev));
+          }
         }
       } finally {
         setIsAuthInitializing(false);
@@ -438,21 +446,31 @@ export const App: React.FC = () => {
           authService.setCachedUser(user);
           let userProfile = await authService.getProfile(user.id);
           const isSetupDone = authService.isProfileSetupComplete(user.id, userProfile);
-          if (!isSetupDone) {
-            if (userProfile) setProfile(userProfile);
+          if (userProfile) setProfile(userProfile);
+          workoutService.syncPendingWorkouts(user.id).catch(() => {});
+          await loadAppData(user.id);
+
+          const currentPostId = getPostIdFromUrl();
+          if (currentPostId) {
+            setActivePostId(currentPostId);
+            setScreen('post_detail');
+          } else if (!isSetupDone) {
             setScreen('profile_setup');
           } else {
-            setProfile(userProfile);
-            workoutService.syncPendingWorkouts(user.id).catch(() => {});
-            await loadAppData(user.id);
-            setScreen('main');
+            setScreen((prev) => (prev === 'splash' || prev === 'welcome' ? 'main' : prev));
           }
         }
       } else if (event === 'signedOut') {
         setCurrentUser(null);
         setProfile(null);
         authService.clearCachedUser();
-        setScreen('welcome');
+        const currentPostId = getPostIdFromUrl();
+        if (currentPostId) {
+          setActivePostId(currentPostId);
+          setScreen('post_detail');
+        } else {
+          setScreen('welcome');
+        }
       }
     });
 
@@ -512,8 +530,7 @@ export const App: React.FC = () => {
 
   // Handle splash completion and URL route preservation (e.g. returning from Google Health OAuth)
   const handleSplashFinish = () => {
-    const params = new URLSearchParams(window.location.search);
-    const postParam = params.get('post') || (window.location.hash.startsWith('#post-') ? window.location.hash.replace('#post-', '') : null);
+    const postParam = getPostIdFromUrl();
     if (postParam) {
       setActivePostId(postParam);
       setScreen('post_detail');
@@ -522,6 +539,7 @@ export const App: React.FC = () => {
 
     const cached = authService.getCachedUser();
     if (currentUser || cached) {
+      const params = new URLSearchParams(window.location.search);
       const targetScreen = params.get('screen') as ScreenState | null;
       const targetTab = params.get('tab') as ActiveTab | null;
       if (targetScreen === 'connected_health' || targetScreen === 'privacy') {
@@ -538,13 +556,13 @@ export const App: React.FC = () => {
   // Handle URL navigation params after authentication resolves
   useEffect(() => {
     if (isAuthInitializing) return;
-    const params = new URLSearchParams(window.location.search);
-    const postParam = params.get('post') || (window.location.hash.startsWith('#post-') ? window.location.hash.replace('#post-', '') : null);
+    const postParam = getPostIdFromUrl();
     if (postParam) {
       setActivePostId(postParam);
       setScreen('post_detail');
       return;
     }
+    const params = new URLSearchParams(window.location.search);
     const targetScreen = params.get('screen') as ScreenState | null;
     const targetTab = params.get('tab') as ActiveTab | null;
     if (targetScreen === 'connected_health' || targetScreen === 'privacy') {
@@ -557,8 +575,7 @@ export const App: React.FC = () => {
   // Support browser Back/Forward navigation with deep linked posts
   useEffect(() => {
     const handlePopState = () => {
-      const params = new URLSearchParams(window.location.search);
-      const postParam = params.get('post') || (window.location.hash.startsWith('#post-') ? window.location.hash.replace('#post-', '') : null);
+      const postParam = getPostIdFromUrl();
       if (postParam) {
         setActivePostId(postParam);
         setScreen('post_detail');
