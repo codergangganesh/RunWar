@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { UserProfile, UserSettings, Workout, GearItem, PersonalRecord, PocketUnlockMode, Goal } from '../types';
+import { UserProfile, UserSettings, Workout, GearItem, PersonalRecord, PocketUnlockMode, Goal, Alarm } from '../types';
 import { authService } from '../services/authService';
 import { challengeService } from '../services/challengeService';
 import { gearService } from '../services/gearService';
 import { goalsService } from '../services/goalsService';
+import { alarmService } from '../services/alarmService';
 import { DEFAULT_ACHIEVEMENTS } from '../services/achievementsService';
 import { downloadFile, generateWorkoutsCSV } from '../utils/exportGenerators';
 import { formatDistance, formatDuration, formatPace } from '../utils/formatters';
@@ -45,10 +46,15 @@ import {
   Zap,
   Sliders,
   RefreshCw,
+  Bell,
+  Clock,
 } from 'lucide-react';
 import { healthService } from '../services/health/healthService';
 import { AudioCoachModal } from '../components/workout/AudioCoachModal';
 import { audioCoach } from '../services/audioCoach';
+import { AlarmCard } from '../components/notifications/AlarmCard';
+import { AlarmModal } from '../components/notifications/AlarmModal';
+import { NotificationSettingsPanel } from '../components/notifications/NotificationSettingsPanel';
 
 interface ProfileScreenProps {
   profile: UserProfile | null;
@@ -87,6 +93,70 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   const [newTargetValue, setNewTargetValue] = useState<number>(20);
   const [newPeriod, setNewPeriod] = useState<Goal['period']>('weekly');
   const [isSavingGoal, setIsSavingGoal] = useState(false);
+
+  // Alarms & Reminders State
+  const [alarms, setAlarms] = useState<Alarm[]>([]);
+  const [loadingAlarms, setLoadingAlarms] = useState(false);
+  const [showAlarmModal, setShowAlarmModal] = useState(false);
+  const [editingAlarm, setEditingAlarm] = useState<Alarm | null>(null);
+  const [togglingAlarmId, setTogglingAlarmId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (profile?.user_id) {
+      setLoadingAlarms(true);
+      alarmService.getAlarms(profile.user_id)
+        .then(setAlarms)
+        .catch((err) => console.error('[ProfileScreen] Failed to load alarms:', err))
+        .finally(() => setLoadingAlarms(false));
+    }
+  }, [profile?.user_id]);
+
+  const handleOpenCreateAlarm = () => {
+    setEditingAlarm(null);
+    setShowAlarmModal(true);
+  };
+
+  const handleEditAlarm = (alarm: Alarm) => {
+    setEditingAlarm(alarm);
+    setShowAlarmModal(true);
+  };
+
+  const handleToggleAlarm = async (alarm: Alarm, enabled: boolean) => {
+    setTogglingAlarmId(alarm.id);
+    try {
+      await alarmService.toggleAlarm(alarm, enabled);
+      setAlarms((prev) =>
+        prev.map((a) => (a.id === alarm.id ? { ...a, enabled } : a))
+      );
+    } catch (err) {
+      console.error('[ProfileScreen] Failed to toggle alarm:', err);
+    } finally {
+      setTogglingAlarmId(null);
+    }
+  };
+
+  const handleDeleteAlarm = async (alarm: Alarm) => {
+    try {
+      await alarmService.deleteAlarm(alarm.id);
+      setAlarms((prev) => prev.filter((a) => a.id !== alarm.id));
+    } catch (err) {
+      console.error('[ProfileScreen] Failed to delete alarm:', err);
+    }
+  };
+
+  const handleSaveAlarm = (savedAlarm: Alarm) => {
+    setAlarms((prev) => {
+      const idx = prev.findIndex((a) => a.id === savedAlarm.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = savedAlarm;
+        return next;
+      }
+      return [savedAlarm, ...prev];
+    });
+    setShowAlarmModal(false);
+    setEditingAlarm(null);
+  };
 
   useEffect(() => {
     if (goals) {
@@ -1569,7 +1639,83 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
         )}
       </div>
 
+      {/* Running Reminders & Alarms Section */}
+      <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 sm:p-5 space-y-3.5 shadow-sm">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+              <Clock size={18} />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white truncate">
+                RUNNING ALARMS & REMINDERS
+              </h3>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                {alarms.length === 0
+                  ? 'Get notified even when the app is closed'
+                  : `${alarms.filter((a) => a.enabled).length} active · ${alarms.length} total`}
+              </p>
+            </div>
+          </div>
 
+          <button
+            type="button"
+            onClick={handleOpenCreateAlarm}
+            className="text-[10px] font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-100/90 hover:bg-emerald-200 dark:bg-emerald-500/20 dark:hover:bg-emerald-500/30 px-3 py-1.5 rounded-xl border border-emerald-300 dark:border-emerald-500/30 active:scale-95 transition-all flex items-center gap-1 cursor-pointer shadow-2xs shrink-0"
+          >
+            <Plus size={13} />
+            <span>Add Alarm</span>
+          </button>
+        </div>
+
+        {loadingAlarms ? (
+          <div className="p-6 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 flex items-center justify-center gap-2 text-xs text-slate-500">
+            <Loader2 size={16} className="animate-spin text-emerald-500" />
+            <span>Loading alarms...</span>
+          </div>
+        ) : alarms.length === 0 ? (
+          <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800/80 text-center space-y-2">
+            <div className="w-10 h-10 rounded-2xl bg-emerald-100 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto shadow-2xs">
+              <Bell size={20} />
+            </div>
+            <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+              No running alarms or reminders set yet.
+            </p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-xs mx-auto">
+              Schedule morning runs, evening jogs, hydration, or warm-up reminders that trigger even when the app is closed.
+            </p>
+            <button
+              type="button"
+              onClick={handleOpenCreateAlarm}
+              className="mt-1 text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline inline-block cursor-pointer"
+            >
+              + Create your first run alarm
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-2.5">
+            {alarms.map((alarm) => (
+              <AlarmCard
+                key={alarm.id}
+                alarm={alarm}
+                onToggle={handleToggleAlarm}
+                onEdit={handleEditAlarm}
+                onDelete={handleDeleteAlarm}
+                isToggling={togglingAlarmId === alarm.id}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Push Notifications & Granular Preferences */}
+      {profile?.user_id && (
+        <NotificationSettingsPanel
+          userId={profile.user_id}
+          settings={settings}
+          onUpdateSettings={onUpdateSettings}
+        />
+      )}
 
       {/* Connected Health Providers */}
       <div className="rounded-3xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-slate-800 p-4 space-y-2.5 shadow-sm">
@@ -2046,6 +2192,21 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           audioCoach.setConfig(next, audioFrequency);
         }}
       />
+
+      {/* Alarm Create/Edit Modal (Bottom Sheet) */}
+      {profile?.user_id && (
+        <AlarmModal
+          isOpen={showAlarmModal}
+          userId={profile.user_id}
+          editAlarm={editingAlarm}
+          onSave={handleSaveAlarm}
+          onClose={() => {
+            setShowAlarmModal(false);
+            setEditingAlarm(null);
+          }}
+          isPushEnabled={settings?.push_enabled ?? false}
+        />
+      )}
     </div>
   );
 };

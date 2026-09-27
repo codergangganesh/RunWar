@@ -72,6 +72,17 @@ export interface UserSettings {
   theme: ThemeMode;
   gps_accuracy_mode: 'high' | 'balanced' | 'power_save';
   notifications_enabled: boolean;
+  push_enabled?: boolean;
+  notif_running_reminders?: boolean;
+  notif_goals?: boolean;
+  notif_challenges?: boolean;
+  notif_social?: boolean;
+  notif_achievements?: boolean;
+  notif_system?: boolean;
+  quiet_hours_enabled?: boolean;
+  quiet_hours_start?: string; // 'HH:MM' e.g. '22:00'
+  quiet_hours_end?: string;   // 'HH:MM' e.g. '06:00'
+  quiet_hours_allow_alarms?: boolean;
   haptics_enabled: boolean;
   pocket_unlock_mode?: PocketUnlockMode;
   updated_at: string;
@@ -473,4 +484,94 @@ export interface CreateChallengeParams {
   recipient_username?: string;
   recipient_user_ids?: string[];
   recipient_usernames?: string[];
+}
+
+// =============================================================
+// NOTIFICATION, ALARM & PUSH SUBSCRIPTION TYPES
+// =============================================================
+
+export type NotificationType =
+  | 'alarm'
+  | 'goal'
+  | 'challenge'
+  | 'social'
+  | 'workout'
+  | 'achievement'
+  | 'system';
+
+export type NotificationStatus =
+  | 'pending'
+  | 'processing'
+  | 'sent'
+  | 'failed'
+  | 'cancelled';
+
+export type AlarmRecurrence = 'once' | 'daily' | 'weekly' | 'custom';
+
+export type AlarmType =
+  | 'morning_run'
+  | 'evening_run'
+  | 'stretch'
+  | 'hydration'
+  | 'workout'
+  | 'custom';
+
+export interface Alarm {
+  id: string;
+  user_id: string;
+  title: string;
+  message: string | null;
+  scheduled_time: string;        // 'HH:MM' format (stored as TIME in DB)
+  timezone: string;              // IANA timezone e.g. 'Asia/Kolkata'
+  enabled: boolean;
+  recurrence: AlarmRecurrence;
+  recurrence_days: number[] | null; // 0=Sun, 1=Mon, ..., 6=Sat
+  scheduled_date: string | null;    // 'YYYY-MM-DD' for 'once' type
+  next_trigger_at: string | null;   // ISO UTC timestamp
+  last_triggered_at: string | null;
+  alarm_type: AlarmType;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AppNotification {
+  id: string;
+  user_id: string;
+  type: NotificationType;
+  subtype: string | null;
+  title: string;
+  message: string;
+  data: Record<string, any>;
+  alarm_id: string | null;
+  scheduled_for: string | null;
+  occurrence_key: string | null;
+  status: NotificationStatus;
+  sent_at: string | null;
+  read_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PushSubscriptionRecord {
+  id: string;
+  user_id: string;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  device_info: Record<string, any>;
+  user_agent: string | null;
+  created_at: string;
+  updated_at: string;
+  last_seen_at: string | null;
+  revoked_at: string | null;
+}
+
+export interface NotificationPreferences {
+  push_enabled: boolean;
+  notif_running_reminders: boolean;
+  notif_goals: boolean;
+  notif_challenges: boolean;
+  notif_social: boolean;
+  notif_achievements: boolean;
+  notif_system: boolean;
 }

@@ -33,6 +33,8 @@ interface AppShellProps {
   theme?: 'dark' | 'light';
   onToggleTheme?: () => void;
   hideTopHeader?: boolean;
+  onOpenNotifications?: () => void;
+  notificationUnreadCount?: number;
 }
 
 export const AppShell: React.FC<AppShellProps> = ({
@@ -51,6 +53,8 @@ export const AppShell: React.FC<AppShellProps> = ({
   theme = 'dark',
   onToggleTheme,
   hideTopHeader = false,
+  onOpenNotifications,
+  notificationUnreadCount = 0,
 }) => {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [isDeviceFrame, setIsDeviceFrame] = useState(false);
@@ -95,6 +99,8 @@ export const AppShell: React.FC<AppShellProps> = ({
             streakCount={streakCount}
             theme={theme}
             onToggleTheme={onToggleTheme}
+            onOpenNotifications={onOpenNotifications}
+            notificationUnreadCount={notificationUnreadCount}
           />
         )}
 

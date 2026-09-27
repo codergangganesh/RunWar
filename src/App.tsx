@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AppShell, ActiveTab } from './components/layout/AppShell';
 import { SplashScreen } from './screens/SplashScreen';
 import { WelcomeScreen } from './screens/WelcomeScreen';
@@ -26,6 +26,12 @@ import { FeedPost, getPostIdFromUrl } from './services/socialService';
 import { RecoveryModal } from './components/ui/RecoveryModal';
 import { PWAInstallBanner } from './components/ui/PWAInstallBanner';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
+import { BottomSheet } from './components/ui/BottomSheet';
+import { NotificationCenter } from './components/notifications/NotificationCenter';
+import { NotificationsScreen } from './screens/NotificationsScreen';
+import { useNotifications } from './hooks/useNotifications';
+import { notificationService } from './services/notificationService';
+import { Bell } from 'lucide-react';
 
 import { insforge } from './lib/insforge';
 import { authService } from './services/authService';
@@ -62,7 +68,8 @@ type ScreenState =
   | 'workout_detail'
   | 'privacy'
   | 'connected_health'
-  | 'post_detail';
+  | 'post_detail'
+  | 'notifications';
 
 export const App: React.FC = () => {
   // Check if there is an active running session from a browser refresh
@@ -111,6 +118,95 @@ export const App: React.FC = () => {
     }
   });
   const [settings, setSettings] = useState<UserSettings | null>(null);
+
+  // Notification State & Handlers
+  const {
+    notifications,
+    unreadCount,
+    isLoading: isNotifsLoading,
+    markAsRead,
+    markAllAsRead,
+    deleteNotification,
+    deleteAllNotifications,
+  } = useNotifications(currentUser?.id || null);
+
+  const handleNotificationNavigation = useCallback((url: string) => {
+    if (!url) return;
+    if (url.startsWith('/workout') || url.startsWith('/history')) {
+      setScreen('main');
+      setActiveTab('history');
+    } else if (url.includes('tab=goals') || url.startsWith('/goals')) {
+      setScreen('main');
+      setActiveTab('goals');
+    } else if (url.includes('tab=challenges') || url.startsWith('/challenges')) {
+      setScreen('main');
+      setActiveTab('challenges');
+    } else if (url.includes('tab=achievements') || url.startsWith('/profile/achievements') || url.startsWith('/achievements')) {
+      setScreen('main');
+      setActiveTab('achievements');
+    } else if (url.includes('tab=social') || url.startsWith('/social')) {
+      setScreen('main');
+      setActiveTab('social');
+    } else if (url.includes('tab=profile') || url.startsWith('/profile')) {
+      setScreen('main');
+      setActiveTab('profile');
+    } else if (url.includes('tab=activity') || url.startsWith('/activity')) {
+      setScreen('main');
+      setActiveTab('activity');
+    } else {
+      setScreen('main');
+      setActiveTab('home');
+    }
+  }, []);
+
+  const handleStartRunRef = useRef<((type?: WorkoutType) => void) | null>(null);
+
+  useEffect(() => {
+    // Check if opened via notification click with ?action=start_run
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('action') === 'start_run') {
+      const cleanUrl = window.location.pathname;
+      window.history.replaceState({}, document.title, cleanUrl);
+      setTimeout(() => {
+        handleStartRunRef.current?.('run');
+      }, 600);
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleSwMessage = (event: MessageEvent) => {
+      if (
+        event.data?.type === 'RUNWAR_NOTIFICATION_CLICK' ||
+        event.data?.type === 'NOTIFICATION_CLICK'
+      ) {
+        const { url, notificationId, action } = event.data;
+        if (notificationId) {
+          notificationService.markAsRead(notificationId).catch(() => {});
+        }
+        if (action === 'start_run') {
+          setScreen('main');
+          setActiveTab('home');
+          setTimeout(() => {
+            handleStartRunRef.current?.('run');
+          }, 150);
+        } else if (url) {
+          handleNotificationNavigation(url);
+          if (url.includes('action=start_run')) {
+            setTimeout(() => {
+              handleStartRunRef.current?.('run');
+            }, 150);
+          }
+        }
+      }
+    };
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', handleSwMessage);
+      return () => {
+        navigator.serviceWorker.removeEventListener('message', handleSwMessage);
+      };
+    }
+  }, [handleNotificationNavigation]);
 
   // Loading & error states
   const [isDataLoading, setIsDataLoading] = useState(false);
@@ -714,6 +810,7 @@ export const App: React.FC = () => {
     setActiveWorkoutType(type);
     setScreen('active_run');
   };
+  handleStartRunRef.current = handleStartRun;
 
   // Finish an active workout
   const handleFinishWorkout = (finalState: LiveWorkoutState) => {
@@ -1012,6 +1109,25 @@ export const App: React.FC = () => {
           />
         );
 
+      case 'notifications':
+        return (
+          <NotificationsScreen
+            userId={currentUser?.id || null}
+            notifications={notifications}
+            unreadCount={unreadCount}
+            isLoading={isNotifsLoading}
+            onMarkAsRead={markAsRead}
+            onMarkAllAsRead={markAllAsRead}
+            onDelete={deleteNotification}
+            onDeleteAll={deleteAllNotifications}
+            onNavigate={(url) => {
+              setScreen('main');
+              handleNotificationNavigation(url);
+            }}
+            onBack={() => setScreen('main')}
+          />
+        );
+
       case 'main':
       default:
         return (
@@ -1031,6 +1147,8 @@ export const App: React.FC = () => {
                 loadAppData(currentUser.id, false);
               }
             }}
+            onOpenNotifications={() => setScreen('notifications')}
+            notificationUnreadCount={unreadCount}
             hideTopHeader={activeTab === 'activity'}
             headerTitle={
               activeTab === 'home' || activeTab === 'activity'
@@ -1065,6 +1183,7 @@ export const App: React.FC = () => {
                 onViewGoals={() => setActiveTab('goals')}
                 onViewChallenges={() => setActiveTab('challenges')}
                 onViewSocialFeed={() => setActiveTab('social')}
+                onViewReminders={() => setActiveTab('profile')}
                 onSelectWorkout={handleSelectWorkout}
               />
             )}

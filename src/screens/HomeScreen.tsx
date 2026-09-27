@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { CourseRoute, Goal, UserProfile, Workout, WorkoutType } from '../types';
+import { CourseRoute, Goal, UserProfile, Workout, WorkoutType, Alarm } from '../types';
 import { formatDistance, formatDuration, formatPace } from '../utils/formatters';
 import { formatLocalTime } from '../utils/dateUtils';
 import { WeeklyBarChart } from '../components/charts/WeeklyBarChart';
-import { Play, Zap, Footprints, Target, ArrowRight, Clock, Navigation, Route, Swords, Trophy, Flame } from 'lucide-react';
+import { Play, Zap, Footprints, Target, ArrowRight, Clock, Navigation, Route, Swords, Trophy, Flame, Bell } from 'lucide-react';
 import { courseService } from '../services/courseService';
 import { CourseModal } from '../components/workout/CourseModal';
 import { ghostRivalService } from '../services/ghostRivalService';
 import { GhostRivalModal } from '../components/workout/GhostRivalModal';
 import { GhostRivalConfig } from '../types';
 import { SocialFeedScreen } from './SocialFeedScreen';
+import { alarmService } from '../services/alarmService';
 
 interface HomeScreenProps {
   profile: UserProfile | null;
@@ -40,6 +41,7 @@ interface HomeScreenProps {
   onViewGoals: () => void;
   onViewChallenges?: () => void;
   onViewSocialFeed?: () => void;
+  onViewReminders?: () => void;
   onSelectWorkout: (workout: Workout) => void;
 }
 
@@ -55,6 +57,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onViewGoals,
   onViewChallenges,
   onViewSocialFeed,
+  onViewReminders,
   onSelectWorkout,
 }) => {
   const [selectedActivity, setSelectedActivity] = useState<WorkoutType>(
@@ -64,6 +67,22 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [showCourseModal, setShowCourseModal] = useState(false);
   const [activeGhost, setActiveGhost] = useState<GhostRivalConfig | null>(() => ghostRivalService.getActiveGhost());
   const [showGhostModal, setShowGhostModal] = useState(false);
+  const [nextAlarm, setNextAlarm] = useState<Alarm | null>(null);
+
+  useEffect(() => {
+    if (profile?.user_id) {
+      alarmService.getAlarms(profile.user_id)
+        .then((list) => {
+          const active = list.filter((a) => a.enabled);
+          if (active.length > 0) {
+            setNextAlarm(active[0]);
+          } else {
+            setNextAlarm(null);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [profile?.user_id]);
 
   useEffect(() => {
     const unsubCourse = courseService.subscribe(setActiveCourse);
@@ -183,6 +202,37 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Next Upcoming Alarm Banner (if any) */}
+      {nextAlarm && (
+        <div
+          onClick={onViewReminders}
+          className="rounded-2xl bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-500/30 p-3 flex items-center justify-between shadow-xs cursor-pointer hover:border-emerald-400 dark:hover:border-emerald-500/60 transition-all active:scale-98"
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+              <Clock size={16} />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                  {nextAlarm.title}
+                </span>
+                <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-300/60 dark:border-emerald-500/30">
+                  {nextAlarm.scheduled_time.slice(0, 5)}
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                {nextAlarm.message || 'Scheduled workout alarm · Tap to manage'}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 shrink-0">
+            <span>Reminders</span>
+            <ArrowRight size={12} />
+          </div>
+        </div>
+      )}
 
       {/* QUICK START Section */}
       <div className="rounded-2xl bg-white dark:bg-gradient-to-b dark:from-slate-900/95 dark:to-slate-950 border border-emerald-100 dark:border-slate-800/90 p-3.5 shadow-md dark:shadow-xl space-y-2.5">

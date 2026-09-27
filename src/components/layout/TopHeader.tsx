@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, Wifi, WifiOff, Smartphone, Maximize2, Flame, Sun, Moon, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Wifi, WifiOff, Smartphone, Maximize2, Flame, Sun, Moon, RefreshCw, Bell } from 'lucide-react';
 import { UserProfile } from '../../types';
 
 interface TopHeaderProps {
@@ -16,6 +16,8 @@ interface TopHeaderProps {
   streakCount?: number;
   theme?: 'dark' | 'light';
   onToggleTheme?: () => void;
+  onOpenNotifications?: () => void;
+  notificationUnreadCount?: number;
 }
 
 export const TopHeader: React.FC<TopHeaderProps> = ({
@@ -32,6 +34,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   streakCount = 0,
   theme = 'dark',
   onToggleTheme,
+  onOpenNotifications,
+  notificationUnreadCount = 0,
 }) => {
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-white/95 dark:bg-slate-950/90 backdrop-blur-lg border-b border-emerald-100/70 dark:border-slate-900 select-none shadow-sm dark:shadow-none transition-colors">
@@ -129,6 +133,24 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             <WifiOff size={14} />
           )}
         </button>
+
+        {/* Notification Bell Button */}
+        {onOpenNotifications && (
+          <button
+            type="button"
+            onClick={onOpenNotifications}
+            className="relative w-8 h-8 rounded-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 active:scale-90 transition-all flex items-center justify-center shrink-0 shadow-sm cursor-pointer"
+            title="Notifications"
+            aria-label="View notifications"
+          >
+            <Bell size={15} />
+            {notificationUnreadCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center shadow-xs border-2 border-white dark:border-slate-950">
+                {notificationUnreadCount > 9 ? '9+' : notificationUnreadCount}
+              </span>
+            )}
+          </button>
+        )}
 
         {/* Profile Avatar button */}
         {profile && (

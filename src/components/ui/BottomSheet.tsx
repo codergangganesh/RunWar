@@ -71,41 +71,51 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
   if (!isRendered) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[99999] flex items-end justify-center select-none overflow-hidden touch-none overscroll-none animate-fade-in">
+    <div className="fixed inset-0 z-[99999] flex items-end justify-center overflow-hidden animate-fade-in">
       {/* Backdrop */}
       <div
         onClick={onClose}
-        className={`absolute inset-0 bg-black/60 dark:bg-black/75 backdrop-blur-sm transition-opacity duration-300 ease-out ${isAnimating ? 'opacity-100' : 'opacity-0'
-          }`}
+        className={`absolute inset-0 bg-black/60 dark:bg-black/75 backdrop-blur-sm transition-opacity duration-300 ease-out ${
+          isAnimating ? 'opacity-100' : 'opacity-0'
+        }`}
       />
 
       {/* Sheet Content Panel - Pure Smooth Slide Up from Bottom */}
       <div
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
         style={{
           transform: dragOffsetY > 0 ? `translateY(${dragOffsetY}px)` : undefined,
           transition: dragOffsetY > 0 ? 'none' : 'transform 320ms cubic-bezier(0.32, 0.72, 0, 1)',
         }}
-        className={`relative z-10 w-full max-w-lg bg-white dark:bg-slate-900 border-t border-x border-emerald-100 dark:border-slate-800 rounded-t-[32px] shadow-[0_-12px_40px_rgba(0,0,0,0.35)] dark:shadow-[0_-12px_40px_rgba(0,0,0,0.85)] overflow-hidden flex flex-col max-h-[88dvh] will-change-transform ${isAnimating && dragOffsetY === 0 ? 'translate-y-0' : 'translate-y-full'
-          }`}
+        className={`relative z-10 w-full max-w-lg bg-white dark:bg-slate-900 border-t border-x border-emerald-100 dark:border-slate-800 rounded-t-[32px] shadow-[0_-12px_40px_rgba(0,0,0,0.35)] dark:shadow-[0_-12px_40px_rgba(0,0,0,0.85)] overflow-hidden flex flex-col max-h-[88dvh] will-change-transform ${
+          isAnimating && dragOffsetY === 0 ? 'translate-y-0' : 'translate-y-full'
+        }`}
       >
-        {/* Top Handle / Grab Bar */}
-        <div className="flex flex-col items-center pt-3 pb-1 cursor-grab active:cursor-grabbing touch-none">
+        {/* Top Handle / Grab Bar with swipe down gesture */}
+        <div
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          className="flex flex-col items-center pt-3 pb-1 cursor-grab active:cursor-grabbing touch-none select-none shrink-0"
+        >
           <div className="w-12 h-1.5 rounded-full bg-emerald-200 dark:bg-slate-700 hover:bg-emerald-300 dark:hover:bg-slate-600 transition-colors" />
         </div>
 
-        {/* Sheet Header */}
+        {/* Sheet Header with swipe down gesture */}
         {title && (
-          <div className="flex items-center justify-between px-5 py-3 border-b border-emerald-100/80 dark:border-slate-800">
+          <div
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            className="flex items-center justify-between px-5 py-3 border-b border-emerald-100/80 dark:border-slate-800 select-none shrink-0"
+          >
             <div className="flex items-center gap-2.5">
               {icon && <span className="text-emerald-600 dark:text-emerald-400">{icon}</span>}
               <h3 className="text-base font-black text-emerald-950 dark:text-white tracking-tight leading-none">{title}</h3>
             </div>
             <button
+              type="button"
               onClick={onClose}
-              className="p-1.5 rounded-full bg-emerald-50 dark:bg-slate-800 text-emerald-800 dark:text-slate-400 hover:text-emerald-950 dark:hover:text-white active:scale-90 transition-all"
+              className="p-1.5 rounded-full bg-emerald-50 dark:bg-slate-800 text-emerald-800 dark:text-slate-400 hover:text-emerald-950 dark:hover:text-white active:scale-90 transition-all cursor-pointer"
               aria-label="Close"
             >
               <X size={18} />
