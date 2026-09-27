@@ -572,6 +572,262 @@ export const socialService = {
   },
 
   /**
+   * Fetch a single post by ID (checks local cache first, then InsForge cloud)
+   */
+  async getPostById(postId: string, currentProfile?: UserProfile | null): Promise<FeedPost | null> {
+    if (!postId || !postId.trim()) return null;
+    const cleanId = postId.trim();
+
+    // 1. Check local cache first for zero-latency retrieval
+    const localPosts = this.getFeedPosts();
+    const cachedPost = localPosts.find((p) => p.id === cleanId);
+
+    const cachedUser = authService.getCachedUser();
+    let currentUserId = currentProfile?.user_id || currentProfile?.id;
+    if (!currentUserId || !isUUID(currentUserId)) {
+      try {
+        const { data: authData } = await insforge.auth.getCurrentUser();
+        const authUser = (authData as any)?.user || authData;
+        if (authUser?.id && isUUID(authUser.id)) {
+          currentUserId = authUser.id;
+        }
+      } catch {}
+    }
+    currentUserId = normalizeUserId(currentUserId || cachedUser?.id);
+
+    // 2. Query InsForge Cloud database for fresh data
+    try {
+      const { data: r, error } = await insforge.database
+        .from('community_posts')
+        .select('*')
+        .eq('id', cleanId)
+        .maybeSingle();
+
+      if (!error && r) {
+        // Fetch comments
+        let allComments: any[] = [];
+        try {
+          const { data: commentsData } = await insforge.database
+            .from('community_comments')
+            .select('*')
+            .eq('post_id', r.id)
+            .order('created_at', { ascending: true });
+          if (commentsData && Array.isArray(commentsData)) {
+            allComments = commentsData;
+          }
+        } catch {}
+
+        // Fetch reactions
+        let allReactions: any[] = [];
+        try {
+          const { data: reactionsData } = await insforge.database
+            .from('community_reactions')
+            .select('post_id, user_id, reaction_type')
+            .eq('post_id', r.id);
+          if (reactionsData && Array.isArray(reactionsData)) {
+            allReactions = reactionsData;
+          }
+        } catch {}
+
+        const isAuthor = currentUserId && normalizeUserId(r.user_id) === currentUserId;
+
+        let resolvedUserName = r.user_name;
+        if (!resolvedUserName || isUUID(resolvedUserName)) {
+          if (isAuthor) {
+            resolvedUserName =
+              currentProfile?.name ||
+              currentProfile?.username ||
+              cachedUser?.name ||
+              cachedUser?.email?.split('@')[0] ||
+              'Runner';
+          } else {
+            resolvedUserName = 'War Runner';
+          }
+        }
+
+        let resolvedUserAvatar = r.user_avatar;
+        if (isAuthor && !resolvedUserAvatar && currentProfile?.avatar_url) {
+          resolvedUserAvatar = currentProfile.avatar_url;
+        }
+
+        let postDirectComments: any[] = [];
+        if (Array.isArray(r.comments)) {
+          postDirectComments = r.comments;
+        } else if (typeof r.comments === 'string' && r.comments.trim().length > 0) {
+          try {
+            const parsed = JSON.parse(r.comments);
+            if (Array.isArray(parsed)) postDirectComments = parsed;
+          } catch {}
+        }
+
+        const relationalComments = allComments.filter((c: any) => c.post_id === r.id);
+        const allCloudRaw = [...postDirectComments, ...relationalComments];
+        const cloudPostComments: FeedComment[] = [];
+        const seenCloudIds = new Set<string>();
+
+        for (const c of allCloudRaw) {
+          const normalized = normalizeComment(c, r.id, currentUserId, currentProfile);
+          if (normalized && !seenCloudIds.has(normalized.id)) {
+            seenCloudIds.add(normalized.id);
+            cloudPostComments.push(normalized);
+          }
+        }
+
+        const localPostComments = (cachedPost?.comments || [])
+          .map((c) => normalizeComment(c, r.id, currentUserId, currentProfile))
+          .filter(Boolean) as FeedComment[];
+
+        const mergedComments = [
+          ...cloudPostComments,
+          ...localPostComments.filter((lc) => !seenCloudIds.has(lc.id)),
+        ].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+        const postReactions = allReactions.filter((rx: any) => rx.post_id === r.id);
+        const counts: ReactionCounts = {
+          fire: postReactions.filter((rx: any) => rx.reaction_type === 'fire' || rx.reaction_type === 'fire_up').length,
+          respect: postReactions.filter((rx: any) => rx.reaction_type === 'respect').length,
+          beast: postReactions.filter((rx: any) => rx.reaction_type === 'beast').length,
+          salute: postReactions.filter((rx: any) => rx.reaction_type === 'salute').length,
+        };
+
+        if (cachedPost?.reactions) {
+          counts.fire = Math.max(counts.fire, cachedPost.reactions.fire || 0);
+          counts.respect = Math.max(counts.respect, cachedPost.reactions.respect || 0);
+          counts.beast = Math.max(counts.beast, cachedPost.reactions.beast || 0);
+          counts.salute = Math.max(counts.salute, cachedPost.reactions.salute || 0);
+        }
+
+        const totalReactions = counts.fire + counts.respect + counts.beast + counts.salute;
+
+        const myReactionRow = currentUserId && currentUserId !== 'guest_user'
+          ? postReactions.find((rx: any) => normalizeUserId(rx.user_id) === currentUserId)
+          : null;
+        let userReaction: ReactionType | null = myReactionRow
+          ? (myReactionRow.reaction_type === 'fire_up' ? 'fire' : (myReactionRow.reaction_type as ReactionType))
+          : (cachedPost?.userReaction || null);
+
+        if (isAuthor) {
+          userReaction = null;
+        }
+        const hasFiredUp = userReaction !== null;
+
+        const cloudPost: FeedPost = {
+          id: r.id,
+          userId: r.user_id,
+          userName: resolvedUserName,
+          userAvatar: resolvedUserAvatar || undefined,
+          userBadge: r.user_badge || 'Athlete',
+          workout: r.workout_data ? r.workout_data : {
+            id: r.workout_id || r.id,
+            user_id: r.user_id,
+            type: r.workout_type || 'run',
+            started_at: r.created_at,
+            ended_at: r.created_at,
+            duration_seconds: r.duration_seconds || 1800,
+            distance_meters: r.distance_meters || 5000,
+            average_pace: r.average_pace || 360,
+            average_speed: 10,
+            max_speed: 12,
+            calories: r.calories || 350,
+            elevation_gain: 30,
+            elevation_loss: 30,
+            status: 'completed',
+            route_coordinates: [],
+            splits: [],
+            created_at: r.created_at,
+            title: r.workout_title || 'Outdoor Run',
+          },
+          caption: r.caption,
+          fireUpsCount: Math.max(totalReactions, Number(r.fire_ups_count || 0)),
+          reactions: counts,
+          userReaction,
+          hasFiredUp,
+          commentsCount: mergedComments.length,
+          comments: mergedComments,
+          createdAt: r.created_at,
+          locationName: r.location_name || 'Global Sector',
+          territoryClaimed: r.territory_claimed,
+          visibility: r.visibility || 'public',
+          photoUrl: r.photo_url || r.workout_data?.photo_url || undefined,
+          hasPhotoStatsOverlay: Boolean(r.has_photo_stats_overlay ?? r.workout_data?.has_photo_stats_overlay),
+        };
+
+        // Cache update
+        const existingIdx = localPosts.findIndex((p) => p.id === cloudPost.id);
+        if (existingIdx >= 0) {
+          localPosts[existingIdx] = cloudPost;
+        } else {
+          localPosts.unshift(cloudPost);
+        }
+        this.saveCachedPosts(localPosts);
+
+        return cloudPost;
+      }
+    } catch (err) {
+      console.warn('Error fetching cloud post by id:', err);
+    }
+
+    // Return cached post if cloud was unreachable or post is offline
+    return cachedPost || null;
+  },
+
+  /**
+   * Generate canonical, global shareable URL for a post.
+   * - Option 1: Uses VITE_APP_URL from .env.local if defined
+   * - Option 2: Uses default production domain (https://run-war-chi.vercel.app)
+   * - Dynamic fallback: Uses current window.location.origin
+   */
+  getPostShareUrl(postId: string): string {
+    // Option 1: Read from environment variable VITE_APP_URL
+    const envUrl = (import.meta as any).env?.VITE_APP_URL || (import.meta as any).env?.VITE_PUBLIC_URL;
+    if (envUrl && typeof envUrl === 'string' && envUrl.trim().length > 0) {
+      const cleanBase = envUrl.trim().replace(/\/+$/, '');
+      return `${cleanBase}/?post=${encodeURIComponent(postId)}`;
+    }
+
+    // Option 2: Default hardcoded production domain
+    const productionDomain = 'https://run-war-chi.vercel.app';
+    if (productionDomain) {
+      return `${productionDomain}/?post=${encodeURIComponent(postId)}`;
+    }
+
+    // Dynamic browser origin fallback
+    if (typeof window === 'undefined') return `/?post=${postId}`;
+    const url = new URL(window.location.href);
+    url.searchParams.delete('start');
+    url.searchParams.delete('screen');
+    url.searchParams.delete('tab');
+    url.searchParams.delete('invite');
+    url.searchParams.set('post', postId);
+    url.hash = '';
+    return url.origin + url.pathname + url.search;
+  },
+
+  /**
+   * Get pre-filled share card text and payload for social networks & Web Share API
+   */
+  getPostShareDetails(post: FeedPost) {
+    const url = this.getPostShareUrl(post.id);
+    const distMeters = post.workout?.distance_meters || 0;
+    const distKm = (distMeters / 1000).toFixed(2);
+    const workoutType = post.workout?.type || 'run';
+    const capitalizedType = workoutType.charAt(0).toUpperCase() + workoutType.slice(1);
+    const author = post.userName || 'An athlete';
+
+    const title = `${author}'s ${distKm} km ${capitalizedType} on RunWar`;
+    const text = `Check out ${author}'s ${distKm} km ${capitalizedType} on RunWar! 🏃⚡ View route and cheer them on:`;
+
+    return {
+      title,
+      text,
+      url,
+      whatsappUrl: `https://api.whatsapp.com/send?text=${encodeURIComponent(`${text} ${url}`)}`,
+      twitterUrl: `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`,
+      telegramUrl: `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`,
+    };
+  },
+
+  /**
    * Default high-fidelity seed posts showcasing route maps, photos with stats overlays,
    * split meters, territory captures, and multi-reactions.
    */

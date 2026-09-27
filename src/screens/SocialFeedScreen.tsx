@@ -26,6 +26,7 @@ interface SocialFeedScreenProps {
   profile: UserProfile | null;
   userWorkouts: Workout[];
   onSelectWorkout?: (workout: Workout) => void;
+  onSelectPost?: (post: FeedPost) => void;
   onBack?: () => void;
 }
 
@@ -447,6 +448,7 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
   profile,
   userWorkouts = [],
   onSelectWorkout,
+  onSelectPost,
   onBack,
 }) => {
   const [tab, setTab] = useState<SocialTab>('feed');
@@ -761,6 +763,36 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
   const handleReportPost = (_postId: string) => {
     setReportToast('Post flagged for community review');
     setTimeout(() => setReportToast(null), 2000);
+  };
+
+  // Share Post: Directly copy dedicated permalink to clipboard with instant feedback toast (no popup)
+  const handleSharePostClick = async (targetPost: FeedPost) => {
+    const details = socialService.getPostShareDetails(targetPost);
+    let copied = false;
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      try {
+        await navigator.clipboard.writeText(details.url);
+        copied = true;
+      } catch {}
+    }
+
+    if (!copied && typeof document !== 'undefined') {
+      try {
+        const textarea = document.createElement('textarea');
+        textarea.value = details.url;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        copied = true;
+      } catch {}
+    }
+
+    setReportToast('Link copied to clipboard! 📋');
+    setTimeout(() => setReportToast(null), 2500);
   };
 
   // Helper to extract clean initials (never raw UUID characters or numbers)
@@ -1466,13 +1498,7 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
                             <button
                               type="button"
                               onClick={() => {
-                                if (navigator.share) {
-                                  navigator.share({
-                                    title: 'RunWar Workout',
-                                    text: `${post.userName} ran ${metrics.distFormatted} km on RunWar!`,
-                                    url: window.location.href,
-                                  }).catch(() => { });
-                                }
+                                handleSharePostClick(post);
                                 setActivePostMenu(null);
                               }}
                               className="w-full px-3.5 py-2 text-left flex items-center gap-2 hover:bg-slate-100 dark:hover:bg-white/[0.06] text-slate-800 dark:text-white cursor-pointer"
@@ -1617,7 +1643,10 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
                         )}
 
                         <div
-                          onClick={() => onSelectWorkout && onSelectWorkout(post.workout)}
+                          onClick={() => {
+                            if (onSelectPost) onSelectPost(post);
+                            else if (onSelectWorkout) onSelectWorkout(post.workout);
+                          }}
                           className="bg-[#f2faf7] dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-500/20 rounded-2xl p-4 sm:p-5 space-y-3.5 cursor-pointer hover:border-emerald-300 dark:hover:border-emerald-500/40 transition-all"
                         >
                           {/* Inner Header: Type & Date */}
@@ -1794,15 +1823,7 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
 
                           <button
                             type="button"
-                            onClick={() => {
-                              if (navigator.share) {
-                                navigator.share({
-                                  title: 'RunWar Workout',
-                                  text: `${post.userName} ran ${metrics.distFormatted} km on RunWar!`,
-                                  url: window.location.href,
-                                }).catch(() => { });
-                              }
-                            }}
+                            onClick={() => handleSharePostClick(post)}
                             className="flex items-center gap-1 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white font-semibold transition-all text-xs cursor-pointer"
                           >
                             <Share2 size={15} />

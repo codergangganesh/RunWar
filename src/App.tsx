@@ -21,6 +21,8 @@ import { ConnectedHealthScreen } from './screens/ConnectedHealthScreen';
 import { DailyActivityScreen } from './screens/DailyActivityScreen';
 import { ChallengesScreen } from './screens/ChallengesScreen';
 import { SocialFeedScreen } from './screens/SocialFeedScreen';
+import { PostDetailScreen } from './screens/PostDetailScreen';
+import { FeedPost } from './services/socialService';
 import { RecoveryModal } from './components/ui/RecoveryModal';
 import { PWAInstallBanner } from './components/ui/PWAInstallBanner';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
@@ -59,7 +61,8 @@ type ScreenState =
   | 'workout_summary'
   | 'workout_detail'
   | 'privacy'
-  | 'connected_health';
+  | 'connected_health'
+  | 'post_detail';
 
 export const App: React.FC = () => {
   // Check if there is an active running session from a browser refresh
@@ -81,10 +84,29 @@ export const App: React.FC = () => {
   })();
 
   // Navigation & Screen States
+  const [activePostId, setActivePostId] = useState<string | null>(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const postParam = params.get('post');
+      if (postParam) return postParam;
+      if (window.location.hash.startsWith('#post-')) {
+        return window.location.hash.replace('#post-', '');
+      }
+    } catch {}
+    return null;
+  });
+  const [activePost, setActivePost] = useState<FeedPost | null>(null);
+
   const [screen, setScreen] = useState<ScreenState>(() => {
     if (initialActiveWorkout) {
       return 'active_run';
     }
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('post') || window.location.hash.startsWith('#post-')) {
+        return 'post_detail';
+      }
+    } catch {}
     return 'splash';
   });
   const [activeTab, setActiveTab] = useState<ActiveTab>('home');
@@ -490,9 +512,16 @@ export const App: React.FC = () => {
 
   // Handle splash completion and URL route preservation (e.g. returning from Google Health OAuth)
   const handleSplashFinish = () => {
+    const params = new URLSearchParams(window.location.search);
+    const postParam = params.get('post') || (window.location.hash.startsWith('#post-') ? window.location.hash.replace('#post-', '') : null);
+    if (postParam) {
+      setActivePostId(postParam);
+      setScreen('post_detail');
+      return;
+    }
+
     const cached = authService.getCachedUser();
     if (currentUser || cached) {
-      const params = new URLSearchParams(window.location.search);
       const targetScreen = params.get('screen') as ScreenState | null;
       const targetTab = params.get('tab') as ActiveTab | null;
       if (targetScreen === 'connected_health' || targetScreen === 'privacy') {
@@ -510,6 +539,12 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (isAuthInitializing) return;
     const params = new URLSearchParams(window.location.search);
+    const postParam = params.get('post') || (window.location.hash.startsWith('#post-') ? window.location.hash.replace('#post-', '') : null);
+    if (postParam) {
+      setActivePostId(postParam);
+      setScreen('post_detail');
+      return;
+    }
     const targetScreen = params.get('screen') as ScreenState | null;
     const targetTab = params.get('tab') as ActiveTab | null;
     if (targetScreen === 'connected_health' || targetScreen === 'privacy') {
@@ -518,6 +553,59 @@ export const App: React.FC = () => {
       setActiveTab(targetTab);
     }
   }, [isAuthInitializing]);
+
+  // Support browser Back/Forward navigation with deep linked posts
+  useEffect(() => {
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      const postParam = params.get('post') || (window.location.hash.startsWith('#post-') ? window.location.hash.replace('#post-', '') : null);
+      if (postParam) {
+        setActivePostId(postParam);
+        setScreen('post_detail');
+      } else if (screen === 'post_detail') {
+        const cached = authService.getCachedUser();
+        if (cached) {
+          setScreen('main');
+          setActiveTab('social');
+        } else {
+          setScreen('welcome');
+        }
+        setActivePostId(null);
+        setActivePost(null);
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [screen]);
+
+  // Open and close dedicated post detail view
+  const handleOpenPostDetail = (targetPost: FeedPost | string) => {
+    if (typeof targetPost === 'string') {
+      setActivePostId(targetPost);
+      setActivePost(null);
+    } else {
+      setActivePost(targetPost);
+      setActivePostId(targetPost.id);
+    }
+    setScreen('post_detail');
+    const targetId = typeof targetPost === 'string' ? targetPost : targetPost.id;
+    const newUrl = `${window.location.pathname}?post=${encodeURIComponent(targetId)}`;
+    window.history.pushState({ postId: targetId }, '', newUrl);
+  };
+
+  const handleClosePostDetail = () => {
+    setActivePostId(null);
+    setActivePost(null);
+    window.history.replaceState({}, '', window.location.pathname);
+
+    const cached = authService.getCachedUser();
+    if (currentUser || cached) {
+      setScreen('main');
+      setActiveTab('social');
+    } else {
+      setScreen('welcome');
+    }
+  };
 
   // Handle PWA manifest shortcut ?start=run
   useEffect(() => {
@@ -884,6 +972,29 @@ export const App: React.FC = () => {
           </AppShell>
         );
 
+      case 'post_detail':
+        return (
+          <PostDetailScreen
+            postId={activePostId}
+            initialPost={activePost}
+            profile={profile}
+            onBack={handleClosePostDetail}
+            onOpenProfile={(_athlete) => {
+              if (currentUser) {
+                setActiveTab('social');
+                setScreen('main');
+              } else {
+                setScreen('auth');
+              }
+            }}
+            onSelectWorkout={(workout) => {
+              setSelectedWorkout(workout);
+              setScreen('workout_detail');
+            }}
+            onOpenAuth={() => setScreen('auth')}
+          />
+        );
+
       case 'main':
       default:
         return (
@@ -1030,6 +1141,7 @@ export const App: React.FC = () => {
                 profile={profile}
                 userWorkouts={workouts}
                 onSelectWorkout={handleSelectWorkout}
+                onSelectPost={handleOpenPostDetail}
                 onBack={() => setActiveTab('home')}
               />
             )}
