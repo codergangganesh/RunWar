@@ -772,35 +772,32 @@ export const socialService = {
   },
 
   /**
-   * Generate canonical, global shareable URL for a post.
-   * - Option 1: Uses VITE_APP_URL from .env.local if defined
-   * - Option 2: Uses default production domain (https://run-war-chi.vercel.app)
-   * - Dynamic fallback: Uses current window.location.origin
+   * Generate canonical shareable URL for a post:
+   * - If running locally (localhost / 127.0.0.1): uses local origin (e.g. http://localhost:5173/?post=...)
+   * - If running on a live hosted domain (Vercel, custom domain): uses that live domain (e.g. https://run-war-chi.vercel.app/?post=...)
    */
   getPostShareUrl(postId: string): string {
-    // Option 1: Read from environment variable VITE_APP_URL
+    if (typeof window !== 'undefined' && window.location) {
+      const isLocalhost =
+        window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1' ||
+        window.location.hostname.endsWith('.local');
+
+      // 1. If testing on localhost, always keep it on localhost so you can test locally!
+      if (isLocalhost) {
+        return `${window.location.origin}/?post=${encodeURIComponent(postId)}`;
+      }
+
+      // 2. If running on your live domain (or any custom domain), use that live domain!
+      if (window.location.origin && !window.location.origin.includes('localhost')) {
+        return `${window.location.origin}/?post=${encodeURIComponent(postId)}`;
+      }
+    }
+
+    // 3. Fallback to configured production domain or VITE_APP_URL
     const envUrl = (import.meta as any).env?.VITE_APP_URL || (import.meta as any).env?.VITE_PUBLIC_URL;
-    if (envUrl && typeof envUrl === 'string' && envUrl.trim().length > 0) {
-      const cleanBase = envUrl.trim().replace(/\/+$/, '');
-      return `${cleanBase}/?post=${encodeURIComponent(postId)}`;
-    }
-
-    // Option 2: Default hardcoded production domain
-    const productionDomain = 'https://run-war-chi.vercel.app';
-    if (productionDomain) {
-      return `${productionDomain}/?post=${encodeURIComponent(postId)}`;
-    }
-
-    // Dynamic browser origin fallback
-    if (typeof window === 'undefined') return `/?post=${postId}`;
-    const url = new URL(window.location.href);
-    url.searchParams.delete('start');
-    url.searchParams.delete('screen');
-    url.searchParams.delete('tab');
-    url.searchParams.delete('invite');
-    url.searchParams.set('post', postId);
-    url.hash = '';
-    return url.origin + url.pathname + url.search;
+    const baseDomain = envUrl ? envUrl.replace(/\/+$/, '') : 'https://run-war-chi.vercel.app';
+    return `${baseDomain}/?post=${encodeURIComponent(postId)}`;
   },
 
   /**
