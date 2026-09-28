@@ -6,6 +6,7 @@ interface StepProgressRingProps {
   size?: number;
   strokeWidth?: number;
   onClick?: () => void;
+  onEditGoal?: () => void;
 }
 
 export const StepProgressRing: React.FC<StepProgressRingProps> = ({
@@ -14,6 +15,7 @@ export const StepProgressRing: React.FC<StepProgressRingProps> = ({
   size = 180,
   strokeWidth = 18,
   onClick,
+  onEditGoal,
 }) => {
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
@@ -76,9 +78,38 @@ export const StepProgressRing: React.FC<StepProgressRingProps> = ({
         <span className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight my-0.5 font-display">
           {steps.toLocaleString()}
         </span>
-        <span className="text-[11px] font-medium text-emerald-700/80 dark:text-slate-400">
-          of {goal.toLocaleString()}
-        </span>
+        {onEditGoal ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onEditGoal();
+            }}
+            className="pointer-events-auto flex items-center justify-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 hover:text-emerald-500 dark:hover:text-emerald-300 transition-colors cursor-pointer group/goal active:scale-95 px-2 py-0.5 rounded-full hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+            title="Edit daily step goal"
+          >
+            <span>of {goal.toLocaleString()}</span>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="10"
+              height="10"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="opacity-70 group-hover/goal:opacity-100 group-hover/goal:scale-110 transition-all text-emerald-500"
+            >
+              <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+              <path d="m15 5 4 4" />
+            </svg>
+          </button>
+        ) : (
+          <span className="text-[11px] font-medium text-emerald-700/80 dark:text-slate-400">
+            of {goal.toLocaleString()}
+          </span>
+        )}
       </div>
     </div>
   );

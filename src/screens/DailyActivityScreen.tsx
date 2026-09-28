@@ -6,6 +6,9 @@ import { useStepCounter } from '../hooks/useStepCounter';
 import { stepCounterService } from '../services/stepCounterService';
 import { StepProgressRing } from '../components/activity/StepProgressRing';
 import { MetricPillCard } from '../components/activity/MetricPillCard';
+import { EditStepGoalModal } from '../components/activity/EditStepGoalModal';
+
+import { authService } from '../services/authService';
 import {
   Flame,
   MapPin,
@@ -19,6 +22,7 @@ import {
   Sunrise,
   Sun,
   Sunset,
+  Pencil,
 } from 'lucide-react';
 
 interface DailyActivityScreenProps {
@@ -26,6 +30,7 @@ interface DailyActivityScreenProps {
   workouts: Workout[];
   onStartRun: (type?: WorkoutType) => void;
   onViewHistory: () => void;
+  onViewStepHistory?: () => void;
   onViewInsights?: () => void;
   onOpenProfile?: () => void;
 }
@@ -35,6 +40,7 @@ export const DailyActivityScreen: React.FC<DailyActivityScreenProps> = ({
   workouts,
   onStartRun,
   onViewHistory,
+  onViewStepHistory,
   onOpenProfile,
 }) => {
   const userId = profile?.user_id || 'guest_user';
@@ -82,6 +88,34 @@ export const DailyActivityScreen: React.FC<DailyActivityScreenProps> = ({
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [selectedHourlyBucket, setSelectedHourlyBucket] = useState<number | null>(null);
+  const [isEditingGoal, setIsEditingGoal] = useState(false);
+
+  const [currentStepGoal, setCurrentStepGoal] = useState<number>(() => {
+    if (typeof localStorage !== 'undefined') {
+      const saved = localStorage.getItem(`runwar_step_goal_${userId}`);
+      if (saved) {
+        const parsed = parseInt(saved, 10);
+        if (!isNaN(parsed) && parsed > 0) return parsed;
+      }
+    }
+    return profile?.daily_step_goal || 10000;
+  });
+
+  // Save new goal locally and sync with user profile
+  const handleSaveGoal = async (newGoal: number) => {
+    setCurrentStepGoal(newGoal);
+    setMetrics((prev) => ({ ...prev, stepGoal: newGoal }));
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(`runwar_step_goal_${userId}`, String(newGoal));
+    }
+    if (userId && userId !== 'guest_user') {
+      try {
+        await authService.updateProfile(userId, { daily_step_goal: newGoal });
+      } catch (err) {
+        console.warn('Could not sync step goal to server profile:', err);
+      }
+    }
+  };
 
   // Load fresh daily metrics from local pedometer and workout records
   const refreshMetrics = useCallback(async (silent = false) => {
@@ -176,47 +210,83 @@ export const DailyActivityScreen: React.FC<DailyActivityScreenProps> = ({
             </h1>
           </div>
 
-          {/* User Profile Avatar */}
-          <button
-            onClick={onOpenProfile}
-            className="w-9 h-9 rounded-full overflow-hidden border-2 border-cyan-500 dark:border-cyan-400/80 shadow-md shadow-cyan-500/20 active:scale-90 transition-all flex items-center justify-center bg-slate-200 dark:bg-slate-800"
-          >
-            {profile?.avatar_url ? (
-              <img
-                src={profile.avatar_url}
-                alt={profile.name || 'Athlete'}
-                className="w-full h-full object-cover"
-                loading="eager"
-                decoding="async"
-              />
-            ) : (
-              <div className="w-full h-full bg-gradient-to-tr from-cyan-500 to-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center">
-                {profile?.name?.charAt(0).toUpperCase() || 'R'}
-              </div>
-            )}
-          </button>
+          {/* Right: Previous Steps History Icon & User Profile Avatar */}
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => onViewStepHistory?.()}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800/60 text-slate-700 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 hover:border-emerald-400 dark:hover:border-emerald-500/40 transition-all cursor-pointer shadow-xs active:scale-95"
+              title="View previous steps history"
+              aria-label="View previous steps history"
+            >
+              <HistoryIcon size={15} className="text-emerald-500 shrink-0" />
+              <span className="text-[11px] font-bold hidden sm:inline">History</span>
+            </button>
+
+            {/* User Profile Avatar */}
+            <button
+              onClick={onOpenProfile}
+              className="w-9 h-9 rounded-full overflow-hidden border-2 border-cyan-500 dark:border-cyan-400/80 shadow-md shadow-cyan-500/20 active:scale-90 transition-all flex items-center justify-center bg-slate-200 dark:bg-slate-800"
+            >
+              {profile?.avatar_url ? (
+                <img
+                  src={profile.avatar_url}
+                  alt={profile.name || 'Athlete'}
+                  className="w-full h-full object-cover"
+                  loading="eager"
+                  decoding="async"
+                />
+              ) : (
+                <div className="w-full h-full bg-gradient-to-tr from-cyan-500 to-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center">
+                  {profile?.name?.charAt(0).toUpperCase() || 'R'}
+                </div>
+              )}
+            </button>
+          </div>
         </div>
 
         {/* Main Dashboard Grid */}
         <div className="space-y-2.5">
           {/* Section 1: Hero Block - Step Ring + Symmetrical Metric Cards */}
           <div className="grid grid-cols-12 gap-2.5 items-stretch">
-            {/* Left: Step Ring (Tappable to test +50 steps in browser / emulator) */}
+            {/* Left: Step Ring (With edit goal button & click-to-edit) */}
             <div
-              onClick={() => stepCounterService.simulateSteps(50)}
-              title="Real-Time Step Counter: Walk with device or click to simulate +50 steps"
-              className="col-span-6 sm:col-span-5 flex flex-col items-center justify-center bg-white dark:bg-[#181C22] p-2.5 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm dark:shadow-inner h-full min-h-[160px] cursor-pointer hover:border-emerald-500/40 transition-all group"
+              className="relative col-span-6 sm:col-span-5 flex flex-col items-center justify-center bg-white dark:bg-[#181C22] p-2.5 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm dark:shadow-inner h-full min-h-[160px] group/card"
             >
+              {/* Quick Edit Goal Icon Button */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsEditingGoal(true);
+                }}
+                className="absolute top-2.5 right-2.5 p-1.5 rounded-xl bg-slate-100 hover:bg-emerald-100 dark:bg-slate-800/70 dark:hover:bg-emerald-950/60 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 flex items-center justify-center transition-all cursor-pointer shadow-xs active:scale-90"
+                title="Edit daily step goal"
+                aria-label="Edit daily step goal"
+              >
+                <Pencil size={11} />
+              </button>
+
               <StepProgressRing
                 steps={liveTodaySteps}
-                goal={metrics.stepGoal}
+                goal={currentStepGoal}
                 size={138}
                 strokeWidth={14}
+                onClick={() => {
+                  if (liveTodaySteps === 0) {
+                    stepCounterService.simulateSteps(50);
+                  }
+                }}
+                onEditGoal={() => setIsEditingGoal(true)}
               />
               {liveTodaySteps === 0 && (
-                <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-semibold mt-1 group-hover:underline">
+                <button
+                  type="button"
+                  onClick={() => stepCounterService.simulateSteps(50)}
+                  className="text-[9px] text-emerald-600 dark:text-emerald-400 font-semibold mt-1 hover:underline cursor-pointer"
+                >
                   Tap to test +50
-                </span>
+                </button>
               )}
             </div>
 
@@ -419,6 +489,17 @@ export const DailyActivityScreen: React.FC<DailyActivityScreenProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Edit Step Goal Modal */}
+      <EditStepGoalModal
+        isOpen={isEditingGoal}
+        currentGoal={currentStepGoal}
+        todaySteps={liveTodaySteps}
+        onSave={handleSaveGoal}
+        onClose={() => setIsEditingGoal(false)}
+      />
+
+
     </div>
   );
 };

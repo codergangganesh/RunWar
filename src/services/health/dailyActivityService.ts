@@ -135,10 +135,10 @@ class DailyActivityService {
       totalCalories = estCalories;
     }
 
-    // 2. Fetch 7-Day History from Workouts DB as baseline (pure recorded workout data)
+    // 2. Fetch History (Past 14 Days) from Local Pedometer & Workouts DB
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const weeklyHistory: DayStepSummary[] = [];
-    for (let i = 6; i >= 0; i--) {
+    for (let i = 13; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
       const dStr = d.toISOString().split('T')[0];
@@ -153,16 +153,29 @@ class DailyActivityService {
       });
       const dDist = dWorkouts.reduce((sum, w) => sum + (w.distance_meters || 0), 0);
       const dCal = dWorkouts.reduce((sum, w) => sum + (w.calories || 0), 0);
-      const dSteps = i === 0
-        ? totalSteps
-        : dWorkouts.reduce((sum, w) => sum + (w.steps || (w.distance_meters ? Math.round(w.distance_meters / 0.75) : 0)), 0);
+
+      // Check daily steps saved in localStorage
+      let storedLocalSteps = 0;
+      if (typeof localStorage !== 'undefined') {
+        const stored = localStorage.getItem(`runwar_daily_steps_${dStr}`);
+        if (stored) {
+          storedLocalSteps = parseInt(stored, 10) || 0;
+        }
+      }
+      const workoutSteps = dWorkouts.reduce(
+        (sum, w) => sum + (w.steps || (w.distance_meters ? Math.round(w.distance_meters / (w.type === 'walk' ? 0.72 : 0.78)) : 0)),
+        0
+      );
+      const dSteps = i === 0 ? totalSteps : Math.max(storedLocalSteps, workoutSteps);
+      const finalDistKm = dDist > 0 ? Number((dDist / 1000).toFixed(2)) : Number(((dSteps * 0.75) / 1000).toFixed(2));
+      const finalCal = dCal > 0 ? dCal : Math.round(dSteps * 0.04);
 
       weeklyHistory.push({
         date: dStr,
         dayName: dayNames[d.getDay()],
         steps: dSteps,
-        distanceKm: Number((dDist / 1000).toFixed(2)),
-        calories: dCal,
+        distanceKm: finalDistKm,
+        calories: finalCal,
         isCompleted: dSteps >= 10000 || dWorkouts.length > 0,
       });
     }
@@ -488,11 +501,15 @@ class DailyActivityService {
 
     const weightKg = profile?.weight ? Number(profile.weight) : null;
     const distanceKm = Number((totalDistanceMeters / 1000).toFixed(2));
+    const userStepGoal =
+      profile?.daily_step_goal ||
+      (typeof localStorage !== 'undefined' && Number(localStorage.getItem(`runwar_step_goal_${userId}`))) ||
+      10000;
 
     const metrics: DailyActivityMetrics = {
       date: todayStr,
       steps: totalSteps,
-      stepGoal: 10000,
+      stepGoal: userStepGoal,
       distanceMeters: totalDistanceMeters,
       distanceKm: distanceKm,
       caloriesBurned: totalCalories,

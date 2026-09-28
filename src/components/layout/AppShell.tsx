@@ -6,6 +6,7 @@ import { UserProfile } from '../../types';
 export type ActiveTab =
   | 'home'
   | 'activity'
+  | 'steps_history'
   | 'history'
   | 'run'
   | 'insights'

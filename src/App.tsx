@@ -22,6 +22,7 @@ import { BugReportScreen } from './screens/BugReportScreen';
 import { AdminBugReportsScreen } from './screens/AdminBugReportsScreen';
 import { ConnectedHealthScreen } from './screens/ConnectedHealthScreen';
 import { DailyActivityScreen } from './screens/DailyActivityScreen';
+import { StepHistoryScreen } from './screens/StepHistoryScreen';
 import { ChallengesScreen } from './screens/ChallengesScreen';
 import { SocialFeedScreen } from './screens/SocialFeedScreen';
 import { PostDetailScreen } from './screens/PostDetailScreen';
@@ -1506,9 +1507,9 @@ export const App: React.FC = () => {
             }}
             onOpenNotifications={() => setScreen('notifications')}
             notificationUnreadCount={unreadCount}
-            hideTopHeader={activeTab === 'activity'}
+            hideTopHeader={activeTab === 'activity' || activeTab === 'steps_history'}
             headerTitle={
-              activeTab === 'home' || activeTab === 'activity'
+              activeTab === 'home' || activeTab === 'activity' || activeTab === 'steps_history'
                 ? undefined
                 : activeTab === 'history'
                   ? 'Workout History'
@@ -1552,8 +1553,18 @@ export const App: React.FC = () => {
                 workouts={workouts}
                 onStartRun={handleStartRun}
                 onViewHistory={() => setActiveTab('history')}
+                onViewStepHistory={() => setActiveTab('steps_history')}
                 onViewInsights={() => setActiveTab('insights')}
                 onOpenProfile={() => setActiveTab('profile')}
+              />
+            )}
+
+            {activeTab === 'steps_history' && (
+              <StepHistoryScreen
+                workouts={workouts}
+                profile={profile}
+                onBack={() => setActiveTab('activity')}
+                onStartRun={handleStartRun}
               />
             )}
 
