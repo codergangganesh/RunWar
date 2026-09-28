@@ -6,5 +6,8 @@ const anonKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_INS
 export const insforge = createClient({
   baseUrl,
   anonKey,
+  auth: {
+    detectOAuthCallback: false,
+  },
 });
 

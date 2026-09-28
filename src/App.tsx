@@ -403,10 +403,36 @@ export const App: React.FC = () => {
 
     const initAuth = async () => {
       try {
-        // 1. Check if InsForge session exists
-        let user = await authService.getCurrentUser();
+        const urlParams = new URLSearchParams(window.location.search);
+        const hasInsforgeCode = urlParams.has('insforge_code');
+        const hasError = urlParams.has('error') || urlParams.has('error_description');
 
-        // 2. If not in InsForge, check if Firebase user is logged in
+        console.log('[RunWar Auth] initAuth started. URL:', window.location.href, {
+          hasInsforgeCode,
+          hasError,
+        });
+
+        let user: any = null;
+
+        // 1. Explicitly process OAuth callback if returning from Google OAuth
+        if (hasInsforgeCode || hasError || localStorage.getItem('runwar_oauth_in_progress') === 'true') {
+          console.log('[RunWar Auth] Handling OAuth redirect callback...');
+          const callbackResult = await authService.handleOAuthCallback();
+          if (callbackResult.success && callbackResult.user) {
+            console.log('[RunWar Auth] OAuth callback authenticated user:', callbackResult.user.id);
+            user = callbackResult.user;
+          } else if (callbackResult.error) {
+            console.error('[RunWar Auth] OAuth callback failed with error:', callbackResult.error);
+          }
+        }
+
+        // 2. If no user from OAuth callback, check current active InsForge session
+        if (!user) {
+          user = await authService.getCurrentUser();
+          console.log('[RunWar Auth] getCurrentUser result:', user ? { id: user.id, email: user.email } : null);
+        }
+
+        // 3. If not in InsForge, check if Firebase user is logged in (phone OTP)
         if (!user) {
           const fbUser = firebaseAuthService.getFirebaseUser();
           if (fbUser) {
@@ -459,7 +485,7 @@ export const App: React.FC = () => {
           } else if (!setupComplete) {
             setScreen('profile_setup');
           } else {
-            setScreen((prev) => (prev === 'splash' || prev === 'welcome' ? 'main' : prev));
+            setScreen((prev) => (prev === 'splash' || prev === 'welcome' || prev === 'auth' || prev === 'onboarding' ? 'main' : prev));
           }
         } else {
           // Check local cached session user
@@ -479,7 +505,7 @@ export const App: React.FC = () => {
             } else if (!cachedSetupComplete) {
               setScreen('profile_setup');
             } else {
-              setScreen((prev) => (prev === 'splash' || prev === 'welcome' ? 'main' : prev));
+              setScreen((prev) => (prev === 'splash' || prev === 'welcome' || prev === 'auth' || prev === 'onboarding' ? 'main' : prev));
             }
           } else {
             setCurrentUser(null);
@@ -503,7 +529,7 @@ export const App: React.FC = () => {
           const cached = authService.getCachedUser();
           if (cached?.id) {
             setCurrentUser(cached);
-            setScreen((prev) => (prev === 'splash' || prev === 'welcome' ? 'main' : prev));
+            setScreen((prev) => (prev === 'splash' || prev === 'welcome' || prev === 'auth' || prev === 'onboarding' ? 'main' : prev));
           } else {
             setScreen((prev) => (prev === 'splash' ? 'welcome' : prev));
           }
@@ -535,12 +561,25 @@ export const App: React.FC = () => {
 
     // Listen for InsForge auth state changes (e.g. Google OAuth redirect callback completion)
     const unsubscribe = insforge.auth.onAuthStateChange(async (event) => {
+      console.log('[RunWar Auth] onAuthStateChange event:', event, 'Current screen:', screen);
       if (event === 'signedIn') {
         const user = await authService.getCurrentUser();
+        console.log('[RunWar Auth] onAuthStateChange signedIn user:', user ? { id: user.id, email: user.email } : null);
         if (user) {
           setCurrentUser(user);
           authService.setCachedUser(user);
           let userProfile = await authService.getProfile(user.id);
+
+          // Create initial profile for new OAuth users (e.g. Google sign-in)
+          if (!userProfile) {
+            await authService.createInitialProfile(
+              user.id,
+              user.name || user.email?.split('@')[0] || 'Runner',
+              user.email || ''
+            );
+            userProfile = await authService.getProfile(user.id);
+          }
+
           const isSetupDone = authService.isProfileSetupComplete(user.id, userProfile);
           if (userProfile) setProfile(userProfile);
           workoutService.syncPendingWorkouts(user.id).catch(() => {});
@@ -553,7 +592,7 @@ export const App: React.FC = () => {
           } else if (!isSetupDone) {
             setScreen('profile_setup');
           } else {
-            setScreen((prev) => (prev === 'splash' || prev === 'welcome' ? 'main' : prev));
+            setScreen((prev) => (prev === 'splash' || prev === 'welcome' || prev === 'auth' || prev === 'onboarding' ? 'main' : prev));
           }
         }
       } else if (event === 'signedOut') {
@@ -645,7 +684,16 @@ export const App: React.FC = () => {
         if (targetTab) setActiveTab(targetTab);
       }
     } else if (!isAuthInitializing) {
-      setScreen((prev) => (prev === 'active_run' ? 'active_run' : 'welcome'));
+      // Don't navigate to welcome if an OAuth callback is still being processed
+      // (the initAuth function will handle navigation after code exchange completes)
+      const urlParams = new URLSearchParams(window.location.search);
+      const oauthInProgress =
+        urlParams.has('insforge_code') ||
+        urlParams.has('error') ||
+        localStorage.getItem('runwar_oauth_in_progress') === 'true';
+      if (!oauthInProgress) {
+        setScreen((prev) => (prev === 'active_run' ? 'active_run' : 'welcome'));
+      }
     }
   };
 

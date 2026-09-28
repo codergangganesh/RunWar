@@ -1,0 +1,33 @@
+[auth]
+allowed_redirect_urls = []
+require_email_verification = false
+verify_email_method = "code"
+reset_password_method = "code"
+disable_signup = false
+
+[auth.password]
+min_length = 8
+require_number = true
+require_lowercase = true
+require_uppercase = true
+require_special_char = true
+
+[auth.smtp]
+enabled = true
+host = "smtp.gmail.com"
+port = 587
+username = "mannamganeshbabu8@gmail.com"
+# password is managed via secrets — run `insforge secrets add SMTP_PASSWORD "<value>"`
+password = "env(SMTP_PASSWORD)"
+sender_email = "mannamganeshbabu8@gmail.com"
+sender_name = "RunWar"
+min_interval_seconds = 60
+
+[storage]
+max_file_size_mb = 50
+
+[realtime]
+retention_days = 0
+
+[schedules]
+retention_days = 7

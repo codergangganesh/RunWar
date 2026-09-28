@@ -6,6 +6,8 @@ import { toDeterministicUUID, isValidUUID } from '../utils/uuid';
 const PROFILE_CACHE_KEY = 'runwar_cached_profile';
 const SETTINGS_CACHE_KEY = 'runwar_cached_settings';
 const SESSION_USER_KEY = 'runwar_session_user';
+const AUTH_TOKEN_KEY = 'runwar_auth_token';
+const PKCE_VERIFIER_KEY = 'runwar_oauth_pkce_verifier';
 
 export function normalizeUserId(id?: string | null): string {
   if (!id) return 'guest_user';
@@ -51,6 +53,10 @@ export const authService = {
       localStorage.removeItem(SESSION_USER_KEY);
       localStorage.removeItem(PROFILE_CACHE_KEY);
       localStorage.removeItem(SETTINGS_CACHE_KEY);
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+      localStorage.removeItem(PKCE_VERIFIER_KEY);
+      localStorage.removeItem('runwar_oauth_in_progress');
+      sessionStorage.removeItem('insforge_pkce_verifier');
       localStorage.removeItem('runwar_google_fit_state');
       localStorage.removeItem('runwar_google_fit_token_transfer');
       // Clear social feed and reaction caches to prevent data leakage between sessions
@@ -98,6 +104,12 @@ export const authService = {
    */
   async getCurrentUser() {
     try {
+      // Re-hydrate access token onto InsForge client if cached locally
+      const storedToken = localStorage.getItem(AUTH_TOKEN_KEY);
+      if (storedToken && typeof (insforge as any).setAccessToken === 'function') {
+        (insforge as any).setAccessToken(storedToken);
+      }
+
       const { data, error } = await insforge.auth.getCurrentUser();
       if (!error && data) {
         const user = (data as any).user || data;
@@ -129,6 +141,12 @@ export const authService = {
     });
     if (error) throw error;
 
+    if (data?.accessToken) {
+      try {
+        localStorage.setItem(AUTH_TOKEN_KEY, data.accessToken);
+      } catch { }
+    }
+
     // Create initial profile and settings if user was returned
     if (data?.user?.id) {
       const normalizedId = normalizeUserId(data.user.id);
@@ -147,6 +165,11 @@ export const authService = {
       password,
     });
     if (error) throw error;
+    if (data?.accessToken) {
+      try {
+        localStorage.setItem(AUTH_TOKEN_KEY, data.accessToken);
+      } catch { }
+    }
     if (data?.user?.id) {
       const normalizedId = normalizeUserId(data.user.id);
       this.setCachedUser({ ...data.user, id: normalizedId });
@@ -155,15 +178,161 @@ export const authService = {
   },
 
   /**
-   * Sign in with Google OAuth via InsForge
+   * Sign in with Google OAuth via InsForge with reliable PKCE state persistence
    */
   async signInWithOAuth(provider: 'google' = 'google') {
     const redirectTo = window.location.origin;
+    console.log('[RunWar Auth] signInWithOAuth initiating for provider:', provider, 'redirectTo:', redirectTo);
+
+    // Call SDK with skipBrowserRedirect: true so we can guarantee PKCE verifier backup in localStorage
     const result = await insforge.auth.signInWithOAuth(provider, {
       redirectTo,
+      skipBrowserRedirect: true,
+      additionalParams: { prompt: 'select_account' },
     });
-    if (result?.error) throw result.error;
+
+    if (result?.error) {
+      console.error('[RunWar Auth] OAuth initiation error:', result.error);
+      throw result.error;
+    }
+
+    const { url, codeVerifier } = result?.data || {};
+
+    if (codeVerifier) {
+      try {
+        // Save in BOTH sessionStorage and localStorage to prevent cross-tab / privacy mode loss
+        sessionStorage.setItem('insforge_pkce_verifier', codeVerifier);
+        localStorage.setItem(PKCE_VERIFIER_KEY, codeVerifier);
+        localStorage.setItem('runwar_oauth_in_progress', 'true');
+        console.log('[RunWar Auth] Successfully cached PKCE verifier for OAuth redirect');
+      } catch (e) {
+        console.warn('[RunWar Auth] Failed saving verifier to storage:', e);
+      }
+    }
+
+    if (url) {
+      console.log('[RunWar Auth] Redirecting browser to OAuth provider URL:', url);
+      window.location.href = url;
+    } else {
+      throw new Error('OAuth authentication URL was not returned by InsForge.');
+    }
+
     return result?.data;
+  },
+
+  /**
+   * Handle OAuth redirect callback (insforge_code or error in URL)
+   */
+  async handleOAuthCallback(): Promise<{ success: boolean; user?: any; error?: string }> {
+    if (typeof window === 'undefined') return { success: false };
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const errorParam = urlParams.get('error') || urlParams.get('error_description');
+    const code = urlParams.get('insforge_code');
+
+    console.log('[RunWar Auth] Checking OAuth callback:', {
+      hasCode: !!code,
+      hasError: !!errorParam,
+      currentUrl: window.location.href,
+    });
+
+    // 1. Check for provider error
+    if (errorParam) {
+      console.error('[RunWar Auth] OAuth callback returned error:', errorParam);
+      localStorage.removeItem('runwar_oauth_in_progress');
+      localStorage.removeItem(PKCE_VERIFIER_KEY);
+      sessionStorage.removeItem('insforge_pkce_verifier');
+      try {
+        sessionStorage.setItem('runwar_oauth_error', errorParam);
+      } catch {}
+
+      // Clean error param from URL
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.delete('error');
+      cleanUrl.searchParams.delete('error_description');
+      cleanUrl.searchParams.delete('error_code');
+      window.history.replaceState({}, document.title, cleanUrl.toString());
+
+      return { success: false, error: errorParam };
+    }
+
+    // 2. Check for authorization code
+    if (!code) {
+      return { success: false };
+    }
+
+    // Retrieve PKCE verifier from sessionStorage or localStorage
+    const verifier =
+      sessionStorage.getItem('insforge_pkce_verifier') ||
+      localStorage.getItem(PKCE_VERIFIER_KEY) ||
+      undefined;
+
+    console.log('[RunWar Auth] Exchanging OAuth authorization code. Verifier available:', !!verifier);
+
+    try {
+      const { data, error } = await insforge.auth.exchangeOAuthCode(code, verifier);
+
+      if (error) {
+        console.error('[RunWar Auth] OAuth code exchange failed:', error);
+        localStorage.removeItem('runwar_oauth_in_progress');
+        localStorage.removeItem(PKCE_VERIFIER_KEY);
+        sessionStorage.removeItem('insforge_pkce_verifier');
+        try {
+          sessionStorage.setItem('runwar_oauth_error', error.message || 'OAuth code exchange failed');
+        } catch {}
+
+        const cleanUrl = new URL(window.location.href);
+        cleanUrl.searchParams.delete('insforge_code');
+        window.history.replaceState({}, document.title, cleanUrl.toString());
+
+        return { success: false, error: error.message || 'OAuth code exchange failed' };
+      }
+
+      console.log('[RunWar Auth] OAuth code exchange successful! User:', data?.user?.id, 'Email:', data?.user?.email);
+
+      // Persist access token
+      if (data?.accessToken) {
+        try {
+          localStorage.setItem(AUTH_TOKEN_KEY, data.accessToken);
+        } catch { }
+        if (typeof (insforge as any).setAccessToken === 'function') {
+          (insforge as any).setAccessToken(data.accessToken);
+        }
+      }
+
+      // Clean up verifiers and OAuth flag
+      localStorage.removeItem('runwar_oauth_in_progress');
+      localStorage.removeItem(PKCE_VERIFIER_KEY);
+      sessionStorage.removeItem('insforge_pkce_verifier');
+
+      // Clean code from URL bar
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.delete('insforge_code');
+      window.history.replaceState({}, document.title, cleanUrl.toString());
+
+      if (data?.user?.id) {
+        const normalizedUser = {
+          ...data.user,
+          id: normalizeUserId(data.user.id),
+        };
+        this.setCachedUser(normalizedUser);
+        return { success: true, user: normalizedUser };
+      }
+
+      const currentUser = await this.getCurrentUser();
+      return { success: !!currentUser, user: currentUser };
+    } catch (err: any) {
+      console.error('[RunWar Auth] Exception during OAuth exchange:', err);
+      localStorage.removeItem('runwar_oauth_in_progress');
+      localStorage.removeItem(PKCE_VERIFIER_KEY);
+      sessionStorage.removeItem('insforge_pkce_verifier');
+
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.delete('insforge_code');
+      window.history.replaceState({}, document.title, cleanUrl.toString());
+
+      return { success: false, error: err?.message || 'Failed to exchange authorization code' };
+    }
   },
 
   /**
@@ -188,6 +357,12 @@ export const authService = {
     } catch (e) {
       // ignore
     }
+    try {
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+      localStorage.removeItem(PKCE_VERIFIER_KEY);
+      localStorage.removeItem('runwar_oauth_in_progress');
+      sessionStorage.removeItem('insforge_pkce_verifier');
+    } catch { }
     this.clearCachedUser();
   },
 

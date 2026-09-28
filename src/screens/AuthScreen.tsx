@@ -78,6 +78,21 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     return () => clearInterval(timer);
   }, [emailOtpCountdown]);
 
+  // Check for OAuth error in URL or session storage on mount
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const oauthError = params.get('error_description') || params.get('error') || sessionStorage.getItem('runwar_oauth_error');
+    if (oauthError) {
+      sessionStorage.removeItem('runwar_oauth_error');
+      try {
+        const decoded = decodeURIComponent(oauthError);
+        setErrorMsg(`Google sign-in error: ${decoded}`);
+      } catch {
+        setErrorMsg(`Google sign-in error: ${oauthError}`);
+      }
+    }
+  }, []);
+
   // -------------------------------------------------------------
   // 1. PRIMARY: EMAIL OTP HANDLERS (InsForge SMTP)
   // -------------------------------------------------------------
