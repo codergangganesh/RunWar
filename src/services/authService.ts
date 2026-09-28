@@ -49,14 +49,25 @@ export const authService = {
   /**
    * Clear cached user session and purge device-local user data
    */
-  clearCachedUser() {
+  clearCachedUser(notifySessionExpired = false) {
     try {
+      const isOAuthActive =
+        localStorage.getItem('runwar_oauth_in_progress') === 'true' ||
+        (typeof window !== 'undefined' && (
+          window.location.search.includes('insforge_code') ||
+          window.location.search.includes('code') ||
+          window.location.hash.includes('insforge_code') ||
+          window.location.hash.includes('code')
+        ));
+
       localStorage.removeItem(SESSION_USER_KEY);
       localStorage.removeItem(PROFILE_CACHE_KEY);
       localStorage.removeItem(SETTINGS_CACHE_KEY);
       localStorage.removeItem(AUTH_TOKEN_KEY);
       localStorage.removeItem(PKCE_VERIFIER_KEY);
-      localStorage.removeItem('runwar_oauth_in_progress');
+      if (!isOAuthActive) {
+        localStorage.removeItem('runwar_oauth_in_progress');
+      }
       sessionStorage.removeItem('insforge_pkce_verifier');
       localStorage.removeItem('runwar_google_fit_state');
       localStorage.removeItem('runwar_google_fit_token_transfer');
@@ -73,7 +84,7 @@ export const authService = {
       }
       keysToRemove.forEach((k) => localStorage.removeItem(k));
 
-      if (typeof window !== 'undefined') {
+      if (notifySessionExpired && !isOAuthActive && typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('runwar:session_expired'));
       }
     } catch (e) {
@@ -114,10 +125,19 @@ export const authService = {
    */
   async getCurrentUser() {
     try {
+      const isOAuthActive =
+        localStorage.getItem('runwar_oauth_in_progress') === 'true' ||
+        (typeof window !== 'undefined' && (
+          window.location.search.includes('insforge_code') ||
+          window.location.search.includes('code') ||
+          window.location.hash.includes('insforge_code') ||
+          window.location.hash.includes('code')
+        ));
+
       const cached = this.getCachedUser();
-      // If cached user is placeholder 'guest_user', clear it so it doesn't mask cloud authentication
+      // If cached user is placeholder 'guest_user', clear it silently so it doesn't mask cloud authentication
       if (cached?.id === 'guest_user') {
-        this.clearCachedUser();
+        this.clearCachedUser(false);
       }
 
       // If device is completely offline, return cached user for offline workouts
@@ -146,10 +166,10 @@ export const authService = {
       }
 
       // If online and InsForge has no session (e.g. user was deleted in InsForge or session revoked):
-      // Clean up stale local cache so ghost user is not kept logged in
-      if (cached && !cached.firebase_uid) {
+      // Clean up stale local cache so ghost user is not kept logged in, BUT NEVER during OAuth redirect!
+      if (cached && !cached.firebase_uid && !isOAuthActive) {
         console.log('[RunWar Auth] User session not found on server; clearing stale local cache.');
-        this.clearCachedUser();
+        this.clearCachedUser(false);
       }
 
       return null;
@@ -261,8 +281,18 @@ export const authService = {
     if (typeof window === 'undefined') return { success: false };
 
     const urlParams = new URLSearchParams(window.location.search);
-    const errorParam = urlParams.get('error') || urlParams.get('error_description');
-    const code = urlParams.get('insforge_code');
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const errorParam =
+      urlParams.get('error') ||
+      urlParams.get('error_description') ||
+      hashParams.get('error') ||
+      hashParams.get('error_description');
+
+    const code =
+      urlParams.get('insforge_code') ||
+      urlParams.get('code') ||
+      hashParams.get('insforge_code') ||
+      hashParams.get('code');
 
     console.log('[RunWar Auth] Checking OAuth callback:', {
       hasCode: !!code,
@@ -317,6 +347,7 @@ export const authService = {
 
         const cleanUrl = new URL(window.location.href);
         cleanUrl.searchParams.delete('insforge_code');
+        cleanUrl.searchParams.delete('code');
         window.history.replaceState({}, document.title, cleanUrl.toString());
 
         return { success: false, error: error.message || 'OAuth code exchange failed' };
@@ -334,27 +365,32 @@ export const authService = {
         }
       }
 
-      // Clean up verifiers and OAuth flag
+      // Clean code from URL bar
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.delete('insforge_code');
+      cleanUrl.searchParams.delete('code');
+      window.history.replaceState({}, document.title, cleanUrl.toString());
+
+      const rawUser = data?.user || (data as any)?.session?.user;
+      const rawId = rawUser?.id || rawUser?.user_id || rawUser?.uid;
+      let finalUser: any = null;
+
+      if (rawId) {
+        finalUser = {
+          ...rawUser,
+          id: normalizeUserId(rawId),
+        };
+        this.setCachedUser(finalUser);
+      } else {
+        finalUser = await this.getCurrentUser();
+      }
+
+      // Clean up verifiers and OAuth flag only after session is confirmed cached
       localStorage.removeItem('runwar_oauth_in_progress');
       localStorage.removeItem(PKCE_VERIFIER_KEY);
       sessionStorage.removeItem('insforge_pkce_verifier');
 
-      // Clean code from URL bar
-      const cleanUrl = new URL(window.location.href);
-      cleanUrl.searchParams.delete('insforge_code');
-      window.history.replaceState({}, document.title, cleanUrl.toString());
-
-      if (data?.user?.id) {
-        const normalizedUser = {
-          ...data.user,
-          id: normalizeUserId(data.user.id),
-        };
-        this.setCachedUser(normalizedUser);
-        return { success: true, user: normalizedUser };
-      }
-
-      const currentUser = await this.getCurrentUser();
-      return { success: !!currentUser, user: currentUser };
+      return { success: !!finalUser, user: finalUser };
     } catch (err: any) {
       console.error('[RunWar Auth] Exception during OAuth exchange:', err);
       localStorage.removeItem('runwar_oauth_in_progress');
@@ -363,6 +399,7 @@ export const authService = {
 
       const cleanUrl = new URL(window.location.href);
       cleanUrl.searchParams.delete('insforge_code');
+      cleanUrl.searchParams.delete('code');
       window.history.replaceState({}, document.title, cleanUrl.toString());
 
       return { success: false, error: err?.message || 'Failed to exchange authorization code' };

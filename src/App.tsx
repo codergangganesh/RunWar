@@ -164,6 +164,7 @@ export const App: React.FC = () => {
   }, []);
 
   const handleStartRunRef = useRef<((type?: WorkoutType) => void) | null>(null);
+  const isResolvingProfileRef = useRef(false);
 
   useEffect(() => {
     // Check if opened via notification click with ?action=start_run
@@ -367,6 +368,12 @@ export const App: React.FC = () => {
         return;
       }
 
+      if (isResolvingProfileRef.current) {
+        console.log('[RunWar Auth] resolveUserSessionAndProfile already in progress, skipping concurrent run');
+        return;
+      }
+      isResolvingProfileRef.current = true;
+
       setAppState('PROFILE_CHECKING');
       setAuthStatusText('Setting things up...');
       setProfileErrorMessage(null);
@@ -451,6 +458,8 @@ export const App: React.FC = () => {
         console.error('[RunWar Auth] Error resolving session & profile:', err);
         setProfileErrorMessage(err?.message || "We couldn't load your profile. Please check your connection.");
         setAppState('PROFILE_ERROR');
+      } finally {
+        isResolvingProfileRef.current = false;
       }
     },
     [loadAppData]
@@ -512,18 +521,37 @@ export const App: React.FC = () => {
     const initAuth = async () => {
       try {
         const urlParams = new URLSearchParams(window.location.search);
-        const hasInsforgeCode = urlParams.has('insforge_code');
-        const hasError = urlParams.has('error') || urlParams.has('error_description');
+        const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+        const hasOAuthCode =
+          urlParams.has('insforge_code') ||
+          urlParams.has('code') ||
+          hashParams.has('insforge_code') ||
+          hashParams.has('code');
+        const hasError =
+          urlParams.has('error') ||
+          urlParams.has('error_description') ||
+          hashParams.has('error') ||
+          hashParams.has('error_description');
+        const isOAuthPending =
+          hasOAuthCode ||
+          hasError ||
+          localStorage.getItem('runwar_oauth_in_progress') === 'true';
 
         console.log('[RunWar Auth] initAuth started. URL:', window.location.href, {
-          hasInsforgeCode,
+          hasOAuthCode,
           hasError,
+          isOAuthPending,
         });
+
+        if (isOAuthPending) {
+          setAppState('INITIALIZING');
+          setAuthStatusText('Signing in with Google...');
+        }
 
         let user: any = null;
 
         // 1. Explicitly process OAuth callback if returning from Google OAuth
-        if (hasInsforgeCode || hasError || localStorage.getItem('runwar_oauth_in_progress') === 'true') {
+        if (isOAuthPending) {
           console.log('[RunWar Auth] Handling OAuth redirect callback...');
           const callbackResult = await authService.handleOAuthCallback();
           if (callbackResult.success && callbackResult.user) {
@@ -585,7 +613,7 @@ export const App: React.FC = () => {
             // Online and user account is deleted/unauthorized or guest placeholder: purge stale ghost session!
             setCurrentUser(null);
             setProfile(null);
-            authService.clearCachedUser();
+            authService.clearCachedUser(false);
             setAppState('UNAUTHENTICATED');
             const currentPostId = getPostIdFromUrl();
             if (currentPostId) {
@@ -613,7 +641,7 @@ export const App: React.FC = () => {
           } else {
             setCurrentUser(null);
             setProfile(null);
-            authService.clearCachedUser();
+            authService.clearCachedUser(false);
             setAppState('UNAUTHENTICATED');
             setScreen((prev) => (prev === 'splash' ? 'welcome' : prev));
           }
@@ -647,6 +675,10 @@ export const App: React.FC = () => {
     const unsubscribe = insforge.auth.onAuthStateChange(async (event) => {
       console.log('[RunWar Auth] onAuthStateChange event:', event, 'Current screen:', screen);
       if (event === 'signedIn') {
+        if (isResolvingProfileRef.current) {
+          console.log('[RunWar Auth] onAuthStateChange signedIn skipped: profile resolution already active');
+          return;
+        }
         const user = await authService.getCurrentUser();
         console.log('[RunWar Auth] onAuthStateChange signedIn user:', user ? { id: user.id, email: user.email } : null);
         if (user) {
@@ -655,10 +687,20 @@ export const App: React.FC = () => {
           await resolveUserSessionAndProfile(user);
         }
       } else if (event === 'signedOut') {
+        const isOAuthPending =
+          localStorage.getItem('runwar_oauth_in_progress') === 'true' ||
+          window.location.search.includes('insforge_code') ||
+          window.location.search.includes('code');
+
+        if (isOAuthPending) {
+          console.log('[RunWar Auth] onAuthStateChange signedOut ignored during OAuth redirect');
+          return;
+        }
+
         setCurrentUser(null);
         setProfile(null);
         setWorkouts([]);
-        authService.clearCachedUser();
+        authService.clearCachedUser(false);
         setAppState('UNAUTHENTICATED');
         const currentPostId = getPostIdFromUrl();
         if (currentPostId) {
@@ -677,6 +719,16 @@ export const App: React.FC = () => {
       if (now - lastCheckTime < 5000) return; // Throttle to max once per 5 seconds
       lastCheckTime = now;
 
+      // Do not interrupt OAuth redirect or ongoing profile resolution
+      if (
+        localStorage.getItem('runwar_oauth_in_progress') === 'true' ||
+        window.location.search.includes('insforge_code') ||
+        window.location.search.includes('code') ||
+        isResolvingProfileRef.current
+      ) {
+        return;
+      }
+
       if (typeof navigator !== 'undefined' && !navigator.onLine) return;
       const cached = authService.getCachedUser();
       if (!cached || cached.id === 'guest_user') return;
@@ -688,7 +740,7 @@ export const App: React.FC = () => {
           setCurrentUser(null);
           setProfile(null);
           setWorkouts([]);
-          authService.clearCachedUser();
+          authService.clearCachedUser(false);
           setAppState('UNAUTHENTICATED');
           setScreen('welcome');
         }
@@ -708,6 +760,14 @@ export const App: React.FC = () => {
     };
 
     const handleSessionExpired = () => {
+      if (
+        localStorage.getItem('runwar_oauth_in_progress') === 'true' ||
+        window.location.search.includes('insforge_code') ||
+        window.location.search.includes('code') ||
+        isResolvingProfileRef.current
+      ) {
+        return;
+      }
       setCurrentUser(null);
       setProfile(null);
       setWorkouts([]);
@@ -1099,16 +1159,14 @@ export const App: React.FC = () => {
     }
 
     // 3. Authenticated but profile is incomplete => Profile Setup Screen ONLY
-    if (appState === 'PROFILE_INCOMPLETE') {
-      const activeUserId = currentUser?.id || authService.getCachedUser()?.id;
-      if (!activeUserId || activeUserId === 'guest_user') {
-        return (
-          <WelcomeScreen
-            onStartOnboarding={() => setScreen('onboarding')}
-            onLogin={() => setScreen('auth')}
-            onGuestAccess={handleGuestAccess}
-          />
-        );
+    if (appState === 'PROFILE_INCOMPLETE' || screen === 'profile_setup') {
+      const activeUserId =
+        (currentUser?.id && currentUser.id !== 'guest_user' ? currentUser.id : null) ||
+        (profile?.user_id && profile.user_id !== 'guest_user' ? profile.user_id : null) ||
+        (authService.getCachedUser()?.id && authService.getCachedUser()?.id !== 'guest_user' ? authService.getCachedUser()?.id : null);
+
+      if (!activeUserId) {
+        return <SplashScreen statusText="Setting up your profile..." />;
       }
 
       return (
