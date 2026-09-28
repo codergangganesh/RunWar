@@ -131,6 +131,8 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
     calories: cals,
     elevation_gain: Math.round(elevGain),
     elevation_loss: Math.round(elevLoss),
+    steps: workoutState?.steps || 0,
+    average_cadence: workoutState?.cadence || 0,
     status: 'completed',
     route_coordinates: coords,
     splits: splitsList,
@@ -193,6 +195,8 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
         calories: cals,
         elevation_gain: Math.round(elevGain),
         elevation_loss: Math.round(elevLoss),
+        steps: workoutState.steps || 0,
+        average_cadence: workoutState.cadence || 0,
         status: 'completed',
         route_coordinates: coords,
         splits: splitsList,
@@ -643,43 +647,47 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
         </div>
       </div>
 
-      {/* 6. Secondary 6 Metrics Grid */}
+      {/* 6. Secondary 6+ Metrics Grid */}
       <div className="space-y-2">
-        {/* Row 1: Duration, Avg Pace, Calories */}
-        <div className="bg-white dark:bg-slate-900 rounded-2xl p-3.5 sm:p-4 border border-slate-100 dark:border-slate-800 shadow-sm grid grid-cols-3 gap-2 text-center">
+        {/* Row 1: Duration, Avg Pace, Calories, Steps */}
+        <div className="bg-white dark:bg-slate-900 rounded-2xl p-3 sm:p-3.5 border border-slate-100 dark:border-slate-800 shadow-sm grid grid-cols-4 gap-1.5 sm:gap-2 text-center">
           <div>
-            <div className="text-[10px] sm:text-[11px] font-bold text-slate-500 dark:text-slate-400 flex items-center justify-center gap-1 mb-1">
-              <Clock size={13} className="text-emerald-600 dark:text-emerald-400" />
+            <div className="text-[9px] sm:text-[10px] font-bold text-slate-500 dark:text-slate-400 flex items-center justify-center gap-1 mb-1">
+              <Clock size={12} className="text-emerald-600 dark:text-emerald-400" />
               <span>Duration</span>
             </div>
-            <div className="font-mono text-base sm:text-lg font-black text-slate-950 dark:text-white">
+            <div className="font-mono text-xs sm:text-base font-black text-slate-950 dark:text-white truncate">
               {formattedDuration}
             </div>
           </div>
 
           <div>
-            <div className="text-[10px] sm:text-[11px] font-bold text-slate-500 dark:text-slate-400 flex items-center justify-center gap-1 mb-1">
-              <Gauge size={13} className="text-emerald-600 dark:text-emerald-400" />
+            <div className="text-[9px] sm:text-[10px] font-bold text-slate-500 dark:text-slate-400 flex items-center justify-center gap-1 mb-1">
+              <Gauge size={12} className="text-emerald-600 dark:text-emerald-400" />
               <span>Avg Pace</span>
             </div>
-            <div className="font-mono text-base sm:text-lg font-black text-slate-950 dark:text-white">
-              {formattedPace}{' '}
-              <span className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 font-bold">
-                /{distanceUnit}
-              </span>
+            <div className="font-mono text-xs sm:text-base font-black text-slate-950 dark:text-white truncate">
+              {formattedPace}
             </div>
           </div>
 
           <div>
-            <div className="text-[10px] sm:text-[11px] font-bold text-slate-500 dark:text-slate-400 flex items-center justify-center gap-1 mb-1">
-              <Flame size={13} className="text-amber-500" />
+            <div className="text-[9px] sm:text-[10px] font-bold text-slate-500 dark:text-slate-400 flex items-center justify-center gap-1 mb-1">
+              <Flame size={12} className="text-amber-500" />
               <span>Calories</span>
             </div>
-            <div className="font-display text-base sm:text-lg font-black text-slate-950 dark:text-white">
-              {cals}{' '}
-              <span className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 font-bold">
-                kcal
-              </span>
+            <div className="font-display text-xs sm:text-base font-black text-slate-950 dark:text-white truncate">
+              {cals}
+            </div>
+          </div>
+
+          <div>
+            <div className="text-[9px] sm:text-[10px] font-bold text-slate-500 dark:text-slate-400 flex items-center justify-center gap-1 mb-1">
+              <Footprints size={12} className="text-emerald-500" />
+              <span>Steps</span>
+            </div>
+            <div className="font-mono text-xs sm:text-base font-black text-emerald-600 dark:text-emerald-400 truncate">
+              {Number(workoutState?.steps || savedWorkout?.steps || 0).toLocaleString()}
             </div>
           </div>
         </div>

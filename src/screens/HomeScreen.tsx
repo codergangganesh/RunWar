@@ -11,6 +11,7 @@ import { GhostRivalModal } from '../components/workout/GhostRivalModal';
 import { GhostRivalConfig } from '../types';
 import { SocialFeedScreen } from './SocialFeedScreen';
 import { alarmService } from '../services/alarmService';
+import { stepCounterService } from '../services/stepCounterService';
 
 interface HomeScreenProps {
   profile: UserProfile | null;
@@ -42,6 +43,7 @@ interface HomeScreenProps {
   onViewChallenges?: () => void;
   onViewSocialFeed?: () => void;
   onViewReminders?: () => void;
+  onViewActivity?: () => void;
   onSelectWorkout: (workout: Workout) => void;
 }
 
@@ -58,6 +60,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onViewChallenges,
   onViewSocialFeed,
   onViewReminders,
+  onViewActivity,
   onSelectWorkout,
 }) => {
   const [selectedActivity, setSelectedActivity] = useState<WorkoutType>(
@@ -163,42 +166,62 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             <Zap size={13} className="text-emerald-500 dark:text-emerald-400" />
             <span>TODAY'S ACTIVITY</span>
           </div>
-          <span className="text-[10px] font-medium text-emerald-700 dark:text-slate-400">
-            {todayStats.workoutCount} {todayStats.workoutCount === 1 ? 'workout' : 'workouts'}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-medium text-emerald-700 dark:text-slate-400">
+              {todayStats.workoutCount} {todayStats.workoutCount === 1 ? 'workout' : 'workouts'}
+            </span>
+            {onViewActivity && (
+              <button
+                onClick={onViewActivity}
+                className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 flex items-center gap-0.5 transition-colors cursor-pointer"
+                title="Open Daily Steps & Activity Dashboard"
+              >
+                <span>Steps Page</span>
+                <ArrowRight size={11} />
+              </button>
+            )}
+          </div>
         </div>
 
-        <div className="grid grid-cols-4 gap-1.5 text-center">
-          <div className="bg-emerald-50/70 dark:bg-slate-950/50 p-2 rounded-xl border border-emerald-200/60 dark:border-slate-800/40">
-            <div className="text-[9px] font-bold uppercase text-emerald-800/80 dark:text-slate-400">Distance</div>
-            <div className="font-display text-base font-black text-emerald-950 dark:text-white mt-0.5">
+        <div className="grid grid-cols-5 gap-1 sm:gap-1.5 text-center">
+          <div className="bg-emerald-50/70 dark:bg-slate-950/50 p-1.5 sm:p-2 rounded-xl border border-emerald-200/60 dark:border-slate-800/40">
+            <div className="text-[8px] sm:text-[9px] font-bold uppercase text-emerald-800/80 dark:text-slate-400">Distance</div>
+            <div className="font-display text-sm sm:text-base font-black text-emerald-950 dark:text-white mt-0.5 truncate">
               {formatDistance(todayStats.totalDistanceMeters, distanceUnit)}
             </div>
-            <div className="text-[9px] text-emerald-600 dark:text-emerald-400 font-bold uppercase">{distanceUnit}</div>
+            <div className="text-[8px] sm:text-[9px] text-emerald-600 dark:text-emerald-400 font-bold uppercase">{distanceUnit}</div>
           </div>
 
-          <div className="bg-emerald-50/70 dark:bg-slate-950/50 p-2 rounded-xl border border-emerald-200/60 dark:border-slate-800/40">
-            <div className="text-[9px] font-bold uppercase text-emerald-800/80 dark:text-slate-400">Time</div>
-            <div className="font-mono text-base font-bold text-emerald-950 dark:text-white mt-0.5">
+          <div className="bg-emerald-50/70 dark:bg-slate-950/50 p-1.5 sm:p-2 rounded-xl border border-emerald-200/60 dark:border-slate-800/40">
+            <div className="text-[8px] sm:text-[9px] font-bold uppercase text-emerald-800/80 dark:text-slate-400">Steps</div>
+            <div className="font-mono text-sm sm:text-base font-black text-emerald-600 dark:text-emerald-400 mt-0.5 truncate">
+              {Number(Math.max(stepCounterService.getDailySteps(), (todayStats.todayWorkouts || []).reduce((sum, w) => sum + (w.steps || 0), 0))).toLocaleString()}
+            </div>
+            <div className="text-[8px] sm:text-[9px] text-emerald-700/80 dark:text-slate-500">steps</div>
+          </div>
+
+          <div className="bg-emerald-50/70 dark:bg-slate-950/50 p-1.5 sm:p-2 rounded-xl border border-emerald-200/60 dark:border-slate-800/40">
+            <div className="text-[8px] sm:text-[9px] font-bold uppercase text-emerald-800/80 dark:text-slate-400">Time</div>
+            <div className="font-mono text-sm sm:text-base font-bold text-emerald-950 dark:text-white mt-0.5 truncate">
               {formatDuration(todayStats.totalDurationSeconds)}
             </div>
-            <div className="text-[9px] text-emerald-700/80 dark:text-slate-500">duration</div>
+            <div className="text-[8px] sm:text-[9px] text-emerald-700/80 dark:text-slate-500">duration</div>
           </div>
 
-          <div className="bg-emerald-50/70 dark:bg-slate-950/50 p-2 rounded-xl border border-emerald-200/60 dark:border-slate-800/40">
-            <div className="text-[9px] font-bold uppercase text-emerald-800/80 dark:text-slate-400">Avg Pace</div>
-            <div className="font-mono text-base font-bold text-emerald-900 dark:text-slate-200 mt-0.5">
+          <div className="bg-emerald-50/70 dark:bg-slate-950/50 p-1.5 sm:p-2 rounded-xl border border-emerald-200/60 dark:border-slate-800/40">
+            <div className="text-[8px] sm:text-[9px] font-bold uppercase text-emerald-800/80 dark:text-slate-400">Avg Pace</div>
+            <div className="font-mono text-sm sm:text-base font-bold text-emerald-900 dark:text-slate-200 mt-0.5 truncate">
               {formatPace(todayStats.avgPace, paceUnit).replace(/\s\/\w+/, '')}
             </div>
-            <div className="text-[9px] text-emerald-700/80 dark:text-slate-500">{paceUnit === 'min_mi' ? '/mi' : '/km'}</div>
+            <div className="text-[8px] sm:text-[9px] text-emerald-700/80 dark:text-slate-500">{paceUnit === 'min_mi' ? '/mi' : '/km'}</div>
           </div>
 
-          <div className="bg-emerald-50/70 dark:bg-slate-950/50 p-2 rounded-xl border border-emerald-200/60 dark:border-slate-800/40">
-            <div className="text-[9px] font-bold uppercase text-emerald-800/80 dark:text-slate-400">Calories</div>
-            <div className="font-display text-base font-black text-amber-600 dark:text-amber-400 mt-0.5">
+          <div className="bg-emerald-50/70 dark:bg-slate-950/50 p-1.5 sm:p-2 rounded-xl border border-emerald-200/60 dark:border-slate-800/40">
+            <div className="text-[8px] sm:text-[9px] font-bold uppercase text-emerald-800/80 dark:text-slate-400">Calories</div>
+            <div className="font-display text-sm sm:text-base font-black text-amber-600 dark:text-amber-400 mt-0.5 truncate">
               {todayStats.totalCalories}
             </div>
-            <div className="text-[9px] text-amber-700/80 dark:text-slate-500">kcal</div>
+            <div className="text-[8px] sm:text-[9px] text-amber-700/80 dark:text-slate-500">kcal</div>
           </div>
         </div>
       </div>

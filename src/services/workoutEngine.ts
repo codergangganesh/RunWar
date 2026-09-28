@@ -22,6 +22,7 @@ import { weatherService } from './weatherService';
 import { hapticsService } from './hapticsService';
 import { courseService } from './courseService';
 import { ghostRivalService } from './ghostRivalService';
+import { stepCounterService } from './stepCounterService';
 import { CourseRoute, GhostRivalConfig } from '../types';
 
 type StateListener = (state: LiveWorkoutState) => void;
@@ -101,6 +102,8 @@ export class WorkoutEngine {
       courseProgress: null,
       ghostRival: ghostRivalService.getActiveGhost(),
       ghostProgress: null,
+      steps: 0,
+      cadence: 0,
     };
   }
 
@@ -254,6 +257,9 @@ export class WorkoutEngine {
     this.startBackgroundTimer();
 
     this.weatherFetchAttempted = false;
+    stepCounterService.startSessionTracking(this.state.workoutId, {
+      userHeightCm: 175,
+    });
     if (this.isSimulationMode) {
       this.startSimulation();
       this.fetchWeatherForWorkout(this.simBaseLat, this.simBaseLng);
@@ -331,6 +337,7 @@ export class WorkoutEngine {
 
     this.state.isAutoPaused = isAuto;
     this.state.currentPace = 0; // Stopped pace
+    stepCounterService.pauseSessionTracking();
 
     if (isAuto) {
       workoutLogger.log('AUTO_PAUSED', 'info', { elapsedTime: this.state.elapsedTime }, this.state.workoutId);
@@ -366,6 +373,7 @@ export class WorkoutEngine {
     this.state.isAutoPaused = false;
     this.stationaryCounterSec = 0;
     this.isFirstPointAfterResume = true;
+    stepCounterService.resumeSessionTracking();
 
     // Ensure timer and location watchers are active (critical when resuming recovered sessions)
     if (!this.workerTimer && !this.fallbackInterval) {
@@ -411,6 +419,7 @@ export class WorkoutEngine {
     this.lastRecordedKm = 0;
     this.isFirstPointAfterResume = false;
     this.resetGPSProcessing();
+    stepCounterService.resetSessionTracking();
     localStorage.removeItem(BACKUP_STORAGE_KEY);
     this.notify();
   }
@@ -428,6 +437,10 @@ export class WorkoutEngine {
 
     // Flush any remaining buffered points to sync queue
     this.flushPointBuffer();
+
+    // Finalize step tracking and commit session steps
+    const stepSummary = stepCounterService.stopSessionTracking();
+    this.state.steps = stepSummary.sessionSteps;
 
     // Final calculation passes
     this.state.splits = calculateSplits(this.state.coordinates, this.distanceUnit === 'mi' ? 1609.34 : 1000);
@@ -473,6 +486,7 @@ export class WorkoutEngine {
     this.state = this.createInitialState();
     this.pointBuffer = [];
     this.resetGPSProcessing();
+    stepCounterService.resetSessionTracking();
     localStorage.removeItem(BACKUP_STORAGE_KEY);
     this.notify();
   }
@@ -540,6 +554,15 @@ export class WorkoutEngine {
         // Accept the coordinate as baseline without adding distance
       } else {
         this.state.distanceMeters += coord.distanceFromPrevious;
+      }
+
+      // Ingest distance advances into step counter for cadence & stride estimation
+      if (coord.distanceFromPrevious > 0) {
+        stepCounterService.ingestGPSDistanceUpdate(
+          coord.distanceFromPrevious,
+          this.state.currentSpeed,
+          this.state.movingTime
+        );
       }
 
       // Compute Course Breadcrumb Progress as user jogs/runs along the course
@@ -787,6 +810,11 @@ export class WorkoutEngine {
         false
       );
 
+      // Real-time step counter & cadence synchronization
+      const liveStepState = stepCounterService.getState();
+      this.state.steps = liveStepState.sessionSteps;
+      this.state.cadence = liveStepState.currentCadence;
+
       // Real-time second-by-second Ghost Rival progression
       if (this.state.ghostRival) {
         this.state.ghostProgress = ghostRivalService.calculateProgress(
@@ -968,6 +996,10 @@ export class WorkoutEngine {
       engineState: shouldResume ? 'ACTIVE' : 'PAUSED',
       status: shouldResume ? 'tracking' : 'paused',
     };
+
+    if (backup.steps) {
+      stepCounterService.restoreSessionSteps(backup.workoutId, backup.steps);
+    }
 
     workoutLogger.log('RECOVERY_DETECTED', 'info', {
       workoutId: backup.workoutId,

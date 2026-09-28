@@ -398,6 +398,12 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
                         {workout.heart_rate_avg} bpm
                       </span>
                     )}
+                    {workout.steps != null && workout.steps > 0 && (
+                      <span className="inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.2 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                        <Footprints size={9} className="text-emerald-500" />
+                        {Number(workout.steps).toLocaleString()} steps
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>

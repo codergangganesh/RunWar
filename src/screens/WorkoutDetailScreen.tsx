@@ -29,6 +29,7 @@ import {
   RefreshCw,
   Navigation,
   Route,
+  Footprints,
 } from 'lucide-react';
 import { courseService } from '../services/courseService';
 
@@ -368,6 +369,26 @@ export const WorkoutDetailScreen: React.FC<WorkoutDetailScreenProps> = ({
           </div>
           <div className="font-display text-lg font-black text-rose-600 dark:text-rose-400">
             {Math.round(workout.heart_rate_avg)} <span className="text-xs font-bold text-rose-500">BPM</span>
+          </div>
+        </div>
+      )}
+
+      {/* Steps & Cadence Strip (if recorded) */}
+      {workout.steps != null && workout.steps > 0 && (
+        <div className="flex items-center justify-between p-3 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-900/30 text-emerald-950 dark:text-emerald-200">
+          <div className="flex items-center gap-2.5">
+            <div className="p-1.5 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+              <Footprints size={16} className="text-emerald-500" />
+            </div>
+            <div>
+              <div className="text-[9px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">Session Steps</div>
+              <div className="text-[11px] text-emerald-900/80 dark:text-slate-300">
+                {workout.average_cadence && workout.average_cadence > 0 ? `Avg Cadence: ${workout.average_cadence} SPM` : 'Tracked via real-time pedometer'}
+              </div>
+            </div>
+          </div>
+          <div className="font-display text-lg font-black text-emerald-600 dark:text-emerald-400">
+            {Number(workout.steps).toLocaleString()} <span className="text-xs font-bold text-emerald-500">steps</span>
           </div>
         </div>
       )}

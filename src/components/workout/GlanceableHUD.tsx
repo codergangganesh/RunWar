@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { DistanceUnit, PaceUnit } from '../../types';
 import { formatDistance, formatDuration, formatPaceRaw, formatSpeed } from '../../utils/formatters';
-import { Flame, Gauge, Mountain, Timer, Zap, PauseCircle, Activity } from 'lucide-react';
+import { Flame, Gauge, Mountain, Timer, Zap, PauseCircle, Activity, Footprints } from 'lucide-react';
 
 interface GlanceableHUDProps {
   distanceMeters: number;
@@ -15,6 +15,8 @@ interface GlanceableHUDProps {
   averageSpeedKmh?: number;
   elevationGainMeters: number;
   elevationLossMeters?: number;
+  steps?: number;
+  cadence?: number;
   distanceUnit?: DistanceUnit;
   paceUnit?: PaceUnit;
   isPaused?: boolean;
@@ -33,6 +35,8 @@ export const GlanceableHUD: React.FC<GlanceableHUDProps> = ({
   averageSpeedKmh = 0,
   elevationGainMeters,
   elevationLossMeters = 0,
+  steps = 0,
+  cadence = 0,
   distanceUnit = 'km',
   paceUnit = 'min_km',
   isPaused = false,
@@ -131,42 +135,56 @@ export const GlanceableHUD: React.FC<GlanceableHUDProps> = ({
         </div>
       </div>
 
-      {/* Secondary Metrics Strip (Average Pace, Calories, Elevation) */}
-      <div className="grid grid-cols-3 gap-2">
+      {/* Secondary Metrics Strip (Average Pace, Calories, Elevation, Steps) */}
+      <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
         {/* Avg Pace */}
-        <div className="rounded-2xl bg-white dark:bg-slate-900/80 border border-emerald-100 dark:border-slate-800/80 p-2 text-center shadow-sm">
-          <div className="text-[9px] font-bold text-emerald-800/80 dark:text-slate-400 uppercase tracking-wide flex items-center justify-center gap-0.5">
+        <div className="rounded-2xl bg-white dark:bg-slate-900/80 border border-emerald-100 dark:border-slate-800/80 p-1.5 sm:p-2 text-center shadow-sm">
+          <div className="text-[8px] sm:text-[9px] font-bold text-emerald-800/80 dark:text-slate-400 uppercase tracking-wide flex items-center justify-center gap-0.5">
             <Activity size={10} className="text-emerald-600 dark:text-slate-400" />
             <span>AVG PACE</span>
           </div>
-          <div className="font-mono text-sm sm:text-base font-bold text-emerald-950 dark:text-slate-100 mt-0.5">
+          <div className="font-mono text-xs sm:text-base font-bold text-emerald-950 dark:text-slate-100 mt-0.5 truncate">
             {avgPaceStr}
           </div>
-          <div className="text-[9px] text-emerald-700/70 dark:text-slate-500">{paceUnitLabel}</div>
+          <div className="text-[8px] sm:text-[9px] text-emerald-700/70 dark:text-slate-500">{paceUnitLabel}</div>
         </div>
 
         {/* Calories */}
-        <div className="rounded-2xl bg-white dark:bg-slate-900/80 border border-emerald-100 dark:border-slate-800/80 p-2 text-center shadow-sm">
-          <div className="text-[9px] font-bold text-emerald-800/80 dark:text-slate-400 uppercase tracking-wide flex items-center justify-center gap-0.5">
+        <div className="rounded-2xl bg-white dark:bg-slate-900/80 border border-emerald-100 dark:border-slate-800/80 p-1.5 sm:p-2 text-center shadow-sm">
+          <div className="text-[8px] sm:text-[9px] font-bold text-emerald-800/80 dark:text-slate-400 uppercase tracking-wide flex items-center justify-center gap-0.5">
             <Flame size={10} className="text-amber-500" />
             <span>CALORIES</span>
           </div>
-          <div className="font-mono text-sm sm:text-base font-bold text-amber-600 dark:text-amber-400 mt-0.5">
+          <div className="font-mono text-xs sm:text-base font-bold text-amber-600 dark:text-amber-400 mt-0.5 truncate">
             {calories}
           </div>
-          <div className="text-[9px] text-amber-700/70 dark:text-slate-500">kcal</div>
+          <div className="text-[8px] sm:text-[9px] text-amber-700/70 dark:text-slate-500">kcal</div>
+        </div>
+
+        {/* Steps & Cadence */}
+        <div className="rounded-2xl bg-white dark:bg-slate-900/80 border border-emerald-100 dark:border-slate-800/80 p-1.5 sm:p-2 text-center shadow-sm">
+          <div className="text-[8px] sm:text-[9px] font-bold text-emerald-800/80 dark:text-slate-400 uppercase tracking-wide flex items-center justify-center gap-0.5">
+            <Footprints size={10} className="text-emerald-500" />
+            <span>STEPS</span>
+          </div>
+          <div className="font-mono text-xs sm:text-base font-bold text-emerald-600 dark:text-emerald-400 mt-0.5 truncate">
+            {Number(steps || 0).toLocaleString()}
+          </div>
+          <div className="text-[8px] sm:text-[9px] text-emerald-700/70 dark:text-slate-500">
+            {cadence > 0 ? `${cadence} spm` : 'steps'}
+          </div>
         </div>
 
         {/* Elevation Gain & Loss */}
-        <div className="rounded-2xl bg-white dark:bg-slate-900/80 border border-emerald-100 dark:border-slate-800/80 p-2 text-center shadow-sm">
-          <div className="text-[9px] font-bold text-emerald-800/80 dark:text-slate-400 uppercase tracking-wide flex items-center justify-center gap-0.5">
+        <div className="rounded-2xl bg-white dark:bg-slate-900/80 border border-emerald-100 dark:border-slate-800/80 p-1.5 sm:p-2 text-center shadow-sm">
+          <div className="text-[8px] sm:text-[9px] font-bold text-emerald-800/80 dark:text-slate-400 uppercase tracking-wide flex items-center justify-center gap-0.5">
             <Mountain size={10} className="text-sky-500" />
-            <span>ELEVATION</span>
+            <span>ELEV</span>
           </div>
-          <div className="font-mono text-sm sm:text-base font-bold text-sky-600 dark:text-sky-400 mt-0.5">
+          <div className="font-mono text-xs sm:text-base font-bold text-sky-600 dark:text-sky-400 mt-0.5 truncate">
             +{Math.round(elevationGainMeters)}m
           </div>
-          <div className="text-[9px] text-sky-700/70 dark:text-slate-500">
+          <div className="text-[8px] sm:text-[9px] text-sky-700/70 dark:text-slate-500 truncate">
             {elevationLossMeters > 0 ? `-${Math.round(elevationLossMeters)}m` : 'gain'}
           </div>
         </div>

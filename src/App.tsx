@@ -1541,6 +1541,7 @@ export const App: React.FC = () => {
                 onViewChallenges={() => setActiveTab('challenges')}
                 onViewSocialFeed={() => setActiveTab('social')}
                 onViewReminders={() => setActiveTab('profile')}
+                onViewActivity={() => setActiveTab('activity')}
                 onSelectWorkout={handleSelectWorkout}
               />
             )}

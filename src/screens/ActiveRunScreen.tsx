@@ -875,8 +875,9 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
                 className="h-full w-full"
               >
                 {viewMode === 'map' && (
-                  <div className="absolute bottom-3 inset-x-3 z-20 p-2.5 sm:p-3 rounded-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-emerald-200/80 dark:border-slate-800 grid grid-cols-4 gap-1 text-center shadow-xl">
+                  <div className="absolute bottom-3 inset-x-3 z-20 p-2.5 sm:p-3 rounded-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-emerald-200/80 dark:border-slate-800 grid grid-cols-5 gap-1 text-center shadow-xl">
                     <div><div className="text-[9px] uppercase font-bold text-emerald-800/80 dark:text-slate-400">Distance</div><div className="text-xs sm:text-sm font-black text-emerald-600 dark:text-emerald-400">{formatDistance(workoutState.distanceMeters, distanceUnit, 2)} {distanceUnit}</div></div>
+                    <div><div className="text-[9px] uppercase font-bold text-emerald-800/80 dark:text-slate-400">Steps</div><div className="text-xs sm:text-sm font-mono font-bold text-emerald-600 dark:text-emerald-400">{Number(workoutState.steps || 0).toLocaleString()}</div></div>
                     <div><div className="text-[9px] uppercase font-bold text-emerald-800/80 dark:text-slate-400">Time</div><div className="text-xs sm:text-sm font-mono font-bold text-emerald-950 dark:text-white">{formatDuration(workoutState.movingTime > 0 ? workoutState.movingTime : workoutState.elapsedTime)}</div></div>
                     <div><div className="text-[9px] uppercase font-bold text-emerald-800/80 dark:text-slate-400">Pace</div><div className="text-xs sm:text-sm font-mono font-bold text-emerald-600 dark:text-emerald-400">{workoutState.currentPace > 0 ? formatPaceRaw(workoutState.currentPace, paceUnit) : '--:--'}</div></div>
                     <div><div className="text-[9px] uppercase font-bold text-emerald-800/80 dark:text-slate-400">Avg Pace</div><div className="text-xs sm:text-sm font-mono font-bold text-emerald-950 dark:text-slate-200">{workoutState.averagePace > 0 ? formatPaceRaw(workoutState.averagePace, paceUnit) : '--:--'}</div></div>
@@ -899,6 +900,8 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
                   averageSpeedKmh={workoutState.averageSpeed}
                   elevationGainMeters={workoutState.elevationGain}
                   elevationLossMeters={workoutState.elevationLoss}
+                  steps={workoutState.steps || 0}
+                  cadence={workoutState.cadence || 0}
                   distanceUnit={distanceUnit}
                   paceUnit={paceUnit}
                   isPaused={isPaused}

@@ -209,6 +209,8 @@ export function normalizeWorkout(raw: any): Workout {
     source_provider: raw.source_provider || 'runwar_gps',
     external_record_id: raw.external_record_id || null,
     heart_rate_avg: raw.heart_rate_avg ?? null,
+    steps: Math.max(0, Math.round(Number(raw.steps) || 0)),
+    average_cadence: Math.max(0, Math.round(Number(raw.average_cadence) || 0)),
     created_at: raw.created_at || new Date().toISOString(),
   };
 }
@@ -253,6 +255,8 @@ export const workoutService = {
       status: 'completed',
       route_coordinates: normalized.route_coordinates,
       splits: normalized.splits,
+      steps: normalized.steps || 0,
+      average_cadence: normalized.average_cadence || 0,
     };
 
     // If weather is present, encode it into notes as backward-compatible fallback
@@ -289,6 +293,8 @@ export const workoutService = {
       route_coordinates: normalized.route_coordinates,
       splits: normalized.splits,
       weather: normalized.weather || null,
+      steps: normalized.steps || 0,
+      average_cadence: normalized.average_cadence || 0,
     };
 
     // Re-verify if active user is authenticated in InsForge before deciding guest status
@@ -357,6 +363,17 @@ export const workoutService = {
 
       if (workoutError && (workoutError.message?.includes('column "weather"') || workoutError.message?.includes("'weather'"))) {
         const { weather: _drop, ...fallbackPayload } = dbWorkoutPayload;
+        const retryRes = await insforge.database
+          .from('workouts')
+          .upsert([fallbackPayload], { onConflict: 'id' })
+          .select()
+          .maybeSingle();
+        data = retryRes.data;
+        workoutError = retryRes.error;
+      }
+
+      if (workoutError && (workoutError.message?.includes('column "steps"') || workoutError.message?.includes("'steps'") || workoutError.message?.includes('average_cadence'))) {
+        const { steps: _dropS, average_cadence: _dropC, ...fallbackPayload } = (data ? dbWorkoutPayload : (dbWorkoutPayload.weather ? { ...dbWorkoutPayload, weather: undefined } : dbWorkoutPayload));
         const retryRes = await insforge.database
           .from('workouts')
           .upsert([fallbackPayload], { onConflict: 'id' })

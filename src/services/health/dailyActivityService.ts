@@ -4,6 +4,8 @@ import { workoutService } from '../workoutService';
 import { healthService } from './healthService';
 import { toDeterministicUUID } from '../../utils/uuid';
 import { googleHealthProvider, FN_DATA } from './googleHealthProvider';
+import { stepCounterService } from '../stepCounterService';
+import { isSameLocalDate } from '../../utils/dateUtils';
 
 const GOOGLE_FIT_AUTH_STORAGE_KEY = 'runwar_google_fit_token';
 
@@ -32,15 +34,15 @@ class DailyActivityService {
     profile: UserProfile | null = null
   ): Promise<DailyActivityMetrics> {
     const todayStr = new Date().toISOString().split('T')[0];
-    const todayStart = new Date();
+    const now = new Date();
+    const todayStart = new Date(now);
     todayStart.setHours(0, 0, 0, 0);
     const todayStartMs = todayStart.getTime();
     const todayEndMs = Date.now();
 
-    // 1. Calculate workout-derived metrics from RUNWAR database
+    // 1. Calculate workout-derived metrics from RUNWAR database using local calendar day
     const todayWorkouts = workouts.filter((w) => {
-      const started = new Date(w.started_at).getTime();
-      return started >= todayStartMs && started <= todayEndMs;
+      return isSameLocalDate(w.started_at, now);
     });
 
     const runDistanceMeters = todayWorkouts.reduce(
@@ -54,7 +56,6 @@ class DailyActivityService {
     );
 
     // Calculate exercise days this week (Monday through Sunday)
-    const now = new Date();
     const dayOfWeek = (now.getDay() + 6) % 7; // Mon = 0, Sun = 6
     const monday = new Date(now);
     monday.setDate(now.getDate() - dayOfWeek);
@@ -78,8 +79,15 @@ class DailyActivityService {
       };
     });
 
-    // Base defaults strictly from recorded workouts or zero
-    let totalSteps = 0;
+    // Base defaults strictly from local step counter, recorded workouts, or zero
+    const localDailyPedometer = stepCounterService.getDailySteps();
+    const workoutStepsSum = todayWorkouts.reduce((sum, w) => {
+      const st = (typeof w.steps === 'number' && w.steps > 0)
+        ? w.steps
+        : (w.distance_meters ? Math.round(w.distance_meters / (w.type === 'walk' ? 0.72 : 0.78)) : 0);
+      return sum + st;
+    }, 0);
+    let totalSteps = Math.max(localDailyPedometer, workoutStepsSum);
     let totalDistanceMeters = runDistanceMeters;
     let totalCalories = workoutCalories;
     let activeMinutes = todayWorkouts.reduce(
@@ -92,6 +100,40 @@ class DailyActivityService {
     let heartRateAvg: number | null = null;
     let restingHeartRate: number | null = null;
     let source: DailyActivityMetrics['source'] = todayWorkouts.length > 0 ? 'local_estimate' : 'device_pedometer';
+
+    // Distribute steps into hourly buckets from today's recorded workouts and pedometer
+    todayWorkouts.forEach((w) => {
+      const h = new Date(w.started_at).getHours();
+      const wSteps = (typeof w.steps === 'number' && w.steps > 0)
+        ? w.steps
+        : (w.distance_meters ? Math.round(w.distance_meters / (w.type === 'walk' ? 0.72 : 0.78)) : 0);
+      if (hourlyBuckets[h]) {
+        hourlyBuckets[h].steps += wSteps;
+      }
+    });
+
+    const workoutBucketsSum = hourlyBuckets.reduce((sum, b) => sum + b.steps, 0);
+    const nonWorkoutSteps = Math.max(0, totalSteps - workoutBucketsSum);
+    const curHour = new Date().getHours();
+    if (nonWorkoutSteps > 0 && hourlyBuckets[curHour]) {
+      hourlyBuckets[curHour].steps += nonWorkoutSteps;
+    }
+
+    hourlyBuckets.forEach((b) => {
+      b.isActive = b.steps >= 250;
+      if (b.isActive) hourlyActiveHours++;
+    });
+
+    // Estimate baseline distance and calories from real-time step count
+    const userStrideMeters = profile?.height ? (Number(profile.height) * 0.415) / 100 : 0.75;
+    const estDistanceMeters = Math.round(totalSteps * userStrideMeters);
+    if (estDistanceMeters > totalDistanceMeters) {
+      totalDistanceMeters = estDistanceMeters;
+    }
+    const estCalories = Math.round(totalSteps * 0.04);
+    if (estCalories > totalCalories) {
+      totalCalories = estCalories;
+    }
 
     // 2. Fetch 7-Day History from Workouts DB as baseline (pure recorded workout data)
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -111,14 +153,17 @@ class DailyActivityService {
       });
       const dDist = dWorkouts.reduce((sum, w) => sum + (w.distance_meters || 0), 0);
       const dCal = dWorkouts.reduce((sum, w) => sum + (w.calories || 0), 0);
+      const dSteps = i === 0
+        ? totalSteps
+        : dWorkouts.reduce((sum, w) => sum + (w.steps || (w.distance_meters ? Math.round(w.distance_meters / 0.75) : 0)), 0);
 
       weeklyHistory.push({
         date: dStr,
         dayName: dayNames[d.getDay()],
-        steps: 0,
+        steps: dSteps,
         distanceKm: Number((dDist / 1000).toFixed(2)),
         calories: dCal,
-        isCompleted: dWorkouts.length > 0,
+        isCompleted: dSteps >= 10000 || dWorkouts.length > 0,
       });
     }
 

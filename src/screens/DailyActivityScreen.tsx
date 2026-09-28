@@ -2,31 +2,23 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { UserProfile, Workout, WorkoutType } from '../types';
 import { DailyActivityMetrics } from '../types/dailyActivity';
 import { dailyActivityService } from '../services/health/dailyActivityService';
-import { healthService } from '../services/health/healthService';
+import { useStepCounter } from '../hooks/useStepCounter';
+import { stepCounterService } from '../services/stepCounterService';
 import { StepProgressRing } from '../components/activity/StepProgressRing';
 import { MetricPillCard } from '../components/activity/MetricPillCard';
 import {
-  Smartphone,
   Flame,
   MapPin,
-  Dumbbell,
   Moon,
   Footprints,
-  Scale,
   Zap,
-  Activity,
   Play,
   History as HistoryIcon,
   RefreshCw,
-  CheckCircle2,
   Clock,
-  Sparkles,
   Sunrise,
   Sun,
   Sunset,
-  Radio,
-  ExternalLink,
-  ShieldCheck,
 } from 'lucide-react';
 
 interface DailyActivityScreenProps {
@@ -46,6 +38,7 @@ export const DailyActivityScreen: React.FC<DailyActivityScreenProps> = ({
   onOpenProfile,
 }) => {
   const userId = profile?.user_id || 'guest_user';
+  const stepState = useStepCounter();
 
   // Load cached metrics immediately on first frame or real 0s
   const [metrics, setMetrics] = useState<DailyActivityMetrics>(() => {
@@ -82,38 +75,20 @@ export const DailyActivityScreen: React.FC<DailyActivityScreenProps> = ({
       hourlyBuckets: [],
       weeklyHistory: [],
       lastSyncedAt: new Date().toISOString(),
-      source: 'local_estimate',
+      source: 'device_pedometer',
       isGoogleConnected: false,
     };
   });
 
   const [isSyncing, setIsSyncing] = useState(false);
-  const [isConnectingGoogle, setIsConnectingGoogle] = useState(false);
-  const [syncToast, setSyncToast] = useState<string | null>(null);
   const [selectedHourlyBucket, setSelectedHourlyBucket] = useState<number | null>(null);
-  const [connectionState, setConnectionState] = useState(healthService.getPrimaryConnectionState());
-  const [hasGoogleToken, setHasGoogleToken] = useState(() => Boolean(healthService.getGoogleAccessToken()));
 
-  // Listen to Google Health connection state changes
-  useEffect(() => {
-    const unsub = healthService.subscribe((state) => {
-      setConnectionState(state);
-    });
-    return unsub;
-  }, []);
-
-  // Load fresh daily metrics from Google Health live API
+  // Load fresh daily metrics from local pedometer and workout records
   const refreshMetrics = useCallback(async (silent = false) => {
     if (!silent) setIsSyncing(true);
     try {
       const fresh = await dailyActivityService.getTodayMetrics(userId, workouts, profile);
       setMetrics(fresh);
-      const isConnected = fresh.isGoogleConnected || fresh.source === 'google_health' || Boolean(healthService.getGoogleAccessToken()) || healthService.getPrimaryConnectionState().isConnected;
-      setHasGoogleToken(isConnected);
-      if (!silent) {
-        setSyncToast('Live Google Health data updated!');
-        setTimeout(() => setSyncToast(null), 2500);
-      }
     } catch (e) {
       console.warn('Failed to refresh daily metrics:', e);
     } finally {
@@ -121,70 +96,52 @@ export const DailyActivityScreen: React.FC<DailyActivityScreenProps> = ({
     }
   }, [userId, workouts, profile]);
 
-  // On mount: restore persistent connection, listen for updates, then fetch metrics
+  // On mount or profile change: ensure ambient tracking is active and refresh metrics
   useEffect(() => {
-    let cancelled = false;
+    stepCounterService.ensureAmbientTracking();
+    refreshMetrics(true).catch(() => { });
+  }, [refreshMetrics]);
 
-    // Subscribe to real-time health connection updates
-    const unsubscribe = healthService.subscribe((state) => {
-      if (!cancelled) {
-        setHasGoogleToken(state.isConnected);
-      }
-    });
-
-    const init = async () => {
-      const isConnected = healthService.getPrimaryConnectionState().isConnected || Boolean(healthService.getGoogleAccessToken());
-      setHasGoogleToken(isConnected);
-      if (!isConnected) {
-        const ok = await healthService.startPersistentConnection().catch(() => false);
-        if (!cancelled) setHasGoogleToken(ok);
-      }
-      if (!cancelled) {
-        await refreshMetrics(true).catch(() => { });
-      }
-    };
-    init();
-
-    return () => {
-      cancelled = true;
-      unsubscribe();
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Re-sync whenever workouts/profile change
+  // Re-sync whenever workouts change
   useEffect(() => {
     if (userId && userId !== 'guest_user') {
       refreshMetrics(true).catch(() => { });
     }
-  }, [refreshMetrics]);
+  }, [workouts.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Connect Google Health directly from Today Dashboard
-  const handleConnectGoogleHealth = async () => {
-    setIsConnectingGoogle(true);
-    try {
-      const res = await healthService.connect('google_health', 'activity');
-      if (res.success) {
-        setSyncToast('Connected to Google Health! Streaming live data...');
-        await refreshMetrics(false);
-      } else if (res.error) {
-        setSyncToast(res.error);
-        setTimeout(() => setSyncToast(null), 3500);
-      }
-    } catch {
-      setSyncToast('Connection failed. Please try again.');
-      setTimeout(() => setSyncToast(null), 3000);
-    } finally {
-      setIsConnectingGoogle(false);
+  // Live authoritative steps combining hardware pedometer and workout data
+  const liveTodaySteps = Math.max(stepState.dailySteps, metrics.steps);
+
+  // Stride-based live distance calculation
+  const strideMeters = profile?.height ? (Number(profile.height) * 0.415) / 100 : 0.75;
+  const calculatedDistanceKm = Number(((liveTodaySteps * strideMeters) / 1000).toFixed(2));
+  const liveDistanceKm = Math.max(metrics.distanceKm, calculatedDistanceKm);
+
+  // Real-time calorie calculation
+  const calculatedCalories = Math.round(liveTodaySteps * 0.04);
+  const liveCalories = Math.max(metrics.caloriesBurned, calculatedCalories);
+
+  // Segment calculation including live steps delta
+  const liveDelta = Math.max(0, liveTodaySteps - metrics.steps);
+  const currentHour = new Date().getHours();
+  const morningSteps = (metrics.morningSteps || 0) + (currentHour >= 5 && currentHour < 12 ? liveDelta : 0);
+  const afternoonSteps = (metrics.afternoonSteps || 0) + (currentHour >= 12 && currentHour < 17 ? liveDelta : 0);
+  const eveningSteps = (metrics.eveningSteps || 0) + (currentHour >= 17 && currentHour < 22 ? liveDelta : 0);
+  const nightSteps = (metrics.nightSteps || 0) + (currentHour < 5 || currentHour >= 22 ? liveDelta : 0);
+
+  // Live hourly buckets with current hour updated
+  const liveHourlyBuckets = (metrics.hourlyBuckets || []).map((b) => {
+    if (b.hour === currentHour) {
+      const updatedSteps = b.steps + liveDelta;
+      return { ...b, steps: updatedSteps, isActive: updatedSteps >= 250 };
     }
-  };
-
-  // isGoogleConnected: true whenever tokens exist, source is google_health, or connection is active
-  const isGoogleConnected = hasGoogleToken || metrics.source === 'google_health' || connectionState.isConnected || metrics.isGoogleConnected;
+    return b;
+  });
 
   // Compute maximum steps in any hour for relative bar scaling
   const maxHourlySteps = Math.max(
     500,
-    ...(metrics.hourlyBuckets || []).map((b) => b.steps || 0)
+    ...liveHourlyBuckets.map((b) => b.steps || 0)
   );
 
   return (
@@ -192,34 +149,30 @@ export const DailyActivityScreen: React.FC<DailyActivityScreenProps> = ({
       <div className="space-y-4">
         {/* Top App Header */}
         <div className="flex items-center justify-between pt-1 pb-2">
-          {/* Connected Device / Google Health Sync Button */}
-          <button
-            onClick={isGoogleConnected ? () => refreshMetrics(false) : handleConnectGoogleHealth}
-            disabled={isSyncing || isConnectingGoogle}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800/60 text-slate-700 dark:text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:border-emerald-400 dark:hover:border-emerald-500/40 cursor-pointer transition-all active:scale-95 shadow-sm"
-            title={isGoogleConnected ? 'Sync live Google Health data' : 'Connect Google Health'}
-          >
-            <div className="relative">
-              <Smartphone size={18} className="text-slate-700 dark:text-slate-300" />
-              <span
-                className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ${isGoogleConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
-                  }`}
-              />
-            </div>
-            <span className="text-[10px] font-semibold hidden sm:inline text-slate-700 dark:text-slate-300">
-              {isGoogleConnected ? 'Google Health Live' : 'Connect Google'}
+          {/* Real-time Pedometer Status & Refresh */}
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800/60 text-slate-700 dark:text-slate-300 shadow-sm">
+            <span className="relative flex h-2 w-2">
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${stepState.currentCadence > 0 ? 'bg-emerald-400' : 'bg-cyan-400'}`}></span>
+              <span className={`relative inline-flex rounded-full h-2 w-2 ${stepState.currentCadence > 0 ? 'bg-emerald-500' : 'bg-cyan-500'}`}></span>
             </span>
-            <RefreshCw
-              size={12}
-              className={`text-slate-500 dark:text-slate-400 ${isSyncing || isConnectingGoogle ? 'animate-spin text-emerald-500 dark:text-emerald-400' : ''
-                }`}
-            />
-          </button>
+            <Footprints size={15} className="text-emerald-500 shrink-0" />
+            <span className="text-[11px] font-bold text-slate-800 dark:text-slate-200 font-mono">
+              {stepState.currentCadence > 0 ? `${stepState.currentCadence} SPM` : 'Real-Time'}
+            </span>
+            <button
+              onClick={() => refreshMetrics(false)}
+              disabled={isSyncing}
+              className="ml-1 text-slate-400 hover:text-emerald-500 transition-colors cursor-pointer"
+              title="Refresh activity metrics"
+            >
+              <RefreshCw size={11} className={isSyncing ? 'animate-spin text-emerald-500' : ''} />
+            </button>
+          </div>
 
           {/* Title */}
           <div className="text-center">
             <h1 className="text-lg font-black text-slate-900 dark:text-white tracking-tight flex items-center justify-center gap-1.5 font-display">
-              <span>Today</span>
+              <span>Today's Steps</span>
             </h1>
           </div>
 
@@ -244,35 +197,35 @@ export const DailyActivityScreen: React.FC<DailyActivityScreenProps> = ({
           </button>
         </div>
 
-        {/* Sync Toast Feedback */}
-        {syncToast && (
-          <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-300 dark:border-emerald-500/30 text-emerald-900 dark:text-emerald-300 text-xs flex items-center gap-2 animate-scale-in">
-            <CheckCircle2 size={14} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
-            <span>{syncToast}</span>
-          </div>
-        )}
-
-
         {/* Main Dashboard Grid */}
         <div className="space-y-2.5">
           {/* Section 1: Hero Block - Step Ring + Symmetrical Metric Cards */}
           <div className="grid grid-cols-12 gap-2.5 items-stretch">
-            {/* Left: Step Ring */}
-            <div className="col-span-6 sm:col-span-5 flex flex-col items-center justify-center bg-white dark:bg-[#181C22] p-2.5 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm dark:shadow-inner h-full min-h-[160px]">
+            {/* Left: Step Ring (Tappable to test +50 steps in browser / emulator) */}
+            <div
+              onClick={() => stepCounterService.simulateSteps(50)}
+              title="Real-Time Step Counter: Walk with device or click to simulate +50 steps"
+              className="col-span-6 sm:col-span-5 flex flex-col items-center justify-center bg-white dark:bg-[#181C22] p-2.5 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm dark:shadow-inner h-full min-h-[160px] cursor-pointer hover:border-emerald-500/40 transition-all group"
+            >
               <StepProgressRing
-                steps={metrics.steps}
+                steps={liveTodaySteps}
                 goal={metrics.stepGoal}
                 size={138}
                 strokeWidth={14}
               />
+              {liveTodaySteps === 0 && (
+                <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-semibold mt-1 group-hover:underline">
+                  Tap to test +50
+                </span>
+              )}
             </div>
 
-            {/* Right: Stacked 3 Symmetrical Metric Cards (Zero duplication, exact height match) */}
+            {/* Right: Stacked 3 Symmetrical Metric Cards */}
             <div className="col-span-6 sm:col-span-7 flex flex-col justify-between gap-2 h-full">
               <MetricPillCard
                 icon={<MapPin size={16} />}
                 label="Distance"
-                value={`${metrics.distanceKm} km`}
+                value={`${liveDistanceKm} km`}
                 subtitle={metrics.runDistanceKm > 0 ? `(${metrics.runDistanceKm} km run)` : undefined}
                 variant="teal"
                 compact
@@ -281,7 +234,7 @@ export const DailyActivityScreen: React.FC<DailyActivityScreenProps> = ({
               <MetricPillCard
                 icon={<Flame size={16} />}
                 label="Cal burned"
-                value={metrics.caloriesBurned > 0 ? `${metrics.caloriesBurned.toLocaleString()} kcal` : '0 kcal'}
+                value={liveCalories > 0 ? `${liveCalories.toLocaleString()} kcal` : '0 kcal'}
                 variant="teal"
                 compact
                 className="flex-1 flex items-center"
@@ -318,52 +271,6 @@ export const DailyActivityScreen: React.FC<DailyActivityScreenProps> = ({
           </button>
         </div>
 
-        {/* ═══════════════════════════════════════════════════════════════ */}
-        {/* REAL-TIME GOOGLE HEALTH DATA STREAMS IN THE LOWER SECTION */}
-        {/* ═══════════════════════════════════════════════════════════════ */}
-
-        {/* If Google Health is NOT connected: Prominent Connect Action Banner */}
-        {!isGoogleConnected && (
-          <div className="rounded-3xl bg-gradient-to-br from-white via-cyan-50/30 to-emerald-50/40 dark:from-[#181C22] dark:via-[#16222b] dark:to-[#132220] border border-cyan-200/80 dark:border-cyan-800/60 p-5 shadow-md space-y-4 animate-fade-in">
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-cyan-500/10 dark:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 flex items-center justify-center shrink-0 border border-cyan-300/40 dark:border-cyan-700/50">
-                <Radio size={22} className="animate-pulse" />
-              </div>
-              <div className="space-y-1">
-
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                  Real-time Google Health Streams
-                </h3>
-                <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-800/60">
-                  Not Connected
-                </span>
-
-                <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-                  Connect your Google account to fetch real-time continuous steps, 24-hour hourly movement distribution, active minutes, and calories directly from Google Health sensors.
-                </p>
-              </div>
-            </div>
-
-            <button
-              onClick={handleConnectGoogleHealth}
-              disabled={isConnectingGoogle}
-              className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-cyan-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/25 active:scale-98 transition-all cursor-pointer"
-            >
-              {isConnectingGoogle ? (
-                <>
-                  <RefreshCw size={16} className="animate-spin" />
-                  <span>Connecting to Google Health...</span>
-                </>
-              ) : (
-                <>
-                  <Radio size={16} />
-                  <span>Connect Google Health</span>
-
-                </>
-              )}
-            </button>
-          </div>
-        )}
 
         {/* 1. Real-time 24-Hour Hourly Activity Breakdown */}
         <div className="rounded-3xl bg-white dark:bg-[#181C22] border border-slate-200/90 dark:border-slate-800/80 p-4 shadow-sm space-y-3">
@@ -381,10 +288,10 @@ export const DailyActivityScreen: React.FC<DailyActivityScreenProps> = ({
                 </p>
               </div>
             </div>
-            {selectedHourlyBucket !== null && metrics.hourlyBuckets?.[selectedHourlyBucket] && (
+            {selectedHourlyBucket !== null && liveHourlyBuckets?.[selectedHourlyBucket] && (
               <span className="text-xs font-bold text-cyan-600 dark:text-cyan-400 bg-cyan-50 dark:bg-cyan-950/80 px-2 py-0.5 rounded-lg border border-cyan-200 dark:border-cyan-800/60">
-                {metrics.hourlyBuckets[selectedHourlyBucket].label}:{' '}
-                {metrics.hourlyBuckets[selectedHourlyBucket].steps.toLocaleString()} steps
+                {liveHourlyBuckets[selectedHourlyBucket].label}:{' '}
+                {liveHourlyBuckets[selectedHourlyBucket].steps.toLocaleString()} steps
               </span>
             )}
           </div>
@@ -406,7 +313,7 @@ export const DailyActivityScreen: React.FC<DailyActivityScreenProps> = ({
 
           {/* 24-Hour Bar Visualizer */}
           <div className="h-28 flex items-end justify-between gap-1 pt-4 pb-1 px-1 bg-slate-50/80 dark:bg-slate-950/40 rounded-2xl border border-slate-100 dark:border-slate-800/40">
-            {(metrics.hourlyBuckets || []).map((bucket) => {
+            {liveHourlyBuckets.map((bucket) => {
               const heightPct = Math.min(100, Math.max(8, (bucket.steps / maxHourlySteps) * 100));
               const isSelected = selectedHourlyBucket === bucket.hour;
               const isNow = new Date().getHours() === bucket.hour;
@@ -453,7 +360,7 @@ export const DailyActivityScreen: React.FC<DailyActivityScreenProps> = ({
             <Sunrise size={16} className="text-amber-500 mb-1" />
             <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400">Morning</span>
             <span className="text-xs font-black text-slate-900 dark:text-white mt-0.5 font-mono">
-              {(metrics.morningSteps || 0).toLocaleString()}
+              {morningSteps.toLocaleString()}
             </span>
           </div>
 
@@ -461,7 +368,7 @@ export const DailyActivityScreen: React.FC<DailyActivityScreenProps> = ({
             <Sun size={16} className="text-yellow-500 mb-1" />
             <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400">Afternoon</span>
             <span className="text-xs font-black text-slate-900 dark:text-white mt-0.5 font-mono">
-              {(metrics.afternoonSteps || 0).toLocaleString()}
+              {afternoonSteps.toLocaleString()}
             </span>
           </div>
 
@@ -469,7 +376,7 @@ export const DailyActivityScreen: React.FC<DailyActivityScreenProps> = ({
             <Sunset size={16} className="text-orange-500 mb-1" />
             <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400">Evening</span>
             <span className="text-xs font-black text-slate-900 dark:text-white mt-0.5 font-mono">
-              {(metrics.eveningSteps || 0).toLocaleString()}
+              {eveningSteps.toLocaleString()}
             </span>
           </div>
 
@@ -477,48 +384,39 @@ export const DailyActivityScreen: React.FC<DailyActivityScreenProps> = ({
             <Moon size={16} className="text-indigo-400 mb-1" />
             <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400">Night</span>
             <span className="text-xs font-black text-slate-900 dark:text-white mt-0.5 font-mono">
-              {(metrics.nightSteps || 0).toLocaleString()}
+              {nightSteps.toLocaleString()}
             </span>
           </div>
         </div>
 
-        {/* 3. Google Health Live Sync Info Footer */}
+        {/* 3. Activity Tracker Info Footer */}
         <div className="space-y-2">
-          <div className="p-3 rounded-2xl bg-slate-100/70 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800/60 flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
+          <div className="p-3 rounded-2xl bg-white dark:bg-[#181C22] border border-slate-200/90 dark:border-slate-800/80 flex items-center justify-between text-xs text-slate-600 dark:text-slate-400 shadow-sm">
             <div className="flex items-center gap-2">
-
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
               <span>
-                Source:{' '}
+                Tracking Source:{' '}
                 <strong className="text-slate-900 dark:text-slate-200">
-                  {metrics.source === 'google_health'
-                    ? 'Google Health '
-                    : isGoogleConnected
-                      ? 'Google Fit Live Cloud Stream'
-                      : 'RunWar Workouts'}
+                  {stepState.mode === 'native_sensor'
+                    ? 'Device Hardware Pedometer'
+                    : stepState.mode === 'device_motion'
+                    ? 'Motion Accelerometer'
+                    : 'Real-Time Activity Engine'}
                 </strong>
               </span>
             </div>
             <button
               onClick={() => refreshMetrics(false)}
               disabled={isSyncing}
-              className="text-[11px] font-bold text-cyan-600 dark:text-cyan-400 hover:underline flex items-center gap-1 cursor-pointer shrink-0"
+              className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer shrink-0"
             >
-
-              <span>Sync Now</span>
+              <RefreshCw size={11} className={isSyncing ? 'animate-spin' : ''} />
+              <span>Refresh</span>
             </button>
           </div>
-
-          {isGoogleConnected && (
-            <div className="p-3 rounded-2xl bg-cyan-50/50 dark:bg-[#151D24] border border-cyan-200/50 dark:border-cyan-900/40 text-[11px] text-slate-600 dark:text-slate-400 space-y-1">
-              <div className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                <Radio size={13} className="text-cyan-500" />
-                <span>Mobile Sync Note</span>
-              </div>
-              <p className="leading-relaxed text-[10px]">
-                Your Android phone counts steps continuously via hardware sensors and uploads them to the Google Fit Cloud every 15–30 mins. To force an immediate cloud sync right now: open the <strong>Google Fit</strong> app on your mobile device and swipe down on the home screen to refresh.
-              </p>
-            </div>
-          )}
         </div>
       </div>
     </div>
