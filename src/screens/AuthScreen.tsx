@@ -493,13 +493,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               )}
             </div>
 
-            {/* Error / Success Toast Messages */}
-            {errorMsg && (
-              <div className="mb-4 p-3 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 text-xs flex items-center gap-2 animate-fade-in">
-                <AlertCircle size={16} className="shrink-0" />
-                <span className="leading-snug">{errorMsg}</span>
-              </div>
-            )}
+
 
             {successMsg && (
               <div className="mb-4 p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs flex items-center gap-2 animate-fade-in">
