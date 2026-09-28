@@ -488,9 +488,13 @@ export const App: React.FC = () => {
             setScreen((prev) => (prev === 'splash' || prev === 'welcome' || prev === 'auth' || prev === 'onboarding' ? 'main' : prev));
           }
         } else {
-          // Check local cached session user
+          // No active session found from OAuth, InsForge, or Firebase
           const cached = authService.getCachedUser();
-          if (cached?.id) {
+          const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+          const isGuest = cached?.id === 'guest_user';
+
+          // Preserve cached user ONLY if device is offline (for offline running) or explicit Guest mode
+          if (cached?.id && (isOffline || isGuest)) {
             setCurrentUser(cached);
             let userProfile = cached.firebase_uid
               ? await authService.getProfileByFirebaseUid(cached.firebase_uid)
@@ -508,7 +512,9 @@ export const App: React.FC = () => {
               setScreen((prev) => (prev === 'splash' || prev === 'welcome' || prev === 'auth' || prev === 'onboarding' ? 'main' : prev));
             }
           } else {
+            // Online and user account is deleted/unauthorized: purge stale ghost session!
             setCurrentUser(null);
+            setProfile(null);
             authService.clearCachedUser();
             const currentPostId = getPostIdFromUrl();
             if (currentPostId) {
@@ -527,10 +533,15 @@ export const App: React.FC = () => {
           setScreen('post_detail');
         } else {
           const cached = authService.getCachedUser();
-          if (cached?.id) {
+          const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+          const isGuest = cached?.id === 'guest_user';
+          if (cached?.id && (isOffline || isGuest)) {
             setCurrentUser(cached);
             setScreen((prev) => (prev === 'splash' || prev === 'welcome' || prev === 'auth' || prev === 'onboarding' ? 'main' : prev));
           } else {
+            setCurrentUser(null);
+            setProfile(null);
+            authService.clearCachedUser();
             setScreen((prev) => (prev === 'splash' ? 'welcome' : prev));
           }
         }
@@ -609,9 +620,64 @@ export const App: React.FC = () => {
       }
     });
 
+    // Real-time Session Watcher: Detect account deletion without requiring a page refresh
+    let lastCheckTime = 0;
+    const checkActiveSession = async () => {
+      const now = Date.now();
+      if (now - lastCheckTime < 5000) return; // Throttle to max once per 5 seconds
+      lastCheckTime = now;
+
+      if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+      const cached = authService.getCachedUser();
+      if (!cached || cached.id === 'guest_user') return;
+
+      try {
+        const user = await authService.getCurrentUser();
+        if (!user) {
+          console.log('[RunWar Auth] Account deleted in cloud; routing to welcome screen without refresh.');
+          setCurrentUser(null);
+          setProfile(null);
+          setScreen('welcome');
+        }
+      } catch {
+        // Ignored for offline or network issues
+      }
+    };
+
+    // 1. Immediate check when user switches back to this tab from InsForge dashboard
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkActiveSession();
+      }
+    };
+    const handleWindowFocus = () => {
+      checkActiveSession();
+    };
+
+    const handleSessionExpired = () => {
+      setCurrentUser(null);
+      setProfile(null);
+      setScreen('welcome');
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleWindowFocus);
+    window.addEventListener('runwar:session_expired', handleSessionExpired);
+
+    // 2. Periodic background check every 15s while the app is active
+    const sessionHeartbeat = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        checkActiveSession();
+      }
+    }, 15000);
+
     return () => {
       if (typeof unsubFirebase === 'function') unsubFirebase();
       if (typeof unsubscribe === 'function') unsubscribe();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleWindowFocus);
+      window.removeEventListener('runwar:session_expired', handleSessionExpired);
+      clearInterval(sessionHeartbeat);
       window.removeEventListener('runwar:sync_completed', handleSyncCompleted);
       window.removeEventListener('runwar:workouts_purged', handleWorkoutsPurged);
       window.removeEventListener('runwar:workout_synced', handleWorkoutSynced);

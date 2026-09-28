@@ -71,6 +71,10 @@ export const authService = {
         }
       }
       keysToRemove.forEach((k) => localStorage.removeItem(k));
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('runwar:session_expired'));
+      }
     } catch (e) {
       console.warn('Failed to clear cached user:', e);
     }
@@ -104,6 +108,17 @@ export const authService = {
    */
   async getCurrentUser() {
     try {
+      const cached = this.getCachedUser();
+      // If user explicitly chose Guest / Demo mode, respect local guest session
+      if (cached?.id === 'guest_user') {
+        return cached;
+      }
+
+      // If device is completely offline, return cached user for offline workouts
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        return cached;
+      }
+
       // Re-hydrate access token onto InsForge client if cached locally
       const storedToken = localStorage.getItem(AUTH_TOKEN_KEY);
       if (storedToken && typeof (insforge as any).setAccessToken === 'function') {
@@ -121,12 +136,23 @@ export const authService = {
           this.setCachedUser(normalizedUser);
           return normalizedUser;
         }
-        return user;
       }
-      return this.getCachedUser();
-    } catch (err) {
-      console.warn('Error fetching current user from cloud, checking local cache:', err);
-      return this.getCachedUser();
+
+      // If online and InsForge has no session (e.g. user was deleted in InsForge or session revoked):
+      // Clean up stale local cache so ghost user is not kept logged in
+      if (cached && !cached.firebase_uid) {
+        console.log('[RunWar Auth] User session not found on server; clearing stale local cache.');
+        this.clearCachedUser();
+      }
+
+      return null;
+    } catch (err: any) {
+      console.warn('Error fetching current user from cloud:', err);
+      // Only keep cache on network connectivity loss
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        return this.getCachedUser();
+      }
+      return null;
     }
   },
 
