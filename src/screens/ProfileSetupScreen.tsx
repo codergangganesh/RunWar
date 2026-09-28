@@ -7,6 +7,7 @@ import { Check, Flame, Ruler, Weight, Activity, Sparkles, User, Target, ArrowRig
 
 interface ProfileSetupScreenProps {
   userId: string;
+  initialProfile?: UserProfile | null;
   initialName?: string;
   initialEmail?: string;
   onComplete: (profile: UserProfile) => void;
@@ -15,20 +16,24 @@ interface ProfileSetupScreenProps {
 
 export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
   userId,
+  initialProfile,
   initialName = 'Runner',
   initialEmail = '',
   onComplete,
   onBack,
 }) => {
-  const [name, setName] = useState(initialName);
-  const [age, setAge] = useState<number>(26);
-  const [gender, setGender] = useState<string>('unspecified');
-  const [height, setHeight] = useState<number>(175);
-  const [weight, setWeight] = useState<number>(70);
-  const [unitSystem, setUnitSystem] = useState<'metric' | 'imperial'>('metric');
-  const [fitnessGoal, setFitnessGoal] = useState<string>('5k_run');
-  const [workoutType, setWorkoutType] = useState<WorkoutType>('run');
+  const [name, setName] = useState(initialProfile?.name || initialName);
+  const [age, setAge] = useState<number>(initialProfile?.age || 26);
+  const [gender, setGender] = useState<string>(initialProfile?.gender || 'unspecified');
+  const [height, setHeight] = useState<number>(initialProfile?.height || 175);
+  const [weight, setWeight] = useState<number>(initialProfile?.weight || 70);
+  const [unitSystem, setUnitSystem] = useState<'metric' | 'imperial'>(
+    initialProfile?.distance_unit === 'mi' ? 'imperial' : 'metric'
+  );
+  const [fitnessGoal, setFitnessGoal] = useState<string>(initialProfile?.fitness_goal || '5k_run');
+  const [workoutType, setWorkoutType] = useState<WorkoutType>(initialProfile?.typical_workout_type || 'run');
   const [loading, setLoading] = useState(false);
+  const [isSuccess, setIsSuccess] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   const defaultUsername = initialName.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 14);
@@ -66,26 +71,35 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
     setLoading(true);
 
     try {
+      const cached = authService.getCachedUser();
+      const effectiveUserId = (!userId || userId === 'guest_user' || userId === 'usr_guest_demo')
+        ? (cached?.id && cached.id !== 'guest_user' ? cached.id : userId)
+        : userId;
+
       const distanceUnit: DistanceUnit = unitSystem === 'imperial' ? 'mi' : 'km';
       const paceUnit: PaceUnit = unitSystem === 'imperial' ? 'min_mi' : 'min_km';
       const weightUnit: WeightUnit = unitSystem === 'imperial' ? 'lb' : 'kg';
 
       let assignedUsername = cleanUser;
       if (cleanUser) {
-        const usernameRes = await challengeService.setUsername(userId, cleanUser);
-        if (usernameRes.error) {
-          setFormError(usernameRes.error);
-          setLoading(false);
-          return;
+        try {
+          const usernameRes = await challengeService.setUsername(effectiveUserId, cleanUser);
+          if (usernameRes.error && (usernameRes.error.toLowerCase().includes('taken') || usernameRes.error.toLowerCase().includes('permanent'))) {
+            setFormError(usernameRes.error);
+            setLoading(false);
+            return;
+          }
+        } catch (uErr) {
+          console.warn('Notice from setUsername, continuing profile save:', uErr);
         }
       } else {
-        assignedUsername = await challengeService.ensureUsername(userId, name);
+        assignedUsername = await challengeService.ensureUsername(effectiveUserId, name);
       }
 
-      const profile = await authService.updateProfile(userId, {
+      const profile = await authService.updateProfile(effectiveUserId, {
         name: name.trim() || 'Runner',
-        username: assignedUsername,
-        email: initialEmail,
+        username: assignedUsername || defaultUsername || 'runner',
+        email: initialEmail || initialProfile?.email || null,
         age,
         gender,
         height,
@@ -95,10 +109,14 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
         weight_unit: weightUnit,
         fitness_goal: fitnessGoal,
         typical_workout_type: workoutType,
+        profile_completed: true,
       });
 
-      localStorage.setItem(`runwar_profile_setup_done_${userId}`, 'true');
-      onComplete(profile);
+      localStorage.setItem(`runwar_profile_setup_done_${effectiveUserId}`, 'true');
+      setIsSuccess(true);
+      setTimeout(() => {
+        onComplete(profile);
+      }, 350);
     } catch (err: any) {
       console.error('Error saving profile setup:', err);
       setFormError(err?.message || 'Failed to save profile details.');
@@ -110,7 +128,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
   return (
     <div className="min-h-screen w-full bg-[#e8f3f0] flex flex-col justify-between items-center select-none relative overflow-x-hidden font-sans">
       <div className="w-full max-w-xl md:max-w-2xl flex flex-col flex-1 min-h-screen justify-between relative">
-        
+
         {/* Upper Hero Area with Scenic Mountain Runner Background */}
         <div className="relative pt-3 px-5 sm:px-6 pb-8 min-h-[220px] sm:min-h-[250px] flex flex-col justify-between overflow-hidden">
           <div
@@ -276,13 +294,12 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
                   onChange={(e) => setUsernameInput(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
                   placeholder="ganesh_runner"
                   maxLength={20}
-                  className={`w-full pl-9 pr-10 py-3.5 rounded-2xl bg-slate-50 border text-sm font-bold outline-none transition-all ${
-                    isUsernameTaken || isUsernameInvalid
+                  className={`w-full pl-9 pr-10 py-3.5 rounded-2xl bg-slate-50 border text-sm font-bold outline-none transition-all ${isUsernameTaken || isUsernameInvalid
                       ? 'border-rose-500 focus:border-rose-500 bg-rose-50/20 text-rose-700'
                       : usernameStatus === 'available'
-                      ? 'border-emerald-500 focus:border-emerald-500 text-slate-900'
-                      : 'border-slate-200 text-slate-900 focus:border-[#00d09c]'
-                  }`}
+                        ? 'border-emerald-500 focus:border-emerald-500 text-slate-900'
+                        : 'border-slate-200 text-slate-900 focus:border-[#00d09c]'
+                    }`}
                 />
 
                 <div className="absolute right-3.5 flex items-center pointer-events-none">
@@ -294,13 +311,12 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
 
               {/* Status Message */}
               {usernameMessage && (
-                <p className={`text-[11px] font-semibold flex items-center gap-1 mt-0.5 ${
-                  isUsernameTaken || isUsernameInvalid
+                <p className={`text-[11px] font-semibold flex items-center gap-1 mt-0.5 ${isUsernameTaken || isUsernameInvalid
                     ? 'text-rose-500'
                     : usernameStatus === 'available'
-                    ? 'text-emerald-600'
-                    : 'text-slate-400'
-                }`}>
+                      ? 'text-emerald-600'
+                      : 'text-slate-400'
+                  }`}>
                   {isUsernameTaken && <span>⚠️ Username already taken</span>}
                   {usernameStatus === 'available' && <span>✓ Username available</span>}
                   {isUsernameInvalid && <span>❌ {usernameMessage}</span>}
@@ -343,22 +359,20 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
                 <button
                   type="button"
                   onClick={() => setUnitSystem('metric')}
-                  className={`py-3 px-3 rounded-2xl text-xs font-black transition-all ${
-                    unitSystem === 'metric'
+                  className={`py-3 px-3 rounded-2xl text-xs font-black transition-all ${unitSystem === 'metric'
                       ? 'bg-[#00d09c] text-slate-950 shadow-md shadow-[#00d09c]/25'
                       : 'bg-slate-50 border border-slate-200 text-slate-600 hover:text-slate-900'
-                  }`}
+                    }`}
                 >
                   Metric (km, kg)
                 </button>
                 <button
                   type="button"
                   onClick={() => setUnitSystem('imperial')}
-                  className={`py-3 px-3 rounded-2xl text-xs font-black transition-all ${
-                    unitSystem === 'imperial'
+                  className={`py-3 px-3 rounded-2xl text-xs font-black transition-all ${unitSystem === 'imperial'
                       ? 'bg-[#00d09c] text-slate-950 shadow-md shadow-[#00d09c]/25'
                       : 'bg-slate-50 border border-slate-200 text-slate-600 hover:text-slate-900'
-                  }`}
+                    }`}
                 >
                   Imperial (mi, lb)
                 </button>
@@ -420,11 +434,19 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={loading}
-              className="w-full mt-2 py-4 px-6 rounded-2xl bg-[#00d09c] hover:bg-[#00ba8b] active:scale-[0.98] disabled:opacity-50 text-slate-950 font-black text-base shadow-lg shadow-[#00d09c]/25 flex items-center justify-center gap-2 transition-all"
+              disabled={loading || isSuccess}
+              className="w-full mt-2 py-4 px-6 rounded-2xl bg-[#00d09c] hover:bg-[#00ba8b] active:scale-[0.98] disabled:opacity-50 text-slate-950 font-black text-base shadow-lg shadow-[#00d09c]/25 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:cursor-not-allowed"
             >
               {loading ? (
-                <div className="w-5 h-5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+                <div className="flex items-center gap-2">
+                  <div className="w-5 h-5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+                  <span>Saving your profile...</span>
+                </div>
+              ) : isSuccess ? (
+                <div className="flex items-center gap-2">
+                  <Check size={20} strokeWidth={3} className="text-slate-950" />
+                  <span>Profile complete ✓</span>
+                </div>
               ) : (
                 <>
                   <span>Complete Setup</span>

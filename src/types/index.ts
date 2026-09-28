@@ -40,10 +40,21 @@ export interface UserProfile {
   fitness_goal: string;
   typical_workout_type: WorkoutType;
   avatar_url: string | null;
+  daily_step_goal?: number;
+  profile_completed?: boolean;
   pinned_achievements?: string[];
   created_at: string;
   updated_at: string;
 }
+
+export type AppState =
+  | 'INITIALIZING'
+  | 'UNAUTHENTICATED'
+  | 'PROFILE_CHECKING'
+  | 'PROFILE_ERROR'
+  | 'PROFILE_INCOMPLETE'
+  | 'READY';
+
 
 export interface GearItem {
   id: string;

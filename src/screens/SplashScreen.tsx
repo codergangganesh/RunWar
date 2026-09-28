@@ -2,16 +2,13 @@ import React, { useEffect } from 'react';
 import { Flame, MapPin } from 'lucide-react';
 
 interface SplashScreenProps {
-  onFinish: () => void;
+  onFinish?: () => void;
+  statusText?: string;
 }
 
-export const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      onFinish();
-    }, 1400);
-    return () => clearTimeout(timer);
-  }, [onFinish]);
+export const SplashScreen: React.FC<SplashScreenProps> = ({
+  statusText = 'Loading Experience...',
+}) => {
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-between items-center bg-[#e8f3f0] select-none overflow-hidden font-sans animate-fade-in">
@@ -97,7 +94,7 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
           <div className="relative z-10 flex flex-col items-center gap-2 my-auto pt-2">
             <div className="w-7 h-7 border-3 border-emerald-500/20 border-t-[#00d09c] rounded-full animate-spin shadow-sm" />
             <span className="text-[12px] text-slate-500 font-medium tracking-wide">
-              Loading Experience...
+              {statusText}
             </span>
           </div>
 

@@ -10,7 +10,7 @@ const AUTH_TOKEN_KEY = 'runwar_auth_token';
 const PKCE_VERIFIER_KEY = 'runwar_oauth_pkce_verifier';
 
 export function normalizeUserId(id?: string | null): string {
-  if (!id) return 'guest_user';
+  if (!id) return toDeterministicUUID('guest_user');
   const trimmed = id.trim();
   if (isValidUUID(trimmed)) return trimmed.toLowerCase();
   return toDeterministicUUID(trimmed);
@@ -35,9 +35,10 @@ export const authService = {
   setCachedUser(user: any) {
     if (!user) return;
     try {
+      const rawId = user.id || user.firebase_uid || user.user_id || user.uid;
       const normalizedUser = {
         ...user,
-        id: normalizeUserId(user.id || user.firebase_uid),
+        id: rawId && rawId !== 'guest_user' ? normalizeUserId(rawId) : (rawId || 'guest_user'),
       };
       localStorage.setItem(SESSION_USER_KEY, JSON.stringify(normalizedUser));
     } catch (e) {
@@ -84,20 +85,25 @@ export const authService = {
    * Check if profile setup has been completed for a user
    */
   isProfileSetupComplete(userId: string, profile: UserProfile | null): boolean {
-    if (!userId) return false;
+    if (!userId || !profile) return false;
+
+    // 1. Explicit database-backed completion flag (highest precedence)
+    if (typeof profile.profile_completed === 'boolean') {
+      return profile.profile_completed;
+    }
+
+    // 2. Legacy fallback for existing cached sessions / users
     try {
       const localFlag = localStorage.getItem(`runwar_profile_setup_done_${userId}`);
       if (localFlag === 'true') return true;
     } catch { }
 
-    if (profile) {
-      const hasUsername = typeof profile.username === 'string' && profile.username.trim().length > 0;
-      if (hasUsername) {
-        try {
-          localStorage.setItem(`runwar_profile_setup_done_${userId}`, 'true');
-        } catch { }
-        return true;
-      }
+    const hasUsername = typeof profile.username === 'string' && profile.username.trim().length > 0;
+    if (hasUsername) {
+      try {
+        localStorage.setItem(`runwar_profile_setup_done_${userId}`, 'true');
+      } catch { }
+      return true;
     }
 
     return false;
@@ -109,14 +115,14 @@ export const authService = {
   async getCurrentUser() {
     try {
       const cached = this.getCachedUser();
-      // If user explicitly chose Guest / Demo mode, respect local guest session
+      // If cached user is placeholder 'guest_user', clear it so it doesn't mask cloud authentication
       if (cached?.id === 'guest_user') {
-        return cached;
+        this.clearCachedUser();
       }
 
       // If device is completely offline, return cached user for offline workouts
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
-        return cached;
+        return cached && cached.id !== 'guest_user' ? cached : null;
       }
 
       // Re-hydrate access token onto InsForge client if cached locally
@@ -128,10 +134,11 @@ export const authService = {
       const { data, error } = await insforge.auth.getCurrentUser();
       if (!error && data) {
         const user = (data as any).user || data;
-        if (user?.id) {
+        const rawId = user?.id || user?.user_id || user?.uid;
+        if (rawId && rawId !== 'guest_user') {
           const normalizedUser = {
             ...user,
-            id: normalizeUserId(user.id),
+            id: normalizeUserId(rawId),
           };
           this.setCachedUser(normalizedUser);
           return normalizedUser;
@@ -150,7 +157,8 @@ export const authService = {
       console.warn('Error fetching current user from cloud:', err);
       // Only keep cache on network connectivity loss
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
-        return this.getCachedUser();
+        const cached = this.getCachedUser();
+        return cached && cached.id !== 'guest_user' ? cached : null;
       }
       return null;
     }
@@ -585,6 +593,16 @@ export const authService = {
    * Fetch user profile from database
    */
   async getProfile(userId: string): Promise<UserProfile | null> {
+    if (!userId || userId === 'guest_user' || userId === 'usr_guest_demo') {
+      const cachedRaw = localStorage.getItem(PROFILE_CACHE_KEY);
+      if (cachedRaw) {
+        try {
+          return JSON.parse(cachedRaw);
+        } catch {}
+      }
+      return null;
+    }
+
     const normalizedId = normalizeUserId(userId);
     try {
       const { data, error } = await insforge.database
@@ -595,14 +613,25 @@ export const authService = {
 
       if (error) {
         if (error.message && error.message.trim().length > 0) {
-          console.warn('Failed to fetch profile from DB, checking cache:', error.message);
+          console.warn('Failed to fetch profile from DB:', error.message);
         }
-        const cached = localStorage.getItem(PROFILE_CACHE_KEY);
-        return cached ? JSON.parse(cached) : null;
+        // If offline or network error and we have a valid cached profile for this user, use it
+        const cachedRaw = localStorage.getItem(PROFILE_CACHE_KEY);
+        if (cachedRaw) {
+          try {
+            const cached = JSON.parse(cachedRaw);
+            if (cached?.user_id === normalizedId || cached?.id === normalizedId) {
+              return cached as UserProfile;
+            }
+          } catch {}
+        }
+        // Distinguish network/DB error from missing record: throw error so caller can trigger PROFILE_ERROR
+        throw new Error(error.message || 'Failed to fetch user profile from cloud');
       }
+
       if (data) {
-        const cached = localStorage.getItem(PROFILE_CACHE_KEY);
-        const cachedProfile = cached ? JSON.parse(cached) : {};
+        const cachedRaw = localStorage.getItem(PROFILE_CACHE_KEY);
+        const cachedProfile = cachedRaw ? JSON.parse(cachedRaw) : {};
         const profileWithMeta: UserProfile = {
           ...data,
           firebase_uid: cachedProfile.firebase_uid || null,
@@ -611,13 +640,22 @@ export const authService = {
         localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(profileWithMeta));
         return profileWithMeta;
       }
+
+      // data is null and error is null => Brand new user with no profile record in DB
       return null;
     } catch (err: any) {
-      if (err?.message && err.message.trim().length > 0) {
-        console.warn('Failed to fetch profile from DB, checking cache:', err.message);
+      // Re-throw genuine network/server errors unless device is strictly offline with valid cached profile
+      const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+      const cachedRaw = localStorage.getItem(PROFILE_CACHE_KEY);
+      if (isOffline && cachedRaw) {
+        try {
+          const cached = JSON.parse(cachedRaw);
+          if (cached?.user_id === normalizedId || cached?.id === normalizedId) {
+            return cached as UserProfile;
+          }
+        } catch {}
       }
-      const cached = localStorage.getItem(PROFILE_CACHE_KEY);
-      return cached ? JSON.parse(cached) : null;
+      throw err;
     }
   },
 
@@ -661,6 +699,8 @@ export const authService = {
       fitness_goal: 'general_fitness',
       typical_workout_type: 'run',
       avatar_url: null,
+      daily_step_goal: 10000,
+      profile_completed: false,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -708,6 +748,21 @@ export const authService = {
    * Update or create user profile
    */
   async updateProfile(userId: string, updates: Partial<UserProfile>): Promise<UserProfile> {
+    const isGuest = !userId || userId === 'guest_user' || userId === 'usr_guest_demo';
+    if (isGuest) {
+      const cachedRaw = localStorage.getItem(PROFILE_CACHE_KEY);
+      const existing = cachedRaw ? JSON.parse(cachedRaw) : {};
+      const updated: UserProfile = {
+        ...existing,
+        ...updates,
+        id: userId || 'usr_guest_demo',
+        user_id: userId || 'usr_guest_demo',
+        updated_at: new Date().toISOString(),
+      };
+      localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(updated));
+      return updated;
+    }
+
     const normalizedId = normalizeUserId(userId);
     const existing = await this.getProfile(normalizedId);
 
@@ -716,6 +771,7 @@ export const authService = {
       id: existing?.id || normalizedId,
       user_id: normalizedId,
       name: updates.name ?? existing?.name ?? 'Runner',
+      username: updates.username ?? existing?.username ?? null,
       email: updates.email ?? existing?.email ?? null,
       age: updates.age ?? existing?.age ?? 25,
       gender: updates.gender ?? existing?.gender ?? 'unspecified',
@@ -727,6 +783,8 @@ export const authService = {
       fitness_goal: updates.fitness_goal ?? existing?.fitness_goal ?? '5k_run',
       typical_workout_type: updates.typical_workout_type ?? existing?.typical_workout_type ?? 'run',
       avatar_url: updates.avatar_url ?? existing?.avatar_url ?? null,
+      daily_step_goal: updates.daily_step_goal ?? existing?.daily_step_goal ?? 10000,
+      profile_completed: updates.profile_completed ?? existing?.profile_completed ?? false,
       created_at: existing?.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -765,6 +823,9 @@ export const authService = {
    * Create initial profile for a new user
    */
   async createInitialProfile(userId: string, name: string, email: string) {
+    if (!userId || userId === 'guest_user' || userId === 'usr_guest_demo') {
+      return;
+    }
     const normalizedId = normalizeUserId(userId);
     try {
       const profile = {
@@ -780,6 +841,8 @@ export const authService = {
         weight_unit: 'kg',
         fitness_goal: 'general_fitness',
         typical_workout_type: 'run',
+        daily_step_goal: 10000,
+        profile_completed: false,
       };
 
       await insforge.database.from('profiles').insert([profile]);

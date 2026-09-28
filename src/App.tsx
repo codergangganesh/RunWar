@@ -46,6 +46,7 @@ import { challengeService } from './services/challengeService';
 import { toDeterministicUUID } from './utils/uuid';
 import {
   Achievement,
+  AppState,
   Goal,
   LiveWorkoutState,
   PersonalRecord,
@@ -108,6 +109,9 @@ export const App: React.FC = () => {
 
   // User & Settings (Synchronously load cached session on frame 0)
   const [currentUser, setCurrentUser] = useState<any>(() => authService.getCachedUser());
+  const [appState, setAppState] = useState<AppState>('INITIALIZING');
+  const [authStatusText, setAuthStatusText] = useState<string>('Checking your account...');
+  const [profileErrorMessage, setProfileErrorMessage] = useState<string | null>(null);
   const [isAuthInitializing, setIsAuthInitializing] = useState(true);
   const [profile, setProfile] = useState<UserProfile | null>(() => {
     try {
@@ -348,6 +352,110 @@ export const App: React.FC = () => {
     }
   }, [theme]);
 
+  // Centralized resolution gate for session, profile verification, and data preloading
+  const resolveUserSessionAndProfile = useCallback(
+    async (authenticatedUser: any, isNewUserHint = false) => {
+      if (!authenticatedUser || !authenticatedUser.id || authenticatedUser.id === 'guest_user') {
+        setAppState('UNAUTHENTICATED');
+        const currentPostId = getPostIdFromUrl();
+        if (currentPostId) {
+          setActivePostId(currentPostId);
+          setScreen('post_detail');
+        } else {
+          setScreen((prev) => (prev === 'splash' ? 'welcome' : prev));
+        }
+        return;
+      }
+
+      setAppState('PROFILE_CHECKING');
+      setAuthStatusText('Setting things up...');
+      setProfileErrorMessage(null);
+
+      try {
+        let userProfile: UserProfile | null = null;
+        try {
+          userProfile = authenticatedUser.firebase_uid
+            ? await authService.getProfileByFirebaseUid(authenticatedUser.firebase_uid)
+            : await authService.getProfile(authenticatedUser.id);
+        } catch (fetchErr: any) {
+          console.error('[RunWar Auth] Failed to fetch profile from cloud:', fetchErr);
+          setProfileErrorMessage(fetchErr?.message || "We couldn't load your profile. Please check your connection.");
+          setAppState('PROFILE_ERROR');
+          return;
+        }
+
+        // If newly registered user with no profile record in DB yet, create initial profile row
+        if (!userProfile) {
+          try {
+            await authService.createInitialProfile(
+              authenticatedUser.id,
+              authenticatedUser.name || authenticatedUser.email?.split('@')[0] || 'Runner',
+              authenticatedUser.email || ''
+            );
+            userProfile = await authService.getProfile(authenticatedUser.id);
+          } catch (createErr) {
+            console.warn('[RunWar Auth] Notice creating initial profile record:', createErr);
+          }
+        }
+
+        if (userProfile) {
+          setProfile(userProfile);
+        }
+
+        // Evaluate profile completion strictly using database flag (and fallbacks)
+        const isSetupDone = !isNewUserHint && authService.isProfileSetupComplete(authenticatedUser.id, userProfile);
+
+        const currentPostId = getPostIdFromUrl();
+
+        if (currentPostId) {
+          setActivePostId(currentPostId);
+          setScreen('post_detail');
+          setAppState(isSetupDone ? 'READY' : 'PROFILE_INCOMPLETE');
+          return;
+        }
+
+        if (!isSetupDone) {
+          setAppState('PROFILE_INCOMPLETE');
+          setScreen('profile_setup');
+          return;
+        }
+
+        // Existing user with completed profile: preload user application data BEFORE entering READY / Home
+        setAuthStatusText('Loading workouts...');
+        workoutService.syncPendingWorkouts(authenticatedUser.id).catch(() => {});
+        await loadAppData(authenticatedUser.id, true);
+
+        setAppState('READY');
+        setScreen((prev) => (prev === 'splash' || prev === 'welcome' || prev === 'auth' || prev === 'onboarding' ? 'main' : prev));
+
+        // Handle challenge invite deep-link token if present
+        const params = new URLSearchParams(window.location.search);
+        const inviteToken = params.get('invite');
+        if (inviteToken && authenticatedUser.id) {
+          challengeService.claimInvitationToken(inviteToken, authenticatedUser.id)
+            .then((res) => {
+              if (res.success && res.challenge) {
+                window.history.replaceState({}, '', window.location.pathname);
+                setActiveTab('challenges');
+              } else if (res.error) {
+                setTargetedInviteError({
+                  errorMessage: res.error,
+                  targetUsername: res.targetUsername,
+                });
+                window.history.replaceState({}, '', window.location.pathname);
+              }
+            })
+            .catch(() => {});
+        }
+      } catch (err: any) {
+        console.error('[RunWar Auth] Error resolving session & profile:', err);
+        setProfileErrorMessage(err?.message || "We couldn't load your profile. Please check your connection.");
+        setAppState('PROFILE_ERROR');
+      }
+    },
+    [loadAppData]
+  );
+
   // Initial authentication check & recovery detection
   useEffect(() => {
     offlineSync.initSyncListener();
@@ -462,60 +570,23 @@ export const App: React.FC = () => {
         if (user) {
           setCurrentUser(user);
           authService.setCachedUser(user);
-          let userProfile = user.firebase_uid
-            ? await authService.getProfileByFirebaseUid(user.firebase_uid)
-            : await authService.getProfile(user.id);
-
-          if (!userProfile) {
-            await authService.createInitialProfile(
-              user.id,
-              user.name || user.email?.split('@')[0] || 'Runner',
-              user.email || ''
-            );
-            userProfile = await authService.getProfile(user.id);
-          }
-          if (userProfile) setProfile(userProfile);
-          workoutService.syncPendingWorkouts(user.id).catch(() => {});
-          await loadAppData(user.id, true);
-          const currentPostId = getPostIdFromUrl();
-          const setupComplete = authService.isProfileSetupComplete(user.id, userProfile);
-          if (currentPostId) {
-            setActivePostId(currentPostId);
-            setScreen('post_detail');
-          } else if (!setupComplete) {
-            setScreen('profile_setup');
-          } else {
-            setScreen((prev) => (prev === 'splash' || prev === 'welcome' || prev === 'auth' || prev === 'onboarding' ? 'main' : prev));
-          }
+          await resolveUserSessionAndProfile(user);
         } else {
           // No active session found from OAuth, InsForge, or Firebase
           const cached = authService.getCachedUser();
           const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
-          const isGuest = cached?.id === 'guest_user';
+          const isRealCachedUser = Boolean(cached?.id && cached.id !== 'guest_user' && cached.id !== 'usr_guest_demo');
 
-          // Preserve cached user ONLY if device is offline (for offline running) or explicit Guest mode
-          if (cached?.id && (isOffline || isGuest)) {
+          // Preserve cached user ONLY if device is offline and user was previously authenticated
+          if (isRealCachedUser && isOffline) {
             setCurrentUser(cached);
-            let userProfile = cached.firebase_uid
-              ? await authService.getProfileByFirebaseUid(cached.firebase_uid)
-              : await authService.getProfile(cached.id);
-            if (userProfile) setProfile(userProfile);
-            await loadAppData(cached.id, true);
-            const currentPostId = getPostIdFromUrl();
-            const cachedSetupComplete = authService.isProfileSetupComplete(cached.id, userProfile);
-            if (currentPostId) {
-              setActivePostId(currentPostId);
-              setScreen('post_detail');
-            } else if (!cachedSetupComplete) {
-              setScreen('profile_setup');
-            } else {
-              setScreen((prev) => (prev === 'splash' || prev === 'welcome' || prev === 'auth' || prev === 'onboarding' ? 'main' : prev));
-            }
+            await resolveUserSessionAndProfile(cached);
           } else {
-            // Online and user account is deleted/unauthorized: purge stale ghost session!
+            // Online and user account is deleted/unauthorized or guest placeholder: purge stale ghost session!
             setCurrentUser(null);
             setProfile(null);
             authService.clearCachedUser();
+            setAppState('UNAUTHENTICATED');
             const currentPostId = getPostIdFromUrl();
             if (currentPostId) {
               setActivePostId(currentPostId);
@@ -531,17 +602,19 @@ export const App: React.FC = () => {
         if (currentPostId) {
           setActivePostId(currentPostId);
           setScreen('post_detail');
+          setAppState('UNAUTHENTICATED');
         } else {
           const cached = authService.getCachedUser();
           const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
-          const isGuest = cached?.id === 'guest_user';
-          if (cached?.id && (isOffline || isGuest)) {
+          const isRealCachedUser = Boolean(cached?.id && cached.id !== 'guest_user' && cached.id !== 'usr_guest_demo');
+          if (isRealCachedUser && isOffline) {
             setCurrentUser(cached);
-            setScreen((prev) => (prev === 'splash' || prev === 'welcome' || prev === 'auth' || prev === 'onboarding' ? 'main' : prev));
+            await resolveUserSessionAndProfile(cached);
           } else {
             setCurrentUser(null);
             setProfile(null);
             authService.clearCachedUser();
+            setAppState('UNAUTHENTICATED');
             setScreen((prev) => (prev === 'splash' ? 'welcome' : prev));
           }
         }
@@ -579,37 +652,14 @@ export const App: React.FC = () => {
         if (user) {
           setCurrentUser(user);
           authService.setCachedUser(user);
-          let userProfile = await authService.getProfile(user.id);
-
-          // Create initial profile for new OAuth users (e.g. Google sign-in)
-          if (!userProfile) {
-            await authService.createInitialProfile(
-              user.id,
-              user.name || user.email?.split('@')[0] || 'Runner',
-              user.email || ''
-            );
-            userProfile = await authService.getProfile(user.id);
-          }
-
-          const isSetupDone = authService.isProfileSetupComplete(user.id, userProfile);
-          if (userProfile) setProfile(userProfile);
-          workoutService.syncPendingWorkouts(user.id).catch(() => {});
-          await loadAppData(user.id);
-
-          const currentPostId = getPostIdFromUrl();
-          if (currentPostId) {
-            setActivePostId(currentPostId);
-            setScreen('post_detail');
-          } else if (!isSetupDone) {
-            setScreen('profile_setup');
-          } else {
-            setScreen((prev) => (prev === 'splash' || prev === 'welcome' || prev === 'auth' || prev === 'onboarding' ? 'main' : prev));
-          }
+          await resolveUserSessionAndProfile(user);
         }
       } else if (event === 'signedOut') {
         setCurrentUser(null);
         setProfile(null);
+        setWorkouts([]);
         authService.clearCachedUser();
+        setAppState('UNAUTHENTICATED');
         const currentPostId = getPostIdFromUrl();
         if (currentPostId) {
           setActivePostId(currentPostId);
@@ -637,6 +687,9 @@ export const App: React.FC = () => {
           console.log('[RunWar Auth] Account deleted in cloud; routing to welcome screen without refresh.');
           setCurrentUser(null);
           setProfile(null);
+          setWorkouts([]);
+          authService.clearCachedUser();
+          setAppState('UNAUTHENTICATED');
           setScreen('welcome');
         }
       } catch {
@@ -657,6 +710,8 @@ export const App: React.FC = () => {
     const handleSessionExpired = () => {
       setCurrentUser(null);
       setProfile(null);
+      setWorkouts([]);
+      setAppState('UNAUTHENTICATED');
       setScreen('welcome');
     };
 
@@ -729,43 +784,12 @@ export const App: React.FC = () => {
     };
   }, [currentUser?.id, profile?.user_id, loadAppData]);
 
-  // Handle splash completion and URL route preservation (e.g. returning from Google Health OAuth)
-  const handleSplashFinish = () => {
-    const postParam = getPostIdFromUrl();
-    if (postParam) {
-      setActivePostId(postParam);
-      setScreen('post_detail');
-      return;
-    }
-
-    const cached = authService.getCachedUser();
-    if (currentUser || cached) {
-      const params = new URLSearchParams(window.location.search);
-      const targetScreen = params.get('screen') as ScreenState | null;
-      const targetTab = params.get('tab') as ActiveTab | null;
-      if (targetScreen === 'connected_health' || targetScreen === 'privacy') {
-        setScreen(targetScreen);
-      } else {
-        setScreen((prev) => (prev === 'active_run' ? 'active_run' : 'main'));
-        if (targetTab) setActiveTab(targetTab);
-      }
-    } else if (!isAuthInitializing) {
-      // Don't navigate to welcome if an OAuth callback is still being processed
-      // (the initAuth function will handle navigation after code exchange completes)
-      const urlParams = new URLSearchParams(window.location.search);
-      const oauthInProgress =
-        urlParams.has('insforge_code') ||
-        urlParams.has('error') ||
-        localStorage.getItem('runwar_oauth_in_progress') === 'true';
-      if (!oauthInProgress) {
-        setScreen((prev) => (prev === 'active_run' ? 'active_run' : 'welcome'));
-      }
-    }
-  };
+  // Handle splash completion (controlled by AppState FSM)
+  const handleSplashFinish = () => {};
 
   // Handle URL navigation params after authentication resolves
   useEffect(() => {
-    if (isAuthInitializing) return;
+    if (isAuthInitializing || appState !== 'READY') return;
     const postParam = getPostIdFromUrl();
     if (postParam) {
       setActivePostId(postParam);
@@ -780,7 +804,7 @@ export const App: React.FC = () => {
     } else if (targetTab) {
       setActiveTab(targetTab);
     }
-  }, [isAuthInitializing]);
+  }, [isAuthInitializing, appState]);
 
   // Support browser Back/Forward navigation with deep linked posts
   useEffect(() => {
@@ -869,12 +893,15 @@ export const App: React.FC = () => {
       fitness_goal: '5k_run',
       typical_workout_type: 'run',
       avatar_url: null,
+      daily_step_goal: 10000,
+      profile_completed: true,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
 
     setProfile(guestProfile);
     await loadAppData(guestUser.id);
+    setAppState('READY');
     setScreen('main');
   };
 
@@ -882,37 +909,42 @@ export const App: React.FC = () => {
   const handleAuthSuccess = async (user: any, isNewUser = false) => {
     setCurrentUser(user);
     authService.setCachedUser(user);
-    const prof = user.firebase_uid
-      ? await authService.getProfileByFirebaseUid(user.firebase_uid)
-      : await authService.getProfile(user.id);
-    const isSetupDone = authService.isProfileSetupComplete(user.id, prof);
+    await resolveUserSessionAndProfile(user, isNewUser);
+  };
 
-    if (isNewUser || !isSetupDone) {
-      if (prof) setProfile(prof);
-      setScreen('profile_setup');
-    } else {
-      setProfile(prof);
-      await loadAppData(user.id);
-      setScreen('main');
-      // Handle challenge invite deep-link token
-      const params = new URLSearchParams(window.location.search);
-      const inviteToken = params.get('invite');
-      if (inviteToken && user.id) {
-        challengeService.claimInvitationToken(inviteToken, user.id)
-          .then((res) => {
-            if (res.success && res.challenge) {
-              window.history.replaceState({}, '', window.location.pathname);
-              setActiveTab('challenges');
-            } else if (res.error) {
-              setTargetedInviteError({
-                errorMessage: res.error,
-                targetUsername: res.targetUsername,
-              });
-              window.history.replaceState({}, '', window.location.pathname);
-            }
-          })
-          .catch(() => {});
-      }
+  // Profile setup completion
+  const handleProfileSetupComplete = async (completedProfile: UserProfile) => {
+    const activeUserId = completedProfile.user_id || currentUser?.id;
+    if (activeUserId) {
+      localStorage.setItem(`runwar_profile_setup_done_${activeUserId}`, 'true');
+    }
+    setProfile(completedProfile);
+    if (activeUserId) {
+      setAuthStatusText('Preparing your dashboard...');
+      await loadAppData(activeUserId, true);
+    }
+    setAppState('READY');
+    setScreen('main');
+    setActiveTab('home');
+
+    // Handle challenge deep link token if present
+    const params = new URLSearchParams(window.location.search);
+    const inviteToken = params.get('invite');
+    if (inviteToken && activeUserId) {
+      challengeService.claimInvitationToken(inviteToken, activeUserId)
+        .then((res) => {
+          if (res.success && res.challenge) {
+            window.history.replaceState({}, '', window.location.pathname);
+            setActiveTab('challenges');
+          } else if (res.error) {
+            setTargetedInviteError({
+              errorMessage: res.error,
+              targetUsername: res.targetUsername,
+            });
+            window.history.replaceState({}, '', window.location.pathname);
+          }
+        })
+        .catch(() => {});
     }
   };
 
@@ -981,6 +1013,7 @@ export const App: React.FC = () => {
     setCurrentUser(null);
     setProfile(null);
     setWorkouts([]);
+    setAppState('UNAUTHENTICATED');
     setScreen('welcome');
   };
 
@@ -1020,13 +1053,55 @@ export const App: React.FC = () => {
     setRecoveredWorkoutBackup(null);
   };
 
-  // Render current active screen
+  // Render current active screen with strict FSM gating
   const renderScreen = () => {
-    switch (screen) {
-      case 'splash':
-        return <SplashScreen onFinish={handleSplashFinish} />;
+    // 1. Initializing or checking profile => always Splash, NEVER Home
+    if (appState === 'INITIALIZING' || appState === 'PROFILE_CHECKING') {
+      return <SplashScreen statusText={authStatusText} />;
+    }
 
-      case 'welcome':
+    // 2. Profile fetch failure => Controlled error screen with Try Again & Sign Out
+    if (appState === 'PROFILE_ERROR') {
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#e8f3f0] p-6 font-sans">
+          <div className="w-full max-w-md bg-white rounded-3xl p-8 shadow-2xl border border-emerald-100 text-center flex flex-col items-center">
+            <div className="w-16 h-16 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center mb-5 shadow-sm">
+              <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <h2 className="text-xl font-black text-slate-900 mb-2">We couldn't load your profile</h2>
+            <p className="text-sm text-slate-600 mb-6 leading-relaxed">
+              {profileErrorMessage || 'Please check your internet connection and try again.'}
+            </p>
+            <div className="flex flex-col w-full gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  const userToRetry = currentUser || authService.getCachedUser();
+                  resolveUserSessionAndProfile(userToRetry);
+                }}
+                className="w-full py-3.5 px-6 rounded-2xl bg-[#00d09c] hover:bg-[#00ba8b] text-slate-950 font-black text-sm shadow-md shadow-[#00d09c]/25 active:scale-95 transition-all cursor-pointer"
+              >
+                Try Again
+              </button>
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="w-full py-3 px-6 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm transition-all cursor-pointer"
+              >
+                Sign Out
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // 3. Authenticated but profile is incomplete => Profile Setup Screen ONLY
+    if (appState === 'PROFILE_INCOMPLETE') {
+      const activeUserId = currentUser?.id || authService.getCachedUser()?.id;
+      if (!activeUserId || activeUserId === 'guest_user') {
         return (
           <WelcomeScreen
             onStartOnboarding={() => setScreen('onboarding')}
@@ -1034,51 +1109,76 @@ export const App: React.FC = () => {
             onGuestAccess={handleGuestAccess}
           />
         );
+      }
 
-      case 'onboarding':
-        return (
-          <OnboardingScreen
-            onComplete={() => {
-              localStorage.setItem('runwar_onboarding_done', 'true');
-              setScreen('auth');
-            }}
-            onSkip={() => {
-              localStorage.setItem('runwar_onboarding_done', 'true');
-              setScreen('auth');
-            }}
-          />
-        );
+      return (
+        <ProfileSetupScreen
+          userId={activeUserId}
+          initialProfile={profile}
+          initialName={currentUser?.name || currentUser?.profile?.name || currentUser?.user_metadata?.name || profile?.name || ''}
+          initialEmail={currentUser?.email || profile?.email || ''}
+          onBack={handleSignOut}
+          onComplete={handleProfileSetupComplete}
+        />
+      );
+    }
 
-      case 'auth':
-        return (
-          <AuthScreen
-            initialMode="signin"
-            onAuthSuccess={handleAuthSuccess}
-            onGuestAccess={handleGuestAccess}
-          />
-        );
+    // 4. Unauthenticated => Welcome, Onboarding, or Auth
+    if (appState === 'UNAUTHENTICATED') {
+      switch (screen) {
+        case 'onboarding':
+          return (
+            <OnboardingScreen
+              onComplete={() => {
+                localStorage.setItem('runwar_onboarding_done', 'true');
+                setScreen('auth');
+              }}
+              onSkip={() => {
+                localStorage.setItem('runwar_onboarding_done', 'true');
+                setScreen('auth');
+              }}
+            />
+          );
 
-      case 'profile_setup':
-        return (
-          <ProfileSetupScreen
-            userId={currentUser?.id || authService.getCachedUser()?.id || 'guest_user'}
-            initialName={currentUser?.name || currentUser?.profile?.name || currentUser?.user_metadata?.name || ''}
-            initialEmail={currentUser?.email || ''}
-            onBack={() => setScreen('auth')}
-            onComplete={async (prof) => {
-              const activeUserId = prof.user_id || currentUser?.id;
-              if (activeUserId) {
-                localStorage.setItem(`runwar_profile_setup_done_${activeUserId}`, 'true');
-              }
-              setProfile(prof);
-              if (currentUser?.id) {
-                await loadAppData(currentUser.id);
-              }
-              setScreen('main');
-            }}
-          />
-        );
+        case 'auth':
+          return (
+            <AuthScreen
+              initialMode="signin"
+              onAuthSuccess={handleAuthSuccess}
+              onGuestAccess={handleGuestAccess}
+            />
+          );
 
+        case 'post_detail':
+          return (
+            <PostDetailScreen
+              postId={activePostId}
+              initialPost={activePost}
+              profile={profile}
+              onBack={handleClosePostDetail}
+              onOpenProfile={() => setScreen('auth')}
+              onSelectWorkout={(workout) => {
+                setSelectedWorkout(workout);
+                setScreen('workout_detail');
+              }}
+              onOpenAuth={() => setScreen('auth')}
+            />
+          );
+
+        case 'welcome':
+        default:
+          return (
+            <WelcomeScreen
+              onStartOnboarding={() => setScreen('onboarding')}
+              onLogin={() => setScreen('auth')}
+              onGuestAccess={handleGuestAccess}
+            />
+          );
+      }
+    }
+
+    // 5. READY => Render authenticated application screens
+    switch (screen) {
       case 'active_run':
         return (
           <ActiveRunScreen
