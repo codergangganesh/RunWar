@@ -21,7 +21,7 @@ username = "mannamganeshbabu8@gmail.com"
 password = "env(SMTP_PASSWORD)"
 sender_email = "mannamganeshbabu8@gmail.com"
 sender_name = "RunWar"
-min_interval_seconds = 60
+min_interval_seconds = 10
 
 [storage]
 max_file_size_mb = 50

@@ -42,9 +42,17 @@ export interface UserProfile {
   avatar_url: string | null;
   daily_step_goal?: number;
   profile_completed?: boolean;
+  password_configured?: boolean;
   pinned_achievements?: string[];
   created_at: string;
   updated_at: string;
+}
+
+export interface PasswordAccountState {
+  hasPassword: boolean;
+  email: string | null;
+  providers: string[];
+  isGoogleUser: boolean;
 }
 
 export type AppState =
@@ -586,3 +594,6 @@ export interface NotificationPreferences {
   notif_achievements: boolean;
   notif_system: boolean;
 }
+
+export * from './bugReport';
+

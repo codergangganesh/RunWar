@@ -58,11 +58,6 @@ export const ChallengesScreen: React.FC<Props> = ({ currentUser, onStartRun, onB
   useEffect(() => {
     loadData();
 
-    // Periodic sync interval (15s) to guarantee UI reflects opponent acceptance/run status in real time
-    const intervalId = setInterval(() => {
-      loadData();
-    }, 15000);
-
     // Realtime subscription for new notifications
     const unsub = challengeService.subscribeToNotifications(userId, (notif) => {
       setNotifications((prev) => [notif, ...prev]);
@@ -72,7 +67,6 @@ export const ChallengesScreen: React.FC<Props> = ({ currentUser, onStartRun, onB
     });
 
     return () => {
-      clearInterval(intervalId);
       unsub();
     };
   }, [userId, loadData]);

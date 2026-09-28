@@ -1,5 +1,5 @@
 import { insforge } from '../lib/insforge';
-import { UserProfile, UserSettings } from '../types';
+import { UserProfile, UserSettings, PasswordAccountState } from '../types';
 import { firebaseAuthService } from './firebaseAuthService';
 import { toDeterministicUUID, isValidUUID } from '../utils/uuid';
 
@@ -148,7 +148,10 @@ export const authService = {
       // Re-hydrate access token onto InsForge client if cached locally
       const storedToken = localStorage.getItem(AUTH_TOKEN_KEY);
       if (storedToken && typeof (insforge as any).setAccessToken === 'function') {
-        (insforge as any).setAccessToken(storedToken);
+        const currentToken = (insforge as any).tokenManager?.getAccessToken?.();
+        if (currentToken !== storedToken) {
+          (insforge as any).setAccessToken(storedToken);
+        }
       }
 
       const { data, error } = await insforge.auth.getCurrentUser();
@@ -205,7 +208,7 @@ export const authService = {
     if (data?.user?.id) {
       const normalizedId = normalizeUserId(data.user.id);
       this.setCachedUser({ ...data.user, id: normalizedId });
-      await this.createInitialProfile(normalizedId, name, email);
+      await this.createInitialProfile(normalizedId, name, email, true);
     }
     return data;
   },
@@ -738,6 +741,7 @@ export const authService = {
       avatar_url: null,
       daily_step_goal: 10000,
       profile_completed: false,
+      password_configured: false,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -822,6 +826,7 @@ export const authService = {
       avatar_url: updates.avatar_url ?? existing?.avatar_url ?? null,
       daily_step_goal: updates.daily_step_goal ?? existing?.daily_step_goal ?? 10000,
       profile_completed: updates.profile_completed ?? existing?.profile_completed ?? false,
+      password_configured: updates.password_configured ?? existing?.password_configured ?? false,
       created_at: existing?.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -859,7 +864,7 @@ export const authService = {
   /**
    * Create initial profile for a new user
    */
-  async createInitialProfile(userId: string, name: string, email: string) {
+  async createInitialProfile(userId: string, name: string, email: string, passwordConfigured: boolean = false) {
     if (!userId || userId === 'guest_user' || userId === 'usr_guest_demo') {
       return;
     }
@@ -880,6 +885,7 @@ export const authService = {
         typical_workout_type: 'run',
         daily_step_goal: 10000,
         profile_completed: false,
+        password_configured: passwordConfigured,
       };
 
       await insforge.database.from('profiles').insert([profile]);
@@ -997,6 +1003,272 @@ export const authService = {
       localStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify(fallback));
       return fallback;
     }
+  },
+
+  /**
+   * Get account password & authentication methods directly from InsForge
+   * Source of truth: InsForge Auth + InsForge Database (NEVER localStorage)
+   */
+  async getAccountPasswordState(userId: string): Promise<PasswordAccountState> {
+    if (!userId || userId === 'guest_user') {
+      return {
+        hasPassword: false,
+        email: null,
+        providers: [],
+        isGoogleUser: false,
+      };
+    }
+
+    const normalizedId = normalizeUserId(userId);
+
+    // 1. Query InsForge Auth directly for live session user and provider list
+    let authUser: any = null;
+    let authProviders: string[] = [];
+    let authEmail: string | null = null;
+    let metadataHasPassword = false;
+
+    try {
+      const { data, error } = await insforge.auth.getCurrentUser();
+      if (!error && data) {
+        authUser = (data as any).user || data;
+        authEmail = authUser?.email || null;
+        if (Array.isArray(authUser?.providers)) {
+          authProviders = authUser.providers.map((p: string) => String(p).toLowerCase());
+        }
+        if (authUser?.metadata) {
+          metadataHasPassword =
+            authUser.metadata.has_password === true ||
+            authUser.metadata.password_configured === true ||
+            authUser.metadata.hasPassword === true;
+        }
+      }
+    } catch (e) {
+      console.warn('[RunWar Auth] getCurrentUser query notice:', e);
+    }
+
+    // 2. Query InsForge Database public.profiles table for server-side password_configured flag
+    let dbPasswordConfigured = false;
+    let dbEmail: string | null = null;
+    try {
+      const { data, error } = await insforge.database
+        .from('profiles')
+        .select('password_configured, email')
+        .eq('user_id', normalizedId)
+        .maybeSingle();
+
+      if (!error && data) {
+        dbPasswordConfigured = data.password_configured === true;
+        if (!authEmail && data.email) {
+          dbEmail = data.email;
+        }
+      }
+    } catch (e) {
+      console.warn('[RunWar Auth] DB password_configured query notice:', e);
+    }
+
+    // 3. Query Postgres RPC function check_user_has_password if available
+    let rpcHasPassword = false;
+    try {
+      const { data, error } = await insforge.database.rpc('check_user_has_password', {
+        p_user_id: normalizedId,
+      });
+      if (!error && typeof data === 'boolean') {
+        rpcHasPassword = data;
+      }
+    } catch {
+      // RPC may not yet be defined if migration is pending
+    }
+
+    // Authoritative source of truth:
+    // A password credential exists if:
+    // - Server RPC confirmed password in auth.users OR
+    // - profiles.password_configured flag in database is true OR
+    // - auth.users metadata explicitly marks password credential present OR
+    // - auth.users providers list explicitly contains 'password'
+    const hasPassword =
+      rpcHasPassword ||
+      dbPasswordConfigured ||
+      metadataHasPassword ||
+      authProviders.includes('password');
+
+    const isGoogleUser =
+      authProviders.includes('google') ||
+      (!hasPassword && (authProviders.length === 0 || authProviders.includes('google')));
+
+    return {
+      hasPassword,
+      email: authEmail || dbEmail,
+      providers: authProviders,
+      isGoogleUser,
+    };
+  },
+
+  /**
+   * Verify current password through InsForge Auth
+   * Validates credentials securely against server before allowing password update
+   */
+  async verifyCurrentPassword(currentPassword: string): Promise<boolean> {
+    const userRes = await insforge.auth.getCurrentUser();
+    const user = (userRes?.data as any)?.user || userRes?.data;
+    const email = user?.email;
+
+    if (!email) {
+      throw new Error('Your session has expired. Please sign in again.');
+    }
+
+    try {
+      const { data, error } = await insforge.auth.signInWithPassword({
+        email,
+        password: currentPassword,
+      });
+
+      if (error) {
+        const msg = String(error.message || '').toLowerCase();
+        if (msg.includes('network') || msg.includes('connection') || msg.includes('fetch')) {
+          throw new Error("Couldn't update your password. Check your connection and try again.");
+        }
+        if (msg.includes('expired') || msg.includes('session')) {
+          throw new Error('Your session has expired. Please sign in again.');
+        }
+        throw new Error('Current password is incorrect');
+      }
+
+      // Re-hydrate access token
+      if (data?.accessToken) {
+        try {
+          localStorage.setItem(AUTH_TOKEN_KEY, data.accessToken);
+        } catch {}
+        if (typeof (insforge as any).setAccessToken === 'function') {
+          (insforge as any).setAccessToken(data.accessToken);
+        }
+      }
+
+      return true;
+    } catch (err: any) {
+      if (
+        err.message === 'Current password is incorrect' ||
+        err.message === "Couldn't update your password. Check your connection and try again." ||
+        err.message === 'Your session has expired. Please sign in again.'
+      ) {
+        throw err;
+      }
+      throw new Error('Current password is incorrect');
+    }
+  },
+
+  /**
+   * Create password for Google / passwordless user
+   * Attaches password to existing InsForge user and keeps user logged in
+   */
+  async createPassword(newPassword: string): Promise<{ success: boolean; message: string }> {
+    const userRes = await insforge.auth.getCurrentUser();
+    const user = (userRes?.data as any)?.user || userRes?.data;
+    if (!user?.id) {
+      throw new Error('Your session has expired. Please sign in again.');
+    }
+
+    const normalizedId = normalizeUserId(user.id);
+
+    // 1. Execute server RPC set_account_password with p_user_id
+    try {
+      const { data, error } = await insforge.database.rpc('set_account_password', {
+        p_new_password: newPassword,
+        p_user_id: normalizedId,
+      });
+      if (error && error.message) {
+        throw new Error(error.message);
+      }
+    } catch (rpcErr: any) {
+      if (rpcErr.message) {
+        throw rpcErr;
+      }
+    }
+
+    // 2. Mark profile as password_configured in database
+    await this.updateProfile(normalizedId, {
+      password_configured: true,
+    });
+
+    // 3. Confirm session is refreshed and user remains logged in
+    await this.getCurrentUser();
+
+    return {
+      success: true,
+      message: 'Password created successfully',
+    };
+  },
+
+  /**
+   * Update password for an existing password user
+   * Verifies current password first, then updates to new password
+   */
+  async updatePassword(currentPassword: string, newPassword: string): Promise<{ success: boolean; message: string }> {
+    if (currentPassword === newPassword) {
+      throw new Error('Your new password must be different from your current password.');
+    }
+
+    // Step 1: Re-authenticate to guarantee current password is valid
+    await this.verifyCurrentPassword(currentPassword);
+
+    const userRes = await insforge.auth.getCurrentUser();
+    const user = (userRes?.data as any)?.user || userRes?.data;
+    if (!user?.id) {
+      throw new Error('Your session has expired. Please sign in again.');
+    }
+
+    const normalizedId = normalizeUserId(user.id);
+
+    // Step 2: Execute server RPC change_account_password with p_user_id
+    try {
+      const { data, error } = await insforge.database.rpc('change_account_password', {
+        p_current_password: currentPassword,
+        p_new_password: newPassword,
+        p_user_id: normalizedId,
+      });
+      if (error) {
+        if (error.message.toLowerCase().includes('current password')) {
+          throw new Error('Current password is incorrect');
+        }
+        throw new Error(error.message);
+      }
+    } catch (rpcErr: any) {
+      if (rpcErr.message) {
+        throw rpcErr;
+      }
+    }
+
+    // Step 3: Update profile password_configured state in database
+    await this.updateProfile(normalizedId, {
+      password_configured: true,
+    });
+
+    // Step 4: Re-authenticate with new password if supported to maintain fresh session tokens
+    if (user.email) {
+      try {
+        const reAuth = await insforge.auth.signInWithPassword({
+          email: user.email,
+          password: newPassword,
+        });
+        if (reAuth.data?.accessToken) {
+          try {
+            localStorage.setItem(AUTH_TOKEN_KEY, reAuth.data.accessToken);
+          } catch {}
+          if (typeof (insforge as any).setAccessToken === 'function') {
+            (insforge as any).setAccessToken(reAuth.data.accessToken);
+          }
+        }
+      } catch (e) {
+        // If signInWithPassword is still caching old tokens or pending, keep existing session
+      }
+    }
+
+    // Step 5: Refresh user and profile
+    await this.getCurrentUser();
+
+    return {
+      success: true,
+      message: 'Password updated successfully',
+    };
   },
 };
 

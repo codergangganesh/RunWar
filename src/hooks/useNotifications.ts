@@ -22,16 +22,16 @@ export function useNotifications(userId: string | null): UseNotificationsReturn 
     (n) => !n.read_at && n.status === 'sent'
   ).length;
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (silent = false) => {
     if (!userId) return;
-    setIsLoading(true);
+    if (!silent) setIsLoading(true);
     try {
       const data = await notificationService.getNotifications(userId, 60);
       setNotifications(data);
     } catch (err) {
       console.warn('[useNotifications] refresh error:', err);
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   }, [userId]);
 
@@ -39,7 +39,7 @@ export function useNotifications(userId: string | null): UseNotificationsReturn 
   useEffect(() => {
     if (!userId) return;
 
-    refresh();
+    refresh(false);
 
     // Subscribe to realtime inserts
     unsubRef.current = notificationService.subscribeToRealtime(userId, (newNotif) => {
@@ -50,23 +50,7 @@ export function useNotifications(userId: string | null): UseNotificationsReturn 
       });
     });
 
-    // Polling fallback every 30 seconds
-    const interval = setInterval(() => {
-      refresh();
-    }, 30000);
-
-    const onFocus = () => {
-      if (document.visibilityState === 'visible') {
-        refresh();
-      }
-    };
-    window.addEventListener('focus', onFocus);
-    document.addEventListener('visibilitychange', onFocus);
-
     return () => {
-      clearInterval(interval);
-      window.removeEventListener('focus', onFocus);
-      document.removeEventListener('visibilitychange', onFocus);
       unsubRef.current?.();
       unsubRef.current = null;
     };

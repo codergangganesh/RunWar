@@ -48,6 +48,7 @@ import {
   RefreshCw,
   Bell,
   Clock,
+  Bug,
 } from 'lucide-react';
 import { healthService } from '../services/health/healthService';
 import { AudioCoachModal } from '../components/workout/AudioCoachModal';
@@ -258,7 +259,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   const [weight, setWeight] = useState(profile?.weight || 70);
   const [height, setHeight] = useState(profile?.height || 175);
   const [unitSystem, setUnitSystem] = useState(profile?.distance_unit === 'mi' ? 'imperial' : 'metric');
-  
+
   // Real-time unique username availability check
   const usernameCheck = useUsernameCheck(profile?.username || '', profile?.user_id || '');
   const {
@@ -871,15 +872,14 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                 onChange={(e) => setUsernameInput(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
                 placeholder="e.g. ganesh_runner"
                 maxLength={20}
-                className={`w-full pl-8 pr-10 py-2.5 rounded-xl text-sm font-bold outline-none transition-all ${
-                  profile?.username
+                className={`w-full pl-8 pr-10 py-2.5 rounded-xl text-sm font-bold outline-none transition-all ${profile?.username
                     ? 'bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 cursor-not-allowed select-none'
                     : isUsernameTaken || isUsernameInvalid
-                    ? 'border-rose-500 focus:border-rose-500 bg-rose-50/20 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400'
-                    : usernameStatus === 'available'
-                    ? 'border-emerald-500 focus:border-emerald-500 text-emerald-950 dark:text-white'
-                    : 'border-emerald-200 dark:border-slate-800 text-emerald-950 dark:text-white focus:border-emerald-500'
-                }`}
+                      ? 'border-rose-500 focus:border-rose-500 bg-rose-50/20 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400'
+                      : usernameStatus === 'available'
+                        ? 'border-emerald-500 focus:border-emerald-500 text-emerald-950 dark:text-white'
+                        : 'border-emerald-200 dark:border-slate-800 text-emerald-950 dark:text-white focus:border-emerald-500'
+                  }`}
               />
 
               <div className="absolute right-3.5 flex items-center pointer-events-none">
@@ -901,13 +901,12 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                 🔒 Your username is permanent and cannot be modified after creation.
               </p>
             ) : usernameMessage && (
-              <p className={`text-[11px] font-semibold flex items-center gap-1 mt-1 ${
-                isUsernameTaken || isUsernameInvalid
+              <p className={`text-[11px] font-semibold flex items-center gap-1 mt-1 ${isUsernameTaken || isUsernameInvalid
                   ? 'text-rose-500'
                   : usernameStatus === 'available'
-                  ? 'text-emerald-600 dark:text-emerald-400'
-                  : 'text-slate-400'
-              }`}>
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-slate-400'
+                }`}>
                 {isUsernameTaken && <span>⚠️ Username already taken</span>}
                 {usernameStatus === 'available' && <span>✓ Username available</span>}
                 {isUsernameInvalid && <span>❌ {usernameMessage}</span>}
@@ -1812,6 +1811,43 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           </div>
           <ChevronRight size={16} className="text-emerald-700/60 dark:text-slate-500" />
         </button>
+
+        <button
+          onClick={() => onNavigate('password')}
+          className="w-full p-3 rounded-2xl bg-emerald-50/50 dark:bg-slate-950 border border-emerald-200 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-slate-700 text-emerald-900 dark:text-slate-300 hover:text-emerald-950 dark:hover:text-white flex items-center justify-between text-xs font-semibold active:scale-98 transition-all"
+        >
+          <div className="flex items-center gap-2.5">
+            <Lock size={16} className="text-emerald-600 dark:text-emerald-400" />
+            <span>Password & Authentication</span>
+          </div>
+          <ChevronRight size={16} className="text-emerald-700/60 dark:text-slate-500" />
+        </button>
+
+        <button
+          onClick={() => onNavigate('report_bug')}
+          className="w-full p-3 rounded-2xl bg-emerald-50/50 dark:bg-slate-950 border border-emerald-200 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-slate-700 text-emerald-900 dark:text-slate-300 hover:text-emerald-950 dark:hover:text-white flex items-center justify-between text-xs font-semibold active:scale-98 transition-all cursor-pointer"
+        >
+          <div className="flex items-center gap-2.5">
+            <Bug size={16} className="text-amber-500" />
+            <span>Report a Bug</span>
+          </div>
+          <ChevronRight size={16} className="text-emerald-700/60 dark:text-slate-500" />
+        </button>
+
+        {profile?.email === 'mannamganeshbabu8@gmail.com' && (
+          <button
+            onClick={() => onNavigate('admin_bug_reports')}
+            className="w-full p-3 rounded-2xl bg-amber-50/60 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 hover:border-amber-300 dark:hover:border-amber-500/40 text-amber-900 dark:text-amber-300 flex items-center justify-between text-xs font-semibold active:scale-98 transition-all cursor-pointer"
+          >
+            <div className="flex items-center gap-2.5">
+              <Bug size={16} className="text-amber-600 dark:text-amber-400" />
+              <span>Admin Bug Reports</span>
+            </div>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300">
+              Admin
+            </span>
+          </button>
+        )}
 
         <button
           onClick={onSignOut}

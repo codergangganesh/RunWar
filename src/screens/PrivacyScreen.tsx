@@ -2,18 +2,20 @@ import React, { useState } from 'react';
 import { UserProfile } from '../types';
 import { insforge } from '../lib/insforge';
 import { workoutService } from '../services/workoutService';
-import { Trash2, AlertTriangle, CheckCircle2, LogOut } from 'lucide-react';
+import { Trash2, AlertTriangle, CheckCircle2, LogOut, Lock, ChevronRight } from 'lucide-react';
 
 interface PrivacyScreenProps {
   profile: UserProfile | null;
   onDataCleared: () => void;
   onSignOut: () => void;
+  onNavigatePassword?: () => void;
 }
 
 export const PrivacyScreen: React.FC<PrivacyScreenProps> = ({
   profile,
   onDataCleared,
   onSignOut,
+  onNavigatePassword,
 }) => {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [clearing, setClearing] = useState(false);
@@ -107,6 +109,35 @@ export const PrivacyScreen: React.FC<PrivacyScreenProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Account Security & Password */}
+      {onNavigatePassword && (
+        <div className="space-y-3 pt-2 border-t border-slate-200 dark:border-slate-800">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
+            Account Security
+          </h3>
+
+          <div className="pt-1">
+            <button
+              onClick={onNavigatePassword}
+              className="w-full p-3.5 rounded-2xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-500/40 text-slate-900 dark:text-white flex items-center justify-between text-xs font-semibold active:scale-98 transition-all cursor-pointer group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold group-hover:scale-105 transition-transform">
+                  <Lock size={15} />
+                </div>
+                <div className="text-left">
+                  <span className="font-bold text-xs block text-slate-900 dark:text-white">Password</span>
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400 font-normal">
+                    Update password or configure password sign-in
+                  </span>
+                </div>
+              </div>
+              <ChevronRight size={16} className="text-slate-400 dark:text-slate-500 group-hover:translate-x-0.5 transition-transform" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Data Management & Actions */}
       <div className="space-y-3 pt-2 border-t border-slate-200 dark:border-slate-800">

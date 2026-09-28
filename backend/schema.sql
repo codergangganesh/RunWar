@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     avatar_url TEXT,
     daily_step_goal INTEGER DEFAULT 10000,
     profile_completed BOOLEAN NOT NULL DEFAULT false,
+    password_configured BOOLEAN NOT NULL DEFAULT false,
     username_updated_at TIMESTAMPTZ DEFAULT now(),
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()

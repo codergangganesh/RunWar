@@ -17,6 +17,9 @@ import { AchievementsScreen } from './screens/AchievementsScreen';
 import { PersonalRecordsScreen } from './screens/PersonalRecordsScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
 import { PrivacyScreen } from './screens/PrivacyScreen';
+import { PasswordScreen } from './screens/PasswordScreen';
+import { BugReportScreen } from './screens/BugReportScreen';
+import { AdminBugReportsScreen } from './screens/AdminBugReportsScreen';
 import { ConnectedHealthScreen } from './screens/ConnectedHealthScreen';
 import { DailyActivityScreen } from './screens/DailyActivityScreen';
 import { ChallengesScreen } from './screens/ChallengesScreen';
@@ -68,9 +71,12 @@ type ScreenState =
   | 'workout_summary'
   | 'workout_detail'
   | 'privacy'
+  | 'password'
   | 'connected_health'
   | 'post_detail'
-  | 'notifications';
+  | 'notifications'
+  | 'report_bug'
+  | 'admin_bug_reports';
 
 export const App: React.FC = () => {
   // Check if there is an active running session from a browser refresh
@@ -87,7 +93,7 @@ export const App: React.FC = () => {
           return parsed as LiveWorkoutState;
         }
       }
-    } catch {}
+    } catch { }
     return null;
   })();
 
@@ -186,7 +192,7 @@ export const App: React.FC = () => {
       ) {
         const { url, notificationId, action } = event.data;
         if (notificationId) {
-          notificationService.markAsRead(notificationId).catch(() => {});
+          notificationService.markAsRead(notificationId).catch(() => { });
         }
         if (action === 'start_run') {
           setScreen('main');
@@ -429,7 +435,7 @@ export const App: React.FC = () => {
 
         // Existing user with completed profile: preload user application data BEFORE entering READY / Home
         setAuthStatusText('Loading workouts...');
-        workoutService.syncPendingWorkouts(authenticatedUser.id).catch(() => {});
+        workoutService.syncPendingWorkouts(authenticatedUser.id).catch(() => { });
         await loadAppData(authenticatedUser.id, true);
 
         setAppState('READY');
@@ -452,7 +458,7 @@ export const App: React.FC = () => {
                 window.history.replaceState({}, '', window.location.pathname);
               }
             })
-            .catch(() => {});
+            .catch(() => { });
         }
       } catch (err: any) {
         console.error('[RunWar Auth] Error resolving session & profile:', err);
@@ -675,6 +681,11 @@ export const App: React.FC = () => {
     const unsubscribe = insforge.auth.onAuthStateChange(async (event) => {
       console.log('[RunWar Auth] onAuthStateChange event:', event, 'Current screen:', screen);
       if (event === 'signedIn') {
+        // If user is already authenticated, appState is READY, and not currently resolving, skip redundant reload loop
+        const activeUserId = currentUser?.id || authService.getCachedUser()?.id;
+        if (activeUserId && activeUserId !== 'guest_user' && appState === 'READY' && !isResolvingProfileRef.current) {
+          return;
+        }
         if (isResolvingProfileRef.current) {
           console.log('[RunWar Auth] onAuthStateChange signedIn skipped: profile resolution already active');
           return;
@@ -749,16 +760,6 @@ export const App: React.FC = () => {
       }
     };
 
-    // 1. Immediate check when user switches back to this tab from InsForge dashboard
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        checkActiveSession();
-      }
-    };
-    const handleWindowFocus = () => {
-      checkActiveSession();
-    };
-
     const handleSessionExpired = () => {
       if (
         localStorage.getItem('runwar_oauth_in_progress') === 'true' ||
@@ -775,24 +776,12 @@ export const App: React.FC = () => {
       setScreen('welcome');
     };
 
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('focus', handleWindowFocus);
     window.addEventListener('runwar:session_expired', handleSessionExpired);
-
-    // 2. Periodic background check every 15s while the app is active
-    const sessionHeartbeat = setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        checkActiveSession();
-      }
-    }, 15000);
 
     return () => {
       if (typeof unsubFirebase === 'function') unsubFirebase();
       if (typeof unsubscribe === 'function') unsubscribe();
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', handleWindowFocus);
       window.removeEventListener('runwar:session_expired', handleSessionExpired);
-      clearInterval(sessionHeartbeat);
       window.removeEventListener('runwar:sync_completed', handleSyncCompleted);
       window.removeEventListener('runwar:workouts_purged', handleWorkoutsPurged);
       window.removeEventListener('runwar:workout_synced', handleWorkoutSynced);
@@ -845,7 +834,7 @@ export const App: React.FC = () => {
   }, [currentUser?.id, profile?.user_id, loadAppData]);
 
   // Handle splash completion (controlled by AppState FSM)
-  const handleSplashFinish = () => {};
+  const handleSplashFinish = () => { };
 
   // Handle URL navigation params after authentication resolves
   useEffect(() => {
@@ -859,7 +848,7 @@ export const App: React.FC = () => {
     const params = new URLSearchParams(window.location.search);
     const targetScreen = params.get('screen') as ScreenState | null;
     const targetTab = params.get('tab') as ActiveTab | null;
-    if (targetScreen === 'connected_health' || targetScreen === 'privacy') {
+    if (targetScreen === 'connected_health' || targetScreen === 'privacy' || targetScreen === 'password') {
       setScreen(targetScreen);
     } else if (targetTab) {
       setActiveTab(targetTab);
@@ -1004,7 +993,7 @@ export const App: React.FC = () => {
             window.history.replaceState({}, '', window.location.pathname);
           }
         })
-        .catch(() => {});
+        .catch(() => { });
     }
   };
 
@@ -1061,9 +1050,9 @@ export const App: React.FC = () => {
     // 2. Silently update statistics in the background
     const activeId = currentUser?.id || authService.getCachedUser()?.id;
     if (activeId) {
-      workoutService.getTodayStats(activeId).then(setTodayStats).catch(() => {});
-      workoutService.getWeeklyStats(activeId).then(setWeeklyStats).catch(() => {});
-      recordsService.getPersonalRecords(activeId).then(setRecords).catch(() => {});
+      workoutService.getTodayStats(activeId).then(setTodayStats).catch(() => { });
+      workoutService.getWeeklyStats(activeId).then(setWeeklyStats).catch(() => { });
+      recordsService.getPersonalRecords(activeId).then(setRecords).catch(() => { });
     }
   };
 
@@ -1326,6 +1315,102 @@ export const App: React.FC = () => {
                 if (currentUser) loadAppData(currentUser.id);
               }}
               onSignOut={handleSignOut}
+              onNavigatePassword={() => setScreen('password')}
+            />
+          </AppShell>
+        );
+
+      case 'password':
+        return (
+          <AppShell
+            activeTab={activeTab}
+            setActiveTab={handleTabChange}
+            profile={profile}
+            headerTitle="Password"
+            showBack={true}
+            onBack={() => setScreen('privacy')}
+            streakCount={todayStats.streak.currentStreak}
+            theme={theme}
+            onToggleTheme={handleToggleTheme}
+            isSyncing={isDataLoading}
+            onSync={() => {
+              if (currentUser?.id) {
+                loadAppData(currentUser.id, false);
+              }
+            }}
+          >
+            <PasswordScreen
+              currentUser={currentUser}
+              profile={profile}
+              onProfileUpdated={(updated) => setProfile(updated)}
+              onBack={() => setScreen('privacy')}
+            />
+          </AppShell>
+        );
+
+      case 'report_bug':
+        return (
+          <AppShell
+            activeTab={activeTab}
+            setActiveTab={handleTabChange}
+            profile={profile}
+            headerTitle="Report a Bug"
+            showBack={true}
+            onBack={() => {
+              setActiveTab('profile');
+              setScreen('main');
+            }}
+            streakCount={todayStats.streak.currentStreak}
+            theme={theme}
+            onToggleTheme={handleToggleTheme}
+            isSyncing={isDataLoading}
+            onSync={() => {
+              if (currentUser?.id) {
+                loadAppData(currentUser.id, false);
+              }
+            }}
+          >
+            <BugReportScreen
+              currentUser={currentUser}
+              profile={profile}
+              reportedFrom={activeTab ? `Tab: ${activeTab}` : 'Profile'}
+              onBack={() => {
+                setActiveTab('profile');
+                setScreen('main');
+              }}
+            />
+          </AppShell>
+        );
+
+      case 'admin_bug_reports':
+        return (
+          <AppShell
+            activeTab={activeTab}
+            setActiveTab={handleTabChange}
+            profile={profile}
+            headerTitle="Admin Bug Reports"
+            showBack={true}
+            onBack={() => {
+              setActiveTab('profile');
+              setScreen('main');
+            }}
+            streakCount={todayStats.streak.currentStreak}
+            theme={theme}
+            onToggleTheme={handleToggleTheme}
+            isSyncing={isDataLoading}
+            onSync={() => {
+              if (currentUser?.id) {
+                loadAppData(currentUser.id, false);
+              }
+            }}
+          >
+            <AdminBugReportsScreen
+              currentUser={currentUser}
+              profile={profile}
+              onBack={() => {
+                setActiveTab('profile');
+                setScreen('main');
+              }}
             />
           </AppShell>
         );
@@ -1568,7 +1653,10 @@ export const App: React.FC = () => {
                 }}
                 onNavigate={(destination) => {
                   if (destination === 'privacy') setScreen('privacy');
+                  else if (destination === 'password') setScreen('password');
                   else if (destination === 'connected_health') setScreen('connected_health');
+                  else if (destination === 'report_bug') setScreen('report_bug');
+                  else if (destination === 'admin_bug_reports') setScreen('admin_bug_reports');
                   else setActiveTab(destination);
                 }}
                 onSignOut={handleSignOut}
