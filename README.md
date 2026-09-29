@@ -11,7 +11,7 @@ RunWar is a full-featured, offline-first Progressive Web Application (PWA) desig
     Your browser does not support the video tag.
   </video>
   <p align="center">
-    <strong><a href="./assets/app-demo.mp4">▶️ Watch Application Demo</a></strong>
+    <strong><a href="./assets/app-demo.gif">▶️ Watch Application Demo</a></strong>
   </p>
 </div>
 
