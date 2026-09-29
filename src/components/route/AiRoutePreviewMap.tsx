@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
-import { LocateFixed } from 'lucide-react';
+import { LocateFixed, Maximize2, Minimize2 } from 'lucide-react';
 import { CoursePoint } from '../../types';
 import { TurnCue } from '../../services/aiRouteService';
 
@@ -33,21 +33,23 @@ interface MapControllerProps {
   center: [number, number];
   boundsPoints: [number, number][];
   recenterTrigger: number;
+  isExpanded?: boolean;
 }
 
-function MapController({ center, boundsPoints, recenterTrigger }: MapControllerProps) {
+function MapController({ center, boundsPoints, recenterTrigger, isExpanded }: MapControllerProps) {
   const map = useMap();
   const isFirstRender = useRef(true);
 
-  // Invalidate map size on initial mount and when drawer animation finishes
+  // Invalidate map size on initial mount and when drawer animation finishes or view expands
   useEffect(() => {
+    map.invalidateSize();
     const timer1 = setTimeout(() => map.invalidateSize(), 100);
-    const timer2 = setTimeout(() => map.invalidateSize(), 400);
+    const timer2 = setTimeout(() => map.invalidateSize(), 350);
     return () => {
       clearTimeout(timer1);
       clearTimeout(timer2);
     };
-  }, [map]);
+  }, [map, isExpanded]);
 
   // Fit bounds whenever the route points change or on recenter trigger
   useEffect(() => {
@@ -60,7 +62,7 @@ function MapController({ center, boundsPoints, recenterTrigger }: MapControllerP
           animate: !isFirstRender.current,
         });
         isFirstRender.current = false;
-      } catch {}
+      } catch { }
     } else if (center[0] !== 0 && center[1] !== 0) {
       map.setView(center, Math.max(map.getZoom() || 15, 15), { animate: !isFirstRender.current });
       isFirstRender.current = false;
@@ -70,6 +72,38 @@ function MapController({ center, boundsPoints, recenterTrigger }: MapControllerP
   return null;
 }
 
+function ZoomControls() {
+  const map = useMap();
+  return (
+    <div className="absolute bottom-2.5 left-2.5 z-[400] flex flex-col gap-1 pointer-events-auto">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          map.zoomIn();
+        }}
+        className="w-7 h-7 rounded-lg bg-white/95 dark:bg-slate-900/95 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-800 hover:text-emerald-500 active:scale-95 flex items-center justify-center font-bold text-sm backdrop-blur-md cursor-pointer transition-all shadow-md"
+        title="Zoom In"
+        aria-label="Zoom In"
+      >
+        +
+      </button>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          map.zoomOut();
+        }}
+        className="w-7 h-7 rounded-lg bg-white/95 dark:bg-slate-900/95 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-800 hover:text-emerald-500 active:scale-95 flex items-center justify-center font-bold text-sm backdrop-blur-md cursor-pointer transition-all shadow-md"
+        title="Zoom Out"
+        aria-label="Zoom Out"
+      >
+        −
+      </button>
+    </div>
+  );
+}
+
 export interface AiRoutePreviewMapProps {
   points?: CoursePoint[];
   turnCues?: TurnCue[];
@@ -77,6 +111,8 @@ export interface AiRoutePreviewMapProps {
   userLng?: number | null;
   height?: string;
   className?: string;
+  isExpanded?: boolean;
+  onToggleExpand?: () => void;
 }
 
 export const AiRoutePreviewMap: React.FC<AiRoutePreviewMapProps> = ({
@@ -86,6 +122,8 @@ export const AiRoutePreviewMap: React.FC<AiRoutePreviewMapProps> = ({
   userLng,
   height = '240px',
   className = '',
+  isExpanded = false,
+  onToggleExpand,
 }) => {
   const [recenterTrigger, setRecenterTrigger] = useState(0);
 
@@ -163,6 +201,7 @@ export const AiRoutePreviewMap: React.FC<AiRoutePreviewMapProps> = ({
           center={defaultCenter}
           boundsPoints={allBoundsPoints}
           recenterTrigger={recenterTrigger}
+          isExpanded={isExpanded}
         />
 
         {/* Closed Loop Route Polyline (Vibrant Orange Track matching Active Running screen) */}
@@ -220,6 +259,9 @@ export const AiRoutePreviewMap: React.FC<AiRoutePreviewMapProps> = ({
             </Popup>
           </Marker>
         ))}
+
+        {/* In-map interactive zoom controls */}
+        <ZoomControls />
       </MapContainer>
 
       {/* Floating Recenter Button */}
@@ -235,8 +277,24 @@ export const AiRoutePreviewMap: React.FC<AiRoutePreviewMapProps> = ({
       {/* Floating Origin Pill */}
       <div className="absolute top-2.5 left-2.5 z-[400] px-2.5 py-1 rounded-full bg-slate-950/85 backdrop-blur-md border border-slate-800 text-white text-[10px] font-black flex items-center gap-1.5 shadow-md pointer-events-none">
         <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-        <span className="tracking-wide">ORIGIN: YOUR LOCATION</span>
+        <span className="tracking-wide">YOUR LOCATION</span>
       </div>
+
+      {/* Floating Big View / Collapse Button */}
+      {onToggleExpand && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleExpand();
+          }}
+          className="absolute top-2.5 right-2.5 z-[400] px-3 py-1.5 rounded-xl bg-slate-950/90 hover:bg-slate-900 text-white shadow-md backdrop-blur-md border border-slate-700/80 hover:text-emerald-400 active:scale-95 flex items-center gap-1.5 text-xs font-bold transition-all cursor-pointer"
+          title={isExpanded ? "Collapse to standard view" : "Open big map view"}
+          aria-label={isExpanded ? "Collapse to standard view" : "Open big map view"}
+        >
+          {isExpanded ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+
+        </button>
+      )}
     </div>
   );
 };

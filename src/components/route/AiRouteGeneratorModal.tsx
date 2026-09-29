@@ -17,6 +17,7 @@ import {
   RotateCcw,
   Trash2,
   X,
+  Maximize2,
 } from 'lucide-react';
 import {
   aiRouteService,
@@ -27,6 +28,7 @@ import {
 import { courseService } from '../../services/courseService';
 import { gpsEngine } from '../../services/gpsEngine';
 import { AiRoutePreviewMap } from './AiRoutePreviewMap';
+import { AiRouteBigViewScreen } from '../../screens/AiRouteBigViewScreen';
 import { UserProfile, CourseRoute } from '../../types';
 import { formatDuration } from '../../utils/formatters';
 
@@ -53,6 +55,7 @@ export const AiRouteGeneratorModal: React.FC<AiRouteGeneratorModalProps> = ({
   const touchStartY = useRef<number | null>(null);
 
   const [activeTab, setActiveTab] = useState<'create' | 'saved'>('create');
+  const [isBigViewScreenOpen, setIsBigViewScreenOpen] = useState(false);
   const [distanceKm, setDistanceKm] = useState<number>(5.0);
   const [scenery, setScenery] = useState<SceneryType>('park');
   const [direction, setDirection] = useState<LoopDirection>('any');
@@ -141,6 +144,7 @@ export const AiRouteGeneratorModal: React.FC<AiRouteGeneratorModalProps> = ({
   // Bottom Sheet Slide-in/out controller
   useEffect(() => {
     if (isOpen) {
+      setIsBigViewScreenOpen(false);
       setIsRendered(true);
       setDragOffsetY(0);
       requestAnimationFrame(() => {
@@ -156,6 +160,7 @@ export const AiRouteGeneratorModal: React.FC<AiRouteGeneratorModalProps> = ({
       };
     } else {
       setIsAnimating(false);
+      setIsBigViewScreenOpen(false);
       const timer = setTimeout(() => {
         setIsRendered(false);
         setDragOffsetY(0);
@@ -277,46 +282,45 @@ export const AiRouteGeneratorModal: React.FC<AiRouteGeneratorModalProps> = ({
     icon: React.ReactNode;
     desc: string;
   }> = [
-    {
-      type: 'park',
-      label: 'Parklands',
-      icon: <Trees size={16} className="text-emerald-500" />,
-      desc: 'Tree-lined paths & gentle curves',
-    },
-    {
-      type: 'flat',
-      label: 'Flat & Fast',
-      icon: <Zap size={16} className="text-amber-500" />,
-      desc: 'Minimal elevation, straight rhythm',
-    },
-    {
-      type: 'waterfront',
-      label: 'Waterfront',
-      icon: <Waves size={16} className="text-cyan-500" />,
-      desc: 'Shoreline promenade & open views',
-    },
-    {
-      type: 'urban',
-      label: 'City Blocks',
-      icon: <Building2 size={16} className="text-slate-400" />,
-      desc: 'Downtown sidewalks & wide crossings',
-    },
-    {
-      type: 'trail',
-      label: 'Woodland Trail',
-      icon: <Mountain size={16} className="text-emerald-600" />,
-      desc: 'Rolling trail inclines & switchbacks',
-    },
-  ];
+      {
+        type: 'park',
+        label: 'Parklands',
+        icon: <Trees size={16} className="text-emerald-500" />,
+        desc: 'Tree-lined paths & gentle curves',
+      },
+      {
+        type: 'flat',
+        label: 'Flat & Fast',
+        icon: <Zap size={16} className="text-amber-500" />,
+        desc: 'Minimal elevation, straight rhythm',
+      },
+      {
+        type: 'waterfront',
+        label: 'Waterfront',
+        icon: <Waves size={16} className="text-cyan-500" />,
+        desc: 'Shoreline promenade & open views',
+      },
+      {
+        type: 'urban',
+        label: 'City Blocks',
+        icon: <Building2 size={16} className="text-slate-400" />,
+        desc: 'Downtown sidewalks & wide crossings',
+      },
+      {
+        type: 'trail',
+        label: 'Woodland Trail',
+        icon: <Mountain size={16} className="text-emerald-600" />,
+        desc: 'Rolling trail inclines & switchbacks',
+      },
+    ];
 
   return createPortal(
     <div className="fixed inset-0 z-[99999] flex items-end justify-center overflow-hidden animate-fade-in select-none">
       {/* Dark Blur Backdrop */}
       <div
         onClick={onClose}
-        className={`absolute inset-0 bg-black/60 dark:bg-black/75 backdrop-blur-sm transition-opacity duration-300 ease-out cursor-pointer ${
-          isAnimating ? 'opacity-100' : 'opacity-0'
-        }`}
+        className={`absolute inset-0 bg-black/60 dark:bg-black/75 backdrop-blur-sm transition-opacity duration-300 ease-out cursor-pointer ${isAnimating ? 'opacity-100' : 'opacity-0'
+          }`}
       />
 
       {/* Bottom Sheet Container */}
@@ -403,205 +407,215 @@ export const AiRouteGeneratorModal: React.FC<AiRouteGeneratorModalProps> = ({
                   userLat={resolvedLat || currentLat}
                   userLng={resolvedLng || currentLng}
                   height="235px"
+                  isExpanded={false}
+                  onToggleExpand={() => setIsBigViewScreenOpen(true)}
                 />
               </div>
 
-              {/* Metrics & Reroll HUD */}
-              {currentRoute && (
-                <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700/60 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3.5 text-xs">
-                    <div>
-                      <span className="text-[10px] text-slate-400 font-semibold uppercase block">Distance</span>
-                      <span className="text-sm font-black text-slate-900 dark:text-white font-mono">
-                        {(currentRoute.target_distance_meters / 1000).toFixed(2)} km
-                      </span>
+              {/* Dedicated Big View Page Button */}
+              <button
+                type="button"
+                onClick={() => setIsBigViewScreenOpen(true)}
+                className="w-full py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer border border-slate-200 dark:border-slate-700/60 shadow-xs active:scale-98"
+                title="Open dedicated full-screen page for big map view"
+              >
+                <Maximize2 size={13} className="text-emerald-500" />
+                <span>Open Dedicated Map Page (Big View)</span>
+              </button>
+
+                {/* Metrics & Reroll HUD */}
+                {currentRoute && (
+                  <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700/60 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3.5 text-xs">
+                      <div>
+                        <span className="text-[10px] text-slate-400 font-semibold uppercase block">Distance</span>
+                        <span className="text-sm font-black text-slate-900 dark:text-white font-mono">
+                          {(currentRoute.target_distance_meters / 1000).toFixed(2)} km
+                        </span>
+                      </div>
+                      <div className="w-px h-6 bg-slate-200 dark:bg-slate-700" />
+                      <div>
+                        <span className="text-[10px] text-slate-400 font-semibold uppercase block">Elevation</span>
+                        <span className="text-sm font-black text-emerald-600 dark:text-emerald-400 font-mono">
+                          +{currentRoute.elevation_gain_meters}m
+                        </span>
+                      </div>
+                      <div className="w-px h-6 bg-slate-200 dark:bg-slate-700" />
+                      <div>
+                        <span className="text-[10px] text-slate-400 font-semibold uppercase block">Est. Time</span>
+                        <span className="text-sm font-black text-slate-900 dark:text-white font-mono">
+                          {formatDuration(currentRoute.estimated_duration_seconds)}
+                        </span>
+                      </div>
                     </div>
-                    <div className="w-px h-6 bg-slate-200 dark:bg-slate-700" />
-                    <div>
-                      <span className="text-[10px] text-slate-400 font-semibold uppercase block">Elevation</span>
-                      <span className="text-sm font-black text-emerald-600 dark:text-emerald-400 font-mono">
-                        +{currentRoute.elevation_gain_meters}m
-                      </span>
-                    </div>
-                    <div className="w-px h-6 bg-slate-200 dark:bg-slate-700" />
-                    <div>
-                      <span className="text-[10px] text-slate-400 font-semibold uppercase block">Est. Time</span>
-                      <span className="text-sm font-black text-slate-900 dark:text-white font-mono">
-                        {formatDuration(currentRoute.estimated_duration_seconds)}
-                      </span>
-                    </div>
+
+                    <button
+                      onClick={handleShuffle}
+                      className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:text-emerald-500 active:scale-95 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                      title="Generate alternative loop around your location"
+                    >
+                      <RotateCcw size={13} />
+                      <span>Shuffle</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* Real-time Location Indicator */}
+                <div className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 text-xs">
+                  <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
+                    <MapPin size={13} className={isLocating ? 'animate-bounce text-amber-500' : 'text-emerald-500'} />
+                    <span className="font-semibold text-[11px]">
+                      {isLocating
+                        ? 'Detecting real-time GPS location...'
+                        : locationSource === 'gps'
+                          ? 'Loop starts & finishes at your live GPS location'
+                          : 'Starting location ready'}
+                    </span>
+                  </div>
+                  {isLocating && (
+                    <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                  )}
+                </div>
+
+                {/* Distance Selector */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                      Target Distance
+                    </label>
+                    <span className="text-sm font-black text-emerald-600 dark:text-emerald-400 font-mono">
+                      {distanceKm.toFixed(1)} km
+                    </span>
                   </div>
 
-                  <button
-                    onClick={handleShuffle}
-                    className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:text-emerald-500 active:scale-95 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
-                    title="Generate alternative loop around your location"
-                  >
-                    <RotateCcw size={13} />
-                    <span>Shuffle</span>
-                  </button>
-                </div>
-              )}
-
-              {/* Real-time Location Indicator */}
-              <div className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 text-xs">
-                <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
-                  <MapPin size={13} className={isLocating ? 'animate-bounce text-amber-500' : 'text-emerald-500'} />
-                  <span className="font-semibold text-[11px]">
-                    {isLocating
-                      ? 'Detecting real-time GPS location...'
-                      : locationSource === 'gps'
-                      ? 'Loop starts & finishes at your live GPS location'
-                      : 'Starting location ready'}
-                  </span>
-                </div>
-                {isLocating && (
-                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-                )}
-              </div>
-
-              {/* Distance Selector */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                    Target Distance
-                  </label>
-                  <span className="text-sm font-black text-emerald-600 dark:text-emerald-400 font-mono">
-                    {distanceKm.toFixed(1)} km
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-6 gap-1.5">
-                  {DISTANCE_PRESETS.map((d) => (
-                    <button
-                      key={d}
-                      onClick={() => handleSelectDistance(d)}
-                      className={`py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                        distanceKm === d
+                  <div className="grid grid-cols-6 gap-1.5">
+                    {DISTANCE_PRESETS.map((d) => (
+                      <button
+                        key={d}
+                        onClick={() => handleSelectDistance(d)}
+                        className={`py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${distanceKm === d
                           ? 'bg-emerald-500 text-white dark:text-slate-950 shadow-sm'
                           : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-                      }`}
-                    >
-                      {d === 21.1 ? '21K' : `${d}K`}
-                    </button>
-                  ))}
+                          }`}
+                      >
+                        {d === 21.1 ? '21K' : `${d}K`}
+                      </button>
+                    ))}
+                  </div>
+
+                  <input
+                    type="range"
+                    min={1.0}
+                    max={25.0}
+                    step={0.5}
+                    value={distanceKm}
+                    onChange={handleSliderChange}
+                    className="w-full accent-emerald-500 cursor-pointer mt-1"
+                  />
                 </div>
 
-                <input
-                  type="range"
-                  min={1.0}
-                  max={25.0}
-                  step={0.5}
-                  value={distanceKm}
-                  onChange={handleSliderChange}
-                  className="w-full accent-emerald-500 cursor-pointer mt-1"
-                />
-              </div>
-
-              {/* Scenery & Terrain Profiles */}
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
-                  Route Terrain
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {SCENERY_OPTIONS.map((opt) => (
-                    <div
-                      key={opt.type}
-                      onClick={() => handleSelectScenery(opt.type)}
-                      className={`p-2.5 rounded-2xl border cursor-pointer transition-all flex items-start gap-2.5 ${
-                        scenery === opt.type
+                {/* Scenery & Terrain Profiles */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
+                    Route Terrain
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {SCENERY_OPTIONS.map((opt) => (
+                      <div
+                        key={opt.type}
+                        onClick={() => handleSelectScenery(opt.type)}
+                        className={`p-2.5 rounded-2xl border cursor-pointer transition-all flex items-start gap-2.5 ${scenery === opt.type
                           ? 'bg-emerald-50/60 dark:bg-emerald-950/20 border-emerald-500 shadow-sm'
                           : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800'
-                      }`}
-                    >
-                      <div className="p-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shrink-0">
-                        {opt.icon}
+                          }`}
+                      >
+                        <div className="p-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shrink-0">
+                          {opt.icon}
+                        </div>
+                        <div>
+                          <span className="text-xs font-bold text-slate-900 dark:text-white block">
+                            {opt.label}
+                          </span>
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight block">
+                            {opt.desc}
+                          </span>
+                        </div>
                       </div>
-                      <div>
-                        <span className="text-xs font-bold text-slate-900 dark:text-white block">
-                          {opt.label}
-                        </span>
-                        <span className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight block">
-                          {opt.desc}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
 
-              {/* Direction Heading */}
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
-                  Loop Heading Direction
-                </label>
-                <div className="grid grid-cols-5 gap-1.5">
-                  {(['any', 'north', 'east', 'south', 'west'] as LoopDirection[]).map(
-                    (dir) => (
-                      <button
-                        key={dir}
-                        onClick={() => handleSelectDirection(dir)}
-                        className={`py-1.5 rounded-xl text-xs font-bold capitalize transition-all cursor-pointer ${
-                          direction === dir
+                {/* Direction Heading */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
+                    Loop Heading Direction
+                  </label>
+                  <div className="grid grid-cols-5 gap-1.5">
+                    {(['any', 'north', 'east', 'south', 'west'] as LoopDirection[]).map(
+                      (dir) => (
+                        <button
+                          key={dir}
+                          onClick={() => handleSelectDirection(dir)}
+                          className={`py-1.5 rounded-xl text-xs font-bold capitalize transition-all cursor-pointer ${direction === dir
                             ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-950 shadow-sm'
                             : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
-                        }`}
-                      >
-                        {dir}
-                      </button>
-                    )
-                  )}
-                </div>
-              </div>
-
-              {/* Turn Guidance Accordion */}
-              {currentRoute && currentRoute.turn_cues && currentRoute.turn_cues.length > 0 && (
-                <div className="bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700/60 overflow-hidden">
-                  <button
-                    onClick={() => setShowTurnList(!showTurnList)}
-                    className="w-full px-3.5 py-2.5 flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white cursor-pointer"
-                  >
-                    <span className="flex items-center gap-1.5">
-                      <Route size={14} className="text-emerald-500" />
-                      <span>Turn-by-Turn Waypoints ({currentRoute.turn_cues.length})</span>
-                    </span>
-                    <ChevronRight
-                      size={16}
-                      className={`transition-transform ${showTurnList ? 'rotate-90' : ''}`}
-                    />
-                  </button>
-
-                  {showTurnList && (
-                    <div className="px-3.5 pb-3 flex flex-col gap-2 border-t border-slate-200 dark:border-slate-700/40 pt-2 max-h-36 overflow-y-auto">
-                      {currentRoute.turn_cues.map((cue, idx) => (
-                        <div
-                          key={idx}
-                          className="flex items-start gap-2 text-[11px] text-slate-600 dark:text-slate-300"
+                            }`}
                         >
-                          <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold shrink-0">
-                            {(cue.distanceMeters / 1000).toFixed(1)} km:
-                          </span>
-                          <span>{cue.instruction}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                          {dir}
+                        </button>
+                      )
+                    )}
+                  </div>
                 </div>
-              )}
 
-              {/* Pinned Bottom CTA Action Button */}
-              <div className="pt-2 sticky bottom-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm">
-                <button
-                  onClick={() => currentRoute && handleActivateRoute(currentRoute)}
-                  disabled={!currentRoute}
-                  className="w-full py-3.5 px-4 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white dark:text-slate-950 font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/25 active:scale-98 transition-all cursor-pointer"
-                >
-                  <Navigation size={16} />
-                  <span>Navigate This Loop ({distanceKm.toFixed(1)}K)</span>
-                </button>
+                {/* Turn Guidance Accordion */}
+                {currentRoute && currentRoute.turn_cues && currentRoute.turn_cues.length > 0 && (
+                  <div className="bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700/60 overflow-hidden">
+                    <button
+                      onClick={() => setShowTurnList(!showTurnList)}
+                      className="w-full px-3.5 py-2.5 flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <Route size={14} className="text-emerald-500" />
+                        <span>Turn-by-Turn Waypoints ({currentRoute.turn_cues.length})</span>
+                      </span>
+                      <ChevronRight
+                        size={16}
+                        className={`transition-transform ${showTurnList ? 'rotate-90' : ''}`}
+                      />
+                    </button>
+
+                    {showTurnList && (
+                      <div className="px-3.5 pb-3 flex flex-col gap-2 border-t border-slate-200 dark:border-slate-700/40 pt-2 max-h-36 overflow-y-auto">
+                        {currentRoute.turn_cues.map((cue, idx) => (
+                          <div
+                            key={idx}
+                            className="flex items-start gap-2 text-[11px] text-slate-600 dark:text-slate-300"
+                          >
+                            <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold shrink-0">
+                              {(cue.distanceMeters / 1000).toFixed(1)} km:
+                            </span>
+                            <span>{cue.instruction}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Pinned Bottom CTA Action Button */}
+                <div className="pt-2 sticky bottom-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm">
+                  <button
+                    onClick={() => currentRoute && handleActivateRoute(currentRoute)}
+                    disabled={!currentRoute}
+                    className="w-full py-3.5 px-4 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white dark:text-slate-950 font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/25 active:scale-98 transition-all cursor-pointer"
+                  >
+                    <Navigation size={16} />
+                    <span>Navigate This Loop ({distanceKm.toFixed(1)}K)</span>
+                  </button>
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
           {activeTab === 'saved' && (
             <div className="space-y-2.5">
@@ -668,6 +682,39 @@ export const AiRouteGeneratorModal: React.FC<AiRouteGeneratorModalProps> = ({
           )}
         </div>
       </div>
+
+      {/* Dedicated Fullscreen Big View Page */}
+      <AiRouteBigViewScreen
+        isOpen={isBigViewScreenOpen}
+        onBack={() => setIsBigViewScreenOpen(false)}
+        onCloseAll={() => {
+          setIsBigViewScreenOpen(false);
+          onClose();
+        }}
+        initialRoute={currentRoute}
+        initialDistanceKm={distanceKm}
+        initialScenery={scenery}
+        initialDirection={direction}
+        currentLat={resolvedLat || currentLat}
+        currentLng={resolvedLng || currentLng}
+        profile={profile}
+        onRouteActivated={onRouteActivated}
+        onDistanceChange={(d) => {
+          setDistanceKm(d);
+          updateRoutePreview(d, scenery, direction);
+        }}
+        onSceneryChange={(s) => {
+          setScenery(s);
+          updateRoutePreview(distanceKm, s, direction);
+        }}
+        onDirectionChange={(dir) => {
+          setDirection(dir);
+          updateRoutePreview(distanceKm, scenery, dir);
+        }}
+        onRouteChange={(route) => {
+          setCurrentRoute(route);
+        }}
+      />
     </div>,
     document.body
   );
