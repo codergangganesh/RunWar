@@ -33,8 +33,10 @@ import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { BottomSheet } from './components/ui/BottomSheet';
 import { NotificationCenter } from './components/notifications/NotificationCenter';
 import { NotificationsScreen } from './screens/NotificationsScreen';
+import { LiveBeaconSpectatorScreen } from './screens/LiveBeaconSpectatorScreen';
 import { useNotifications } from './hooks/useNotifications';
 import { notificationService } from './services/notificationService';
+import { beaconService } from './services/beaconService';
 import { Bell } from 'lucide-react';
 
 import { insforge } from './lib/insforge';
@@ -77,7 +79,8 @@ type ScreenState =
   | 'post_detail'
   | 'notifications'
   | 'report_bug'
-  | 'admin_bug_reports';
+  | 'admin_bug_reports'
+  | 'live_beacon';
 
 export const App: React.FC = () => {
   // Check if there is an active running session from a browser refresh
@@ -100,12 +103,17 @@ export const App: React.FC = () => {
 
   // Navigation & Screen States
   const initialPostIdFromUrl = getPostIdFromUrl();
+  const initialBeaconCodeFromUrl = beaconService.getBeaconCodeFromUrl();
   const [activePostId, setActivePostId] = useState<string | null>(initialPostIdFromUrl);
+  const [activeBeaconCode, setActiveBeaconCode] = useState<string | null>(initialBeaconCodeFromUrl);
   const [activePost, setActivePost] = useState<FeedPost | null>(null);
 
   const [screen, setScreen] = useState<ScreenState>(() => {
     if (initialActiveWorkout) {
       return 'active_run';
+    }
+    if (initialBeaconCodeFromUrl) {
+      return 'live_beacon';
     }
     if (initialPostIdFromUrl) {
       return 'post_detail';
@@ -1000,6 +1008,7 @@ export const App: React.FC = () => {
 
   // Start a new workout
   const handleStartRun = (type: WorkoutType = 'run') => {
+    beaconService.stopBeacon().catch(() => {});
     gpsEngine.reset();
     offlineSync.clearActiveWorkoutBackup();
     setRecoveredWorkoutBackup(null);
@@ -1105,6 +1114,32 @@ export const App: React.FC = () => {
 
   // Render current active screen with strict FSM gating
   const renderScreen = () => {
+    // 0. Dedicated Public Live-Run Spectator View (Zero login required, completely isolated from auth)
+    const urlBeaconCode = activeBeaconCode || beaconService.getBeaconCodeFromUrl();
+    if (urlBeaconCode || screen === 'live_beacon') {
+      const targetBeaconCode = urlBeaconCode || activeBeaconCode;
+      if (targetBeaconCode) {
+        return (
+          <LiveBeaconSpectatorScreen
+            beaconCode={targetBeaconCode}
+            onBackToApp={() => {
+              setActiveBeaconCode(null);
+              // Clean query param from URL without page reload
+              if (typeof window !== 'undefined' && window.history?.replaceState) {
+                const url = new URL(window.location.href);
+                url.searchParams.delete('beacon');
+                url.searchParams.delete('live');
+                const cleanUrl = url.pathname + (url.search ? url.search : '') + (url.hash ? url.hash : '');
+                window.history.replaceState({}, '', cleanUrl || '/');
+              }
+              const hasUser = currentUser || authService.getCachedUser();
+              setScreen(hasUser ? 'main' : 'welcome');
+            }}
+          />
+        );
+      }
+    }
+
     // 1. Initializing or checking profile => always Splash, NEVER Home
     if (appState === 'INITIALIZING' || appState === 'PROFILE_CHECKING') {
       return <SplashScreen statusText={authStatusText} />;
@@ -1234,7 +1269,10 @@ export const App: React.FC = () => {
             profile={profile}
             settings={settings}
             onFinishWorkout={handleFinishWorkout}
-            onDiscardWorkout={() => setScreen('main')}
+            onDiscardWorkout={() => {
+              beaconService.stopBeacon().catch(() => {});
+              setScreen('main');
+            }}
           />
         );
 
@@ -1485,6 +1523,23 @@ export const App: React.FC = () => {
             onBack={() => setScreen('main')}
           />
         );
+
+      case 'live_beacon':
+        if (activeBeaconCode) {
+          return (
+            <LiveBeaconSpectatorScreen
+              beaconCode={activeBeaconCode}
+              onBackToApp={() => {
+                if (typeof window !== 'undefined' && window.history?.replaceState) {
+                  window.history.replaceState({}, document.title, window.location.pathname);
+                }
+                setActiveBeaconCode(null);
+                setScreen('main');
+              }}
+            />
+          );
+        }
+        return null;
 
       case 'main':
       default:

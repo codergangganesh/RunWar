@@ -9,6 +9,7 @@ import { workoutLogger } from '../utils/workoutLogger';
 import { getLocalDateKey, getStartOfLocalWeek, isSameLocalDate } from '../utils/dateUtils';
 import { calculateSplits } from '../utils/calculations';
 import { toDeterministicUUID } from '../utils/uuid';
+import { indexedDbStorage } from './indexedDbStorage';
 
 const WORKOUTS_CACHE_KEY = 'runwar_cached_workouts';
 
@@ -212,6 +213,53 @@ export function normalizeWorkout(raw: any): Workout {
     steps: Math.max(0, Math.round(Number(raw.steps) || 0)),
     average_cadence: Math.max(0, Math.round(Number(raw.average_cadence) || 0)),
     created_at: raw.created_at || new Date().toISOString(),
+  };
+}
+
+/**
+ * Downsample route coordinates for lightweight localStorage caching.
+ * Keeps up to ~20 evenly spaced points with rounded precision for fast thumbnail polyline rendering.
+ * Lossless, full-resolution GPS coordinates are permanently stored in IndexedDB.
+ */
+function downsampleRouteForSummary(coords?: GPSCoordinate[]): GPSCoordinate[] {
+  if (!coords || !Array.isArray(coords) || coords.length === 0) return [];
+  if (coords.length <= 20) {
+    return coords.map((c, i) => ({
+      latitude: Number(c.latitude.toFixed(6)),
+      longitude: Number(c.longitude.toFixed(6)),
+      altitude: c.altitude != null ? Math.round(c.altitude) : null,
+      accuracy: null,
+      speed: null,
+      timestamp: c.timestamp || 0,
+      sequence_number: c.sequence_number || (i + 1),
+    }));
+  }
+
+  const step = (coords.length - 1) / 19;
+  const result: GPSCoordinate[] = [];
+  for (let i = 0; i < 20; i++) {
+    const idx = Math.min(Math.round(i * step), coords.length - 1);
+    const pt = coords[idx];
+    if (pt) {
+      result.push({
+        latitude: Number(pt.latitude.toFixed(6)),
+        longitude: Number(pt.longitude.toFixed(6)),
+        altitude: pt.altitude != null ? Math.round(pt.altitude) : null,
+        accuracy: null,
+        speed: null,
+        timestamp: pt.timestamp || 0,
+        sequence_number: idx + 1,
+      });
+    }
+  }
+  return result;
+}
+
+function createLightweightWorkoutSummary(w: Workout): Workout {
+  return {
+    ...w,
+    route_coordinates: downsampleRouteForSummary(w.route_coordinates),
+    splits: Array.isArray(w.splits) ? w.splits.slice(0, 25) : [],
   };
 }
 
@@ -697,11 +745,20 @@ export const workoutService = {
       }
 
       rawMerged = [...cloudWorkouts, ...pendingOfflineWorkouts];
-      // Update user-scoped cache to perfectly match authoritative DB
+      // Update two-tier cache (full lossless into IndexedDB + lightweight summary in localStorage)
       this.saveWorkoutsCache(rawMerged, canonicalUserId);
     } else {
       // Offline or network fallback: Use user-scoped cache
       rawMerged = userCachedWorkouts;
+      if (rawMerged.length === 0 && typeof window !== 'undefined') {
+        try {
+          const idbWorkouts = await indexedDbStorage.getAllWorkouts(canonicalUserId);
+          if (idbWorkouts.length > 0) {
+            rawMerged = idbWorkouts.filter((w) => !deletedIds.has(w.id));
+            this.saveWorkoutsCache(rawMerged, canonicalUserId);
+          }
+        } catch {}
+      }
     }
 
     // Inspect Strava connection status: is it connected, and is it a demo connection or real connection?
@@ -819,6 +876,12 @@ export const workoutService = {
 
       if (error) throw error;
       if (!data) {
+        // High-capacity offline DB check before memory cache
+        try {
+          const idbWorkout = await indexedDbStorage.getWorkoutById(workoutId);
+          if (idbWorkout) return normalizeWorkout(idbWorkout);
+        } catch {}
+
         const cached = this.getCachedWorkouts().find((w) => w.id === workoutId);
         return cached ? normalizeWorkout(cached) : null;
       }
@@ -873,9 +936,16 @@ export const workoutService = {
       }
 
       this.updateCachedWorkout(workout);
+      // Persist full high-res record to IndexedDB
+      indexedDbStorage.saveWorkout(workout).catch(() => {});
       return workout;
     } catch (err) {
-      console.warn('Error fetching workout details from DB, checking cache:', err);
+      console.warn('Error fetching workout details from DB, checking IndexedDB / cache:', err);
+      try {
+        const idbWorkout = await indexedDbStorage.getWorkoutById(workoutId);
+        if (idbWorkout) return normalizeWorkout(idbWorkout);
+      } catch {}
+
       const cached = this.getCachedWorkouts().find((w) => w.id === workoutId);
       return cached ? normalizeWorkout(cached) : null;
     }
@@ -1218,18 +1288,60 @@ export const workoutService = {
   },
 
   saveWorkoutsCache(workouts: Workout[], userId?: string) {
+    if (!workouts || !Array.isArray(workouts)) return;
+    const targetUserId = userId || workouts[0]?.user_id;
+
+    // Tier 1: Asynchronously save full, lossless workouts with high-precision GPS into IndexedDB
+    if (typeof window !== 'undefined') {
+      indexedDbStorage.saveWorkoutsBatch(workouts).catch((e) => {
+        console.warn('[Cache] Background IndexedDB save notice:', e);
+      });
+    }
+
+    // Tier 2: Prepare lightweight UI summary for localStorage
     try {
-      const key = this.getCacheKey(userId || workouts[0]?.user_id);
-      localStorage.setItem(key, JSON.stringify(workouts));
-    } catch (e) {
-      console.warn('Failed to cache workouts:', e);
+      const key = this.getCacheKey(targetUserId);
+      const lightWorkouts = workouts
+        .slice(0, 40)
+        .map(createLightweightWorkoutSummary);
+
+      localStorage.setItem(key, JSON.stringify(lightWorkouts));
+    } catch (e: any) {
+      // Auto-recovery if localStorage quota is exceeded
+      if (
+        e?.name === 'QuotaExceededError' ||
+        e?.code === 22 ||
+        (typeof e?.message === 'string' && e.message.toLowerCase().includes('quota'))
+      ) {
+        try {
+          // Clear legacy bloated keys
+          localStorage.removeItem(WORKOUTS_CACHE_KEY);
+
+          // Strip coordinates completely to [] for localStorage, saving only metadata
+          const ultraLightWorkouts = workouts.slice(0, 25).map((w) => ({
+            ...w,
+            route_coordinates: [],
+            splits: Array.isArray(w.splits) ? w.splits.slice(0, 10) : [],
+          }));
+
+          const key = this.getCacheKey(targetUserId);
+          localStorage.setItem(key, JSON.stringify(ultraLightWorkouts));
+          console.info('[Cache] Recovered from quota limit with lean UI summary. Full routes preserved in IndexedDB.');
+        } catch (recoveryErr) {
+          console.warn('[Cache] localStorage write bypassed; workouts preserved in IndexedDB:', recoveryErr);
+        }
+      } else {
+        console.warn('Failed to cache workouts:', e);
+      }
     }
   },
 
   addWorkoutToCache(workout: Workout, userId?: string) {
     const targetUserId = userId || workout.user_id;
-    const cached = this.getCachedWorkouts(targetUserId);
     const normalized = normalizeWorkout(workout);
+    indexedDbStorage.saveWorkout(normalized).catch(() => {});
+
+    const cached = this.getCachedWorkouts(targetUserId);
     const targetExtKey = normalized.source_provider && normalized.external_record_id
       ? `${normalized.source_provider}_${normalized.external_record_id}`
       : null;
@@ -1253,13 +1365,16 @@ export const workoutService = {
 
   updateCachedWorkout(workout: Workout, userId?: string) {
     const targetUserId = userId || workout.user_id;
-    const cached = this.getCachedWorkouts(targetUserId);
     const normalized = normalizeWorkout(workout);
+    indexedDbStorage.saveWorkout(normalized).catch(() => {});
+
+    const cached = this.getCachedWorkouts(targetUserId);
     const updated = cached.map((w) => (w.id === normalized.id ? normalized : w));
     this.saveWorkoutsCache(updated, targetUserId);
   },
 
   removeCachedWorkout(workoutId: string, userId?: string) {
+    indexedDbStorage.deleteWorkout(workoutId).catch(() => {});
     const cached = this.getCachedWorkouts(userId);
     const updated = cached.filter((w) => w.id !== workoutId);
     this.saveWorkoutsCache(updated, userId);

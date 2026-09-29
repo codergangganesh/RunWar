@@ -24,6 +24,7 @@ import { courseService } from './courseService';
 import { ghostRivalService } from './ghostRivalService';
 import { stepCounterService } from './stepCounterService';
 import { CourseRoute, GhostRivalConfig } from '../types';
+import { beaconService } from './beaconService';
 
 type StateListener = (state: LiveWorkoutState) => void;
 
@@ -105,6 +106,23 @@ export class WorkoutEngine {
       steps: 0,
       cadence: 0,
     };
+
+    // Keep active workout state in sync with courseService and ghost deletions
+    courseService.subscribe((course) => {
+      if (!course && this.state.activeCourse) {
+        this.state.activeCourse = null;
+        this.state.courseProgress = null;
+        this.notify();
+      }
+    });
+
+    ghostRivalService.subscribe((ghost) => {
+      if (!ghost && this.state.ghostRival) {
+        this.state.ghostRival = null;
+        this.state.ghostProgress = null;
+        this.notify();
+      }
+    });
   }
 
   public subscribe(listener: StateListener): () => void {
@@ -138,6 +156,13 @@ export class WorkoutEngine {
   }
 
   public getState(): LiveWorkoutState {
+    if (this.state.activeCourse && this.state.activeCourse.source !== 'preset') {
+      const active = courseService.getActiveCourse();
+      if (!active) {
+        this.state.activeCourse = null;
+        this.state.courseProgress = null;
+      }
+    }
     return { ...this.state };
   }
 
@@ -412,6 +437,7 @@ export class WorkoutEngine {
     this.releaseWakeLock();
     audioCoach.stop();
     mediaSessionManager.endSession();
+    beaconService.stopBeacon().catch(() => {});
 
     this.state = this.createInitialState();
     this.pointBuffer = [];
@@ -465,6 +491,7 @@ export class WorkoutEngine {
     audioCoach.announceWorkoutFinished(this.state.distanceMeters, this.state.elapsedTime, this.distanceUnit);
     this.vibrate([150, 100, 150, 100, 300]);
     mediaSessionManager.endSession();
+    beaconService.stopBeacon().catch(() => {});
 
     localStorage.removeItem(BACKUP_STORAGE_KEY);
     this.notify();
@@ -482,6 +509,7 @@ export class WorkoutEngine {
     this.releaseWakeLock();
     audioCoach.stop();
     mediaSessionManager.endSession();
+    beaconService.stopBeacon().catch(() => {});
 
     this.state = this.createInitialState();
     this.pointBuffer = [];
@@ -999,6 +1027,15 @@ export class WorkoutEngine {
 
     if (backup.steps) {
       stepCounterService.restoreSessionSteps(backup.workoutId, backup.steps);
+    }
+
+    // Ensure restored course still exists
+    if (this.state.activeCourse && this.state.activeCourse.source !== 'preset') {
+      const active = courseService.getActiveCourse();
+      if (!active) {
+        this.state.activeCourse = null;
+        this.state.courseProgress = null;
+      }
     }
 
     workoutLogger.log('RECOVERY_DETECTED', 'info', {

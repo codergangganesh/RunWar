@@ -28,7 +28,7 @@ const createStartPinIcon = () => {
 const createCourseStartPinIcon = () => {
   return L.divIcon({
     className: 'course-start-pin-marker',
-    html: `<div class="px-1.5 py-0.5 rounded-full bg-cyan-600 border border-white text-white text-[9px] font-black shadow-lg flex items-center gap-0.5 whitespace-nowrap"><span>🚩</span><span>START</span></div>`,
+    html: `<div class="px-1.5 py-0.5 rounded-full bg-orange-600 border border-white text-white text-[9px] font-black shadow-lg flex items-center gap-0.5 whitespace-nowrap"><span>🚩</span><span>START</span></div>`,
     iconSize: [50, 20],
     iconAnchor: [25, 20],
   });
@@ -46,7 +46,7 @@ const createCourseFinishPinIcon = () => {
 const createCourseWaypointIcon = (name: string) => {
   return L.divIcon({
     className: 'course-waypoint-marker',
-    html: `<div class="px-1 py-0.5 rounded bg-cyan-700/90 border border-cyan-300 text-white text-[8px] font-bold shadow whitespace-nowrap max-w-[80px] truncate">${name}</div>`,
+    html: `<div class="px-1 py-0.5 rounded bg-orange-600/90 border border-orange-300 text-white text-[8px] font-bold shadow whitespace-nowrap max-w-[80px] truncate">${name}</div>`,
     iconSize: [40, 16],
     iconAnchor: [20, 16],
   });
@@ -270,25 +270,25 @@ export const LiveWorkoutMap: React.FC<LiveWorkoutMapProps> = ({
             onUserPan={handleUserPan}
           />
 
-          {/* Planned Course Polyline Guide (High-contrast cyan & teal dashed) */}
+          {/* Planned Course Polyline Guide (High-contrast Vibrant Orange Track) */}
           {coursePositions.length > 1 && (
             <>
-              {/* Soft glow underlay */}
+              {/* Soft orange glow underlay */}
               <Polyline
                 positions={coursePositions}
                 pathOptions={{
-                  color: '#06b6d4',
+                  color: '#ea580c',
                   weight: 8,
                   opacity: 0.35,
                   lineCap: 'round',
                   lineJoin: 'round',
                 }}
               />
-              {/* High-visibility dashed navigational track */}
+              {/* High-visibility orange navigational track */}
               <Polyline
                 positions={coursePositions}
                 pathOptions={{
-                  color: '#0891b2',
+                  color: '#f97316',
                   weight: 4,
                   dashArray: '6, 8',
                   opacity: 0.95,
@@ -325,23 +325,25 @@ export const LiveWorkoutMap: React.FC<LiveWorkoutMapProps> = ({
             <Marker position={[startCoord.latitude, startCoord.longitude]} icon={createStartPinIcon()} />
           )}
 
-          {/* Active Runner Route Polyline (High visibility athletic green) */}
+          {/* Active Runner Route Polyline (High visibility athletic electric blue) */}
           {polylinePositions.length > 1 && (
             <>
+              {/* Blue soft glow underlay */}
               <Polyline
                 positions={polylinePositions}
                 pathOptions={{
-                  color: '#10b981',
+                  color: '#3b82f6',
                   weight: 8,
                   opacity: 0.4,
                   lineCap: 'round',
                   lineJoin: 'round',
                 }}
               />
+              {/* Solid blue runner tracking breadcrumb path */}
               <Polyline
                 positions={polylinePositions}
                 pathOptions={{
-                  color: '#059669',
+                  color: '#2563eb',
                   weight: 4,
                   opacity: 1.0,
                   lineCap: 'round',

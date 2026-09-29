@@ -33,12 +33,16 @@ import {
   Navigation,
   Route,
   Swords,
+  Radio,
 } from 'lucide-react';
+import { beaconService, LiveBeacon } from '../services/beaconService';
+import { LiveBeaconModal } from '../components/beacon/LiveBeaconModal';
 import { formatDistance, formatDuration, formatPace, formatPaceRaw } from '../utils/formatters';
 import { WakeLockIndicator } from '../components/workout/WakeLockIndicator';
 import { WeatherBadge } from '../components/workout/WeatherBadge';
 import { AudioCoachModal } from '../components/workout/AudioCoachModal';
 import { CourseModal } from '../components/workout/CourseModal';
+import { courseService } from '../services/courseService';
 import { GhostRivalModal } from '../components/workout/GhostRivalModal';
 import { BottomSheet } from '../components/ui/BottomSheet';
 import { ChallengeHUD } from '../components/challenge/ChallengeHUD';
@@ -71,6 +75,9 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
   const [coachFrequency, setCoachFrequency] = useState<AudioFrequency>(settings?.audio_frequency || '1km');
   const [simMode, setSimMode] = useState(gpsEngine.isSimulationMode);
   const [activeToast, setActiveToast] = useState<SplitToastInfo | null>(null);
+  const [showBeaconModal, setShowBeaconModal] = useState(false);
+  const [activeBeacon, setActiveBeacon] = useState<LiveBeacon | null>(() => beaconService.getActiveSession());
+  const lastBeaconSyncTimeRef = useRef<number>(0);
   const [isPocketMode, setIsPocketMode] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState<boolean>(() => {
     try {
@@ -249,6 +256,62 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
     };
   }, [workoutType, profile, settings, audioMuted]);
 
+  // Auto-clear active course if it was deleted
+  useEffect(() => {
+    if (workoutState.activeCourse && workoutState.activeCourse.source !== 'preset') {
+      const active = courseService.getActiveCourse();
+      if (!active) {
+        gpsEngine.setActiveCourse(null);
+      }
+    }
+  }, [workoutState.activeCourse]);
+
+  // ── Live Run Beacon Synchronization ──────────────────────────────────────
+  useEffect(() => {
+    if (workoutState.status !== 'tracking' && workoutState.status !== 'paused') return;
+
+    const now = Date.now();
+
+    // Broadcast live telemetry to InsForge every 5 seconds if active beacon exists
+    const currentBeacon = beaconService.getActiveSession();
+    if (currentBeacon && now - lastBeaconSyncTimeRef.current >= 5000) {
+      lastBeaconSyncTimeRef.current = now;
+      setActiveBeacon(currentBeacon);
+
+      const curLoc = workoutState.currentLocation;
+      const trail = (workoutState.coordinates || []).slice(-30).map((c) => ({
+        latitude: c.latitude,
+        longitude: c.longitude,
+        speed: c.speed || 0,
+        timestamp: new Date(c.timestamp || Date.now()).toISOString(),
+      }));
+
+      beaconService.updateTelemetry(currentBeacon.beacon_code, {
+        current_lat: curLoc ? curLoc.latitude : currentBeacon.current_lat || undefined,
+        current_lng: curLoc ? curLoc.longitude : currentBeacon.current_lng || undefined,
+        current_pace: workoutState.currentPace || 0,
+        total_distance_meters: workoutState.distanceMeters || 0,
+        elapsed_seconds: workoutState.elapsedTime || 0,
+        status: workoutState.status === 'tracking' ? 'active' : 'paused',
+        route_coordinates: trail,
+      });
+
+      // Retrieve latest live cheers and status from Redis / InsForge
+      beaconService.getBeaconByCode(currentBeacon.beacon_code).then((serverBeacon) => {
+        if (serverBeacon) {
+          setActiveBeacon(serverBeacon);
+          beaconService.setActiveSession(serverBeacon);
+        }
+      }).catch(() => {});
+    }
+  }, [
+    workoutState.distanceMeters,
+    workoutState.elapsedTime,
+    workoutState.status,
+    workoutState.currentPace,
+    workoutState.currentLocation,
+  ]);
+
   // ── Load active challenge from sessionStorage on mount ──────────────────
   useEffect(() => {
     const challengeId = sessionStorage.getItem('runwar_active_challenge_id');
@@ -327,6 +390,8 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
 
   const handleConfirmFinish = () => {
     const finalState = gpsEngine.finishTracking();
+    beaconService.stopBeacon().catch(() => {});
+    setActiveBeacon(null);
     onFinishWorkout(finalState);
 
     // Challenge completion – best-effort, non-blocking
@@ -519,8 +584,8 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
             <button
               onClick={() => setShowCourseModal(true)}
               className={`p-2 rounded-xl border transition-all active:scale-95 flex items-center gap-1 cursor-pointer ${workoutState.activeCourse
-                ? 'bg-cyan-500 text-white dark:text-slate-950 border-cyan-500 shadow-sm shadow-cyan-500/25 font-bold'
-                : 'bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-slate-500 hover:text-cyan-600 dark:hover:text-cyan-400'
+                ? 'bg-orange-500 text-white dark:text-slate-950 border-orange-500 shadow-sm shadow-orange-500/25 font-bold'
+                : 'bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-slate-500 hover:text-orange-600 dark:hover:text-orange-400'
                 }`}
               title={workoutState.activeCourse ? `Course: ${workoutState.activeCourse.name} (Tap to change)` : 'Select or upload GPX course to follow'}
               aria-label="Course navigation"
@@ -544,6 +609,20 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
               aria-label="Ghost Rival"
             >
               <Swords size={15} className={workoutState.ghostRival ? 'animate-pulse' : ''} />
+            </button>
+
+            {/* Live Run Beacon Trigger */}
+            <button
+              onClick={() => setShowBeaconModal(true)}
+              className={`p-2 rounded-xl border transition-all active:scale-95 flex items-center gap-1 cursor-pointer ${
+                activeBeacon
+                  ? 'bg-rose-500 text-white border-rose-400 shadow-sm shadow-rose-500/25 font-bold'
+                  : 'bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-slate-500 hover:text-rose-500 dark:hover:text-rose-400'
+              }`}
+              title={activeBeacon ? 'Live Beacon Active (Tap to share/manage)' : 'Start Live Run Beacon'}
+              aria-label="Live Run Beacon"
+            >
+              <Radio size={15} className={activeBeacon ? 'animate-pulse' : ''} />
             </button>
 
             {/* Pocket Mode Toggle */}
@@ -573,14 +652,14 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
 
         {/* Course Breadcrumb Navigation HUD Card */}
         {workoutState.activeCourse && (
-          <div className="shrink-0 w-full p-2.5 sm:p-3 rounded-2xl bg-cyan-50/90 dark:bg-cyan-950/40 border border-cyan-200 dark:border-cyan-500/40 shadow-sm animate-fade-in space-y-1.5">
+          <div className="shrink-0 w-full p-2.5 sm:p-3 rounded-2xl bg-orange-50/90 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-500/40 shadow-sm animate-fade-in space-y-1.5">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0 flex-1">
-                <div className="w-6 h-6 rounded-lg bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 flex items-center justify-center shrink-0">
-                  <Navigation size={13} className="text-cyan-500" />
+                <div className="w-6 h-6 rounded-lg bg-orange-500/20 text-orange-600 dark:text-orange-400 flex items-center justify-center shrink-0">
+                  <Navigation size={13} className="text-orange-500" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <span className="text-[10px] font-black uppercase text-cyan-700 dark:text-cyan-400 tracking-wider">
+                  <span className="text-[10px] font-black uppercase text-orange-700 dark:text-orange-400 tracking-wider">
                     COURSE GUIDE
                   </span>
                   <h4 className="text-xs font-bold text-slate-950 dark:text-white truncate">
@@ -590,17 +669,27 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
               </div>
 
               <div className="flex items-center gap-1.5 shrink-0">
-                <span className="text-xs font-mono font-black text-cyan-600 dark:text-cyan-400">
+                <span className="text-xs font-mono font-black text-orange-600 dark:text-orange-400">
                   {workoutState.courseProgress
                     ? `${formatDistance(workoutState.courseProgress.distanceRemainingMeters, distanceUnit)} left`
                     : `${formatDistance(workoutState.activeCourse.totalDistanceMeters, distanceUnit)}`}
                 </span>
                 <button
                   onClick={() => setShowCourseModal(true)}
-                  className="p-1 rounded-lg text-slate-400 hover:text-cyan-600 dark:hover:text-cyan-400"
+                  className="p-1 rounded-lg text-slate-400 hover:text-orange-600 dark:hover:text-orange-400 transition-colors cursor-pointer"
                   title="Change course"
                 >
                   <Route size={13} />
+                </button>
+                <button
+                  onClick={() => {
+                    gpsEngine.setActiveCourse(null);
+                    courseService.setActiveCourse(null);
+                  }}
+                  className="p-1 rounded-lg text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition-colors cursor-pointer"
+                  title="Remove course from active run"
+                >
+                  <X size={13} />
                 </button>
               </div>
             </div>
@@ -608,7 +697,7 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
             {/* Course Progress Bar */}
             <div className="w-full h-1.5 rounded-full bg-slate-200/80 dark:bg-slate-800 overflow-hidden">
               <div
-                className="h-full bg-gradient-to-r from-cyan-500 to-teal-400 transition-all duration-500 rounded-full"
+                className="h-full bg-gradient-to-r from-orange-500 to-amber-400 transition-all duration-500 rounded-full"
                 style={{ width: `${workoutState.courseProgress?.percentCompleted || 0}%` }}
               />
             </div>
@@ -1080,6 +1169,8 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
               <div className="flex flex-col gap-2 pt-1">
                 <button
                   onClick={() => {
+                    beaconService.stopBeacon().catch(() => {});
+                    setActiveBeacon(null);
                     gpsEngine.discardWorkout();
                     setShowDiscardConfirm(false);
                     onDiscardWorkout();
@@ -1315,6 +1406,8 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
         isOpen={showCourseModal}
         onClose={() => setShowCourseModal(false)}
         profile={profile}
+        currentLat={workoutState.currentLocation?.latitude}
+        currentLng={workoutState.currentLocation?.longitude}
         onSelectCourse={(course) => gpsEngine.setActiveCourse(course)}
       />
 
@@ -1324,6 +1417,20 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
         onClose={() => setShowGhostModal(false)}
         profile={profile}
         onSelectGhost={(ghost) => gpsEngine.setGhostRival(ghost)}
+      />
+
+      {/* Live Run Beacon Management Modal */}
+      <LiveBeaconModal
+        isOpen={showBeaconModal}
+        onClose={() => {
+          setShowBeaconModal(false);
+          setActiveBeacon(beaconService.getActiveSession());
+        }}
+        onBeaconChange={(b) => setActiveBeacon(b)}
+        profile={profile}
+        currentLat={workoutState.currentLocation?.latitude}
+        currentLng={workoutState.currentLocation?.longitude}
+        workoutType={workoutType}
       />
     </div>
   );

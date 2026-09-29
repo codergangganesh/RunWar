@@ -3,7 +3,7 @@ import { CourseRoute, Goal, UserProfile, Workout, WorkoutType, Alarm } from '../
 import { formatDistance, formatDuration, formatPace } from '../utils/formatters';
 import { formatLocalTime } from '../utils/dateUtils';
 import { WeeklyBarChart } from '../components/charts/WeeklyBarChart';
-import { Play, Zap, Footprints, Target, ArrowRight, Clock, Navigation, Route, Swords, Trophy, Flame, Bell } from 'lucide-react';
+import { Play, Zap, Footprints, Target, ArrowRight, Clock, Navigation, Route, Swords, Trophy, Flame, Bell, Sparkles } from 'lucide-react';
 import { courseService } from '../services/courseService';
 import { CourseModal } from '../components/workout/CourseModal';
 import { ghostRivalService } from '../services/ghostRivalService';
@@ -12,6 +12,7 @@ import { GhostRivalConfig } from '../types';
 import { SocialFeedScreen } from './SocialFeedScreen';
 import { alarmService } from '../services/alarmService';
 import { stepCounterService } from '../services/stepCounterService';
+import { AiRouteGeneratorModal } from '../components/route/AiRouteGeneratorModal';
 
 interface HomeScreenProps {
   profile: UserProfile | null;
@@ -68,6 +69,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   );
   const [activeCourse, setActiveCourse] = useState<CourseRoute | null>(() => courseService.getActiveCourse());
   const [showCourseModal, setShowCourseModal] = useState(false);
+  const [showAiRouteModal, setShowAiRouteModal] = useState(false);
   const [activeGhost, setActiveGhost] = useState<GhostRivalConfig | null>(() => ghostRivalService.getActiveGhost());
   const [showGhostModal, setShowGhostModal] = useState(false);
   const [nextAlarm, setNextAlarm] = useState<Alarm | null>(null);
@@ -83,7 +85,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             setNextAlarm(null);
           }
         })
-        .catch(() => {});
+        .catch(() => { });
     }
   }, [profile?.user_id]);
 
@@ -314,6 +316,23 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </button>
         </div>
 
+        {/* Loop Route Generator Quick Bar */}
+        <button
+          type="button"
+          onClick={() => setShowAiRouteModal(true)}
+          className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-emerald-50/70 dark:bg-slate-950/60 hover:bg-emerald-100/60 dark:hover:bg-slate-900 border border-emerald-200/80 dark:border-slate-800 text-xs font-bold text-slate-800 dark:text-slate-200 transition-all cursor-pointer group shadow-2xs active:scale-[0.99]"
+        >
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+              <Route size={14} />
+            </div>
+            <span className="font-bold tracking-tight">Loop Route Generator</span>
+          </div>
+          <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg bg-emerald-500 text-white dark:text-slate-950 shadow-2xs">
+            Generate
+          </span>
+        </button>
+
         <button
           onClick={() => onStartRun(selectedActivity)}
           className="w-full py-3 px-5 rounded-xl bg-gradient-to-r from-emerald-500 via-emerald-600 to-emerald-500 hover:from-emerald-600 hover:to-emerald-500 text-white font-black text-sm shadow-md shadow-emerald-500/30 active:scale-98 flex items-center justify-center gap-2.5 transition-all cursor-pointer"
@@ -322,6 +341,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           <span>START {selectedActivity.toUpperCase()}</span>
         </button>
       </div>
+
+      {/* Loop Route Generator Showcase Card */}
+
 
       {/* Run Goal Challenge Feature Banner */}
       {/* {onViewChallenges && (
@@ -492,6 +514,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         onClose={() => setShowGhostModal(false)}
         profile={profile}
         onSelectGhost={setActiveGhost}
+      />
+
+      {/* AI Loop Route Generator Modal */}
+      <AiRouteGeneratorModal
+        isOpen={showAiRouteModal}
+        onClose={() => setShowAiRouteModal(false)}
+        profile={profile}
+        onRouteActivated={(course) => setActiveCourse(course)}
       />
     </div>
   );

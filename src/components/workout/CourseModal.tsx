@@ -21,12 +21,17 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { downloadFile, generateCourseGPX } from '../../utils/exportGenerators';
+import { AiRouteGeneratorModal } from '../route/AiRouteGeneratorModal';
+import { aiRouteService } from '../../services/aiRouteService';
+import { gpsEngine } from '../../services/gpsEngine';
 
 interface CourseModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSelectCourse?: (course: CourseRoute | null) => void;
   profile?: UserProfile | null;
+  currentLat?: number;
+  currentLng?: number;
 }
 
 export const CourseModal: React.FC<CourseModalProps> = ({
@@ -34,6 +39,8 @@ export const CourseModal: React.FC<CourseModalProps> = ({
   onClose,
   onSelectCourse,
   profile,
+  currentLat,
+  currentLng,
 }) => {
   const [courses, setCourses] = useState<CourseRoute[]>(() => courseService.getSavedCourses());
   const [activeCourse, setActiveCourse] = useState<CourseRoute | null>(() => courseService.getActiveCourse());
@@ -42,6 +49,7 @@ export const CourseModal: React.FC<CourseModalProps> = ({
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isParsing, setIsParsing] = useState(false);
   const [previewCourse, setPreviewCourse] = useState<CourseRoute | null>(null);
+  const [showAiModal, setShowAiModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Right-side Drawer slide animation & drag gesture states
@@ -133,10 +141,24 @@ export const CourseModal: React.FC<CourseModalProps> = ({
 
   const handleDelete = (e: React.MouseEvent, courseId: string) => {
     e.stopPropagation();
+    const courseToDelete = courses.find((c) => c.id === courseId);
     courseService.deleteCourse(courseId);
+    aiRouteService.deleteRoute(courseId).catch(() => {});
     setCourses(courseService.getSavedCourses());
-    if (activeCourse?.id === courseId) {
+    
+    const engineCourse = gpsEngine.getState().activeCourse;
+    const isCurrentActive =
+      activeCourse?.id === courseId ||
+      engineCourse?.id === courseId ||
+      (courseToDelete && (
+        activeCourse?.name === courseToDelete.name ||
+        engineCourse?.name === courseToDelete.name
+      ));
+
+    if (isCurrentActive) {
       setActiveCourse(null);
+      courseService.setActiveCourse(null);
+      gpsEngine.setActiveCourse(null);
       if (onSelectCourse) onSelectCourse(null);
     }
   };
@@ -257,6 +279,27 @@ export const CourseModal: React.FC<CourseModalProps> = ({
         <div className="p-4 sm:p-5 overflow-y-auto space-y-4 flex-1 overscroll-contain">
           {activeTab === 'routes' && (
             <div className="space-y-3">
+              {/* Loop Route Generator Banner */}
+              <button
+                onClick={() => setShowAiModal(true)}
+                className="w-full p-3 rounded-2xl bg-emerald-50/70 dark:bg-slate-800/80 hover:bg-emerald-100/60 dark:hover:bg-slate-800 border border-emerald-200/80 dark:border-slate-700 transition-all flex items-center justify-between text-left group cursor-pointer shadow-2xs"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                    <Route size={16} />
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-slate-900 dark:text-white block">
+                      Loop Route Generator
+                    </span>
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 block">
+                      Create a custom 3K, 5K, or 10K circular loop from your location
+                    </span>
+                  </div>
+                </div>
+                <ChevronRight size={16} className="text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+              </button>
+
               {/* Course List */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between px-1">
@@ -512,6 +555,20 @@ export const CourseModal: React.FC<CourseModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* AI Loop Route Generator Sub-Modal */}
+      <AiRouteGeneratorModal
+        isOpen={showAiModal}
+        onClose={() => setShowAiModal(false)}
+        profile={profile}
+        currentLat={currentLat}
+        currentLng={currentLng}
+        onRouteActivated={(course) => {
+          setCourses(courseService.getSavedCourses());
+          setActiveCourse(course);
+          if (onSelectCourse) onSelectCourse(course);
+        }}
+      />
     </div>,
     document.body
   );

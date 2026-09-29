@@ -318,7 +318,19 @@ class CourseService {
     try {
       const raw = localStorage.getItem(ACTIVE_COURSE_KEY);
       if (raw) {
-        this.activeCourse = JSON.parse(raw);
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.source !== 'preset') {
+          const saved = this.getSavedCourses();
+          const stillExists = saved.some(
+            (c) => c.id === parsed.id || c.name === parsed.name
+          );
+          if (!stillExists) {
+            localStorage.removeItem(ACTIVE_COURSE_KEY);
+            this.activeCourse = null;
+            return;
+          }
+        }
+        this.activeCourse = parsed;
       }
     } catch {
       this.activeCourse = null;
@@ -338,6 +350,16 @@ class CourseService {
   }
 
   public getActiveCourse(): CourseRoute | null {
+    if (this.activeCourse && this.activeCourse.source !== 'preset') {
+      const saved = this.getSavedCourses();
+      const stillExists = saved.some(
+        (c) => c.id === this.activeCourse?.id || c.name === this.activeCourse?.name
+      );
+      if (!stillExists) {
+        this.setActiveCourse(null);
+        return null;
+      }
+    }
     return this.activeCourse;
   }
 
@@ -396,11 +418,12 @@ class CourseService {
    * Delete a course by ID
    */
   public deleteCourse(courseId: string) {
+    const targetCourse = this.getSavedCourses().find((c) => c.id === courseId);
     let list = this.getSavedCourses().filter((c) => c.id !== courseId && c.source !== 'preset');
     try {
       localStorage.setItem(SAVED_COURSES_KEY, JSON.stringify(list));
     } catch {}
-    if (this.activeCourse?.id === courseId) {
+    if (this.activeCourse?.id === courseId || (targetCourse && this.activeCourse?.name === targetCourse.name)) {
       this.setActiveCourse(null);
     }
   }
