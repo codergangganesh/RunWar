@@ -7,11 +7,12 @@ RunWar is a full-featured, offline-first Progressive Web Application (PWA) desig
 ## 🎥 Application Demo
 
 <div align="center">
-  <video src="./assets/app-demo.mp4" controls="controls" width="100%" style="max-height: 520px; border-radius: 12px;">
-    Your browser does not support the video tag.
-  </video>
+  <img src="./assets/app-demo.gif" alt="RunWar Application Demo" width="360" style="max-width: 100%; border-radius: 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.4);" />
   <p align="center">
-    <strong><a href="./assets/app-demo.gif">▶️ Watch Application Demo</a></strong>
+    <sub>Live interface walkthrough showcasing outdoor GPS tracking, real-time metrics, interactive mapping, and workout analytics.</sub>
+  </p>
+  <p align="center">
+    <strong><a href="./assets/app-demo.mp4">▶️ Watch Full HD Video (with Audio)</a></strong>
   </p>
 </div>
 
