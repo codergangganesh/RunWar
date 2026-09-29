@@ -11,9 +11,7 @@ RunWar is a full-featured, offline-first Progressive Web Application (PWA) desig
   <p align="center">
     <sub>Live interface walkthrough showcasing outdoor GPS tracking, real-time metrics, interactive mapping, and workout analytics.</sub>
   </p>
-  <p align="center">
-    <strong><a href="./assets/app-demo.mp4">▶️ Watch Full HD Video (with Audio)</a></strong>
-  </p>
+  
 </div>
 
 ---
