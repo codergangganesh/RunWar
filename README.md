@@ -4,8 +4,22 @@ RunWar is a full-featured, offline-first Progressive Web Application (PWA) desig
 
 ---
 
+## 🎥 Application Demo
+
+<div align="center">
+  <video src="./assets/app-demo.mp4" controls="controls" width="100%" style="max-height: 520px; border-radius: 12px;">
+    Your browser does not support the video tag.
+  </video>
+  <p align="center">
+    <strong><a href="./assets/app-demo.mp4">▶️ Watch Application Demo</a></strong>
+  </p>
+</div>
+
+---
+
 ## Table of Contents
 
+- [Application Demo](#-application-demo)
 - [Overview](#overview)
 - [Architecture & Design Philosophy](#architecture--design-philosophy)
 - [Feature Breakdown](#feature-breakdown)
