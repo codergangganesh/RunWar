@@ -441,13 +441,53 @@ export const authService = {
   },
 
   /**
-   * Send password reset email
+   * Check if a registered account exists with this email address
+   */
+  async checkEmailExists(email: string): Promise<boolean> {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) return false;
+
+    try {
+      const { data, error } = await insforge.database
+        .from('profiles')
+        .select('id, user_id, email')
+        .ilike('email', cleanEmail)
+        .limit(1);
+
+      if (!error && Array.isArray(data) && data.length > 0) {
+        return true;
+      }
+    } catch (err) {
+      console.warn('Profile email check warning:', err);
+    }
+    return false;
+  },
+
+  /**
+   * Send password reset email only if account exists
    */
   async sendPasswordReset(email: string) {
+    const cleanEmail = email.trim().toLowerCase();
+
+    // 1. Verify account existence first
+    const exists = await this.checkEmailExists(cleanEmail);
+    if (!exists) {
+      throw new Error('No account found with this email address. Please check your email or sign up.');
+    }
+
+    // 2. Dispatch reset code
+    const redirectTo = typeof window !== 'undefined' ? `${window.location.origin}/` : undefined;
     const { data, error } = await insforge.auth.sendResetPasswordEmail({
-      email,
+      email: cleanEmail,
+      redirectTo,
     });
-    if (error) throw error;
+    if (error) {
+      const msg = error.message || '';
+      if (msg.toLowerCase().includes('not found') || msg.toLowerCase().includes('does not exist') || msg.toLowerCase().includes('no user')) {
+        throw new Error('No account found with this email address. Please check your email or sign up.');
+      }
+      throw error;
+    }
     return data;
   },
 
@@ -627,6 +667,82 @@ export const authService = {
     });
     if (error) throw error;
     return data;
+  },
+
+  /**
+   * Verify the 6-digit reset code and exchange for a reset token
+   */
+  async verifyResetPasswordCode(email: string, code: string): Promise<string> {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanCode = code.trim();
+
+    if (!cleanCode || cleanCode.length !== 6) {
+      throw new Error('Please enter the complete 6-digit verification code.');
+    }
+
+    const { data, error } = await insforge.auth.exchangeResetPasswordToken({
+      email: cleanEmail,
+      code: cleanCode,
+    });
+
+    if (error) {
+      throw new Error(error.message || 'Invalid or expired 6-digit verification code. Please check your email.');
+    }
+
+    if (!data?.token) {
+      throw new Error('Could not verify reset code. Please request a new code.');
+    }
+
+    return data.token;
+  },
+
+  /**
+   * Reset password using verified token and new password, then sign in
+   */
+  async completePasswordResetWithToken(email: string, token: string, newPassword: string) {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanToken = token.trim();
+
+    if (!cleanToken) {
+      throw new Error('Missing verification token. Please verify your 6-digit code again.');
+    }
+
+    if (newPassword.length < 6) {
+      throw new Error('Password must be at least 6 characters.');
+    }
+
+    const { data: resetData, error: resetError } = await insforge.auth.resetPassword({
+      otp: cleanToken,
+      newPassword,
+    });
+
+    if (resetError) {
+      throw new Error(resetError.message || 'Failed to reset password. Please try again.');
+    }
+
+    try {
+      const signInRes = await this.signIn(cleanEmail, newPassword);
+      return { success: true, user: signInRes?.user, message: 'Password updated successfully!' };
+    } catch {
+      return { success: true, user: null, message: 'Password updated successfully! Please sign in.' };
+    }
+  },
+
+  /**
+   * Complete password reset using 6-digit verification code or token, and set new password
+   */
+  async completePasswordReset(email: string, codeOrToken: string, newPassword: string) {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanCode = codeOrToken.trim();
+
+    let otpToken = cleanCode;
+
+    // If it's a 6-digit numeric OTP code, exchange it for a reset token first
+    if (/^\d{6}$/.test(cleanCode)) {
+      otpToken = await this.verifyResetPasswordCode(cleanEmail, cleanCode);
+    }
+
+    return await this.completePasswordResetWithToken(cleanEmail, otpToken, newPassword);
   },
 
   /**

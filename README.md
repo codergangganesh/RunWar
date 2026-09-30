@@ -108,7 +108,16 @@ The challenge system enables synchronous or asynchronous head-to-head racing bet
 - **Real-Time Position Tracking:** Participants broadcast active distance and pace updates via InsForge Realtime. The live challenge HUD indicates the leading runner, relative distance lead/lag, and split differentials.
 - **Lifecycle Management:** Complete state workflow covering invitation, acceptance, rejection, live race status, completion detection, and automated winner designation.
 
-### 5. Community Feed & Social Interactions
+### 5. Virtual Tethered Running & Real-Time Walkie-Talkie
+
+RunWar enables long-distance athletes, friends, and couples to run together synchronously across different cities or countries:
+
+- **Elastic Tether Bar & Live Delta:** Connects runners with a virtual rubber band showing real-time relative distance gaps (+/- meters), leader status, and visual tension indicators (Neck-and-Neck Green, Stretched Amber, Tension Alert Red).
+- **Push-to-Talk (PTT) Two-Way Voice:** Hold the on-screen mic to record and beam 3–5 second high-definition voice clips directly into your running buddy's earphones with realistic F1/radio chirps and squelch audio.
+- **Out-of-Breath Quick Presets:** Single-tap voice triggers (*"Surge! ⚡"*, *"Great pace! 🔥"*, *"Water break 💧"*, *"Push the hill! ⛰️"*) synthesized in real-time.
+- **Zero-Disruption Architecture:** Procedurally synthesized Web Audio effects with zero external audio assets; fully isolated in modular services and components.
+
+### 6. Community Feed & Social Interactions
 
 A dedicated community platform allows athletes to share and celebrate workouts.
 

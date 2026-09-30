@@ -165,7 +165,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       <div className="rounded-2xl bg-white dark:bg-slate-900/90 border border-emerald-100 dark:border-slate-800 p-3.5 shadow-md dark:shadow-xl relative overflow-hidden">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-800 dark:text-slate-400">
-            <Zap size={13} className="text-emerald-500 dark:text-emerald-400" />
+
             <span>TODAY'S ACTIVITY</span>
           </div>
           <div className="flex items-center gap-2">

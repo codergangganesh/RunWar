@@ -54,6 +54,16 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
+  // Forgot Password / Progressive Code-Based Reset State
+  const [forgotStep, setForgotStep] = useState<'request' | 'verify_code' | 'set_password'>('request');
+  const [resetCode, setResetCode] = useState('');
+  const [verifiedResetToken, setVerifiedResetToken] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false);
+  const [resetCountdown, setResetCountdown] = useState(0);
+
   // Shared UI State
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
@@ -69,7 +79,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     return () => clearInterval(timer);
   }, []);
 
-  // Resend Countdown Timer
+  // Email OTP Resend Countdown Timer
   useEffect(() => {
     if (emailOtpCountdown <= 0) return;
     const timer = setInterval(() => {
@@ -78,7 +88,16 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     return () => clearInterval(timer);
   }, [emailOtpCountdown]);
 
-  // Check for OAuth error in URL or session storage on mount
+  // Password Reset Resend Countdown Timer
+  useEffect(() => {
+    if (resetCountdown <= 0) return;
+    const timer = setInterval(() => {
+      setResetCountdown((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resetCountdown]);
+
+  // Check for OAuth error or password reset token in URL on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const oauthError = params.get('error_description') || params.get('error') || sessionStorage.getItem('runwar_oauth_error');
@@ -90,6 +109,22 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       } catch {
         setErrorMsg(`Google sign-in error: ${oauthError}`);
       }
+    }
+
+    // Check for email password reset token in URL
+    const token = params.get('token');
+    const type = params.get('insforge_type');
+    if (token && type === 'reset_password') {
+      setAuthMethod('password');
+      setEmailMode('forgot');
+      setVerifiedResetToken(token);
+      setForgotStep('set_password');
+      setSuccessMsg('Reset link verified! Please enter your new password.');
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.delete('token');
+      cleanUrl.searchParams.delete('insforge_type');
+      cleanUrl.searchParams.delete('insforge_status');
+      window.history.replaceState({}, document.title, cleanUrl.toString());
     }
   }, []);
 
@@ -163,6 +198,47 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     }
   };
 
+  const handleResendResetCode = async () => {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || resetCountdown > 0 || resending) return;
+    setResending(true);
+    setErrorMsg(null);
+    try {
+      await authService.sendPasswordReset(cleanEmail);
+      setResetCountdown(30);
+      setSuccessMsg(`A new 6-digit reset code has been sent to ${cleanEmail}.`);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to resend reset code.');
+    } finally {
+      setResending(false);
+    }
+  };
+
+  const handleVerifyResetCode = async (codeToVerify?: string) => {
+    const targetCode = (codeToVerify || resetCode).trim();
+    if (!targetCode || targetCode.length !== 6) {
+      setErrorMsg('Please enter the complete 6-digit verification code.');
+      return;
+    }
+
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    setLoading(true);
+
+    try {
+      const cleanEmail = email.trim().toLowerCase();
+      const token = await authService.verifyResetPasswordCode(cleanEmail, targetCode);
+      setVerifiedResetToken(token);
+      setForgotStep('set_password');
+      setSuccessMsg('Code verified successfully! Now please create your new password.');
+    } catch (err: any) {
+      console.error('Reset code verification error:', err);
+      setErrorMsg(err.message || 'Invalid or expired 6-digit verification code. Please check and try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // -------------------------------------------------------------
   // 2. SECONDARY: PASSWORD AUTH HANDLERS
   // -------------------------------------------------------------
@@ -198,8 +274,53 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           onAuthSuccess(result.user, false);
         }
       } else if (emailMode === 'forgot') {
-        await authService.sendPasswordReset(email.trim());
-        setSuccessMsg('Password reset instructions sent to your email.');
+        if (forgotStep === 'request') {
+          const cleanEmail = email.trim().toLowerCase();
+          if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) {
+            throw new Error('Please enter a valid email address.');
+          }
+          await authService.sendPasswordReset(cleanEmail);
+          setForgotStep('verify_code');
+          setResetCode('');
+          setVerifiedResetToken('');
+          setNewPassword('');
+          setConfirmNewPassword('');
+          setResetCountdown(30);
+          setSuccessMsg(`6-digit reset code sent to ${cleanEmail}. Check your inbox!`);
+        } else if (forgotStep === 'verify_code') {
+          await handleVerifyResetCode();
+        } else if (forgotStep === 'set_password') {
+          const cleanEmail = email.trim().toLowerCase();
+          if (!verifiedResetToken) {
+            throw new Error('Verification session expired. Please re-enter your 6-digit code.');
+          }
+          if (newPassword.length < 6) {
+            throw new Error('New password must be at least 6 characters.');
+          }
+          if (newPassword !== confirmNewPassword) {
+            throw new Error('Passwords do not match. Please re-enter.');
+          }
+
+          const result = await authService.completePasswordResetWithToken(
+            cleanEmail,
+            verifiedResetToken,
+            newPassword
+          );
+
+          if (result?.user) {
+            setSuccessMsg('Password updated successfully! Welcome back.');
+            onAuthSuccess(result.user, false);
+          } else {
+            setEmailMode('signin');
+            setPassword(newPassword);
+            setForgotStep('request');
+            setResetCode('');
+            setVerifiedResetToken('');
+            setNewPassword('');
+            setConfirmNewPassword('');
+            setSuccessMsg('Your password has been reset successfully! Please sign in with your new password.');
+          }
+        }
       }
     } catch (err: any) {
       console.error('Password Auth error:', err);
@@ -454,7 +575,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     ? 'Create Account'
                     : emailMode === 'signin'
                       ? 'Welcome Back'
-                      : 'Reset Password'}
+                      : forgotStep === 'set_password'
+                        ? 'Create New Password'
+                        : forgotStep === 'verify_code'
+                          ? 'Enter 6-Digit Code'
+                          : 'Reset Password'}
               </h2>
 
               {/* Secondary links for password mode */}
@@ -489,6 +614,16 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   >
                     Sign In
                   </button>
+                </p>
+              )}
+
+              {authMethod === 'password' && emailMode === 'forgot' && (
+                <p className="text-xs text-slate-600 mt-1">
+                  {forgotStep === 'set_password'
+                    ? 'Enter and confirm your new password below.'
+                    : forgotStep === 'verify_code'
+                      ? 'Enter the 6-digit code sent to your email to verify your identity.'
+                      : 'Enter your registered email to receive a 6-digit reset code.'}
                 </p>
               )}
             </div>
@@ -629,141 +764,308 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             {/* ------------------------------------------------------------- */}
             {authMethod === 'password' && (
               <form onSubmit={handlePasswordSubmit} className="flex flex-col gap-3">
-                {/* Full Name Input (Sign Up Only) */}
-                {emailMode === 'signup' && (
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
-                      <User size={18} />
-                    </div>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Full Name"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      className="w-full pl-11 pr-4 py-3 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 text-sm placeholder:text-slate-400 focus:outline-none focus:border-[#00d09c] focus:bg-white shadow-sm transition-all"
-                    />
-                  </div>
-                )}
-
-                {/* Email Address */}
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
-                    <Mail size={18} />
-                  </div>
-                  <input
-                    type="email"
-                    required
-                    placeholder="Enter your email address"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full pl-11 pr-4 py-3 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 text-sm placeholder:text-slate-400 focus:outline-none focus:border-[#00d09c] focus:bg-white shadow-sm transition-all"
-                  />
-                </div>
-
-                {emailMode !== 'forgot' && (
-                  <>
-                    {/* Password Input */}
-                    <div className="relative">
-                      <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
-                        <Lock size={18} />
-                      </div>
-                      <input
-                        type={showPassword ? 'text' : 'password'}
-                        required
-                        placeholder="Password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        className="w-full pl-11 pr-11 py-3 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 text-sm placeholder:text-slate-400 focus:outline-none focus:border-[#00d09c] focus:bg-white shadow-sm transition-all"
-                      />
+                {emailMode === 'forgot' && forgotStep === 'verify_code' ? (
+                  /* ----------------------------------------------------------- */
+                  /* FORGOT PASSWORD STEP 2: ENTER 6-DIGIT CODE ONLY            */
+                  /* ----------------------------------------------------------- */
+                  <div className="flex flex-col gap-3">
+                    {/* Header with Change Email */}
+                    <div className="flex items-center justify-between px-1 text-xs">
+                      <span className="text-slate-600">
+                        Code sent to <strong className="text-slate-950 font-black">{email}</strong>
+                      </span>
                       <button
                         type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute inset-y-0 right-0 pr-4 flex items-center text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+                        onClick={() => {
+                          setForgotStep('request');
+                          setResetCode('');
+                          setVerifiedResetToken('');
+                          setErrorMsg(null);
+                        }}
+                        className="text-emerald-700 font-bold hover:underline flex items-center gap-1 cursor-pointer"
                       >
-                        {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                        <ArrowLeft size={12} />
+                        <span>Change Email</span>
                       </button>
                     </div>
 
-                    {/* Confirm Password (Sign Up Only) */}
-                    {emailMode === 'signup' && (
+                    {/* 6-Digit Auto-Advancing Reset Code */}
+                    <div className="my-1">
+                      <label className="block text-[11px] font-bold text-slate-600 mb-1.5 px-1">
+                        Enter 6-Digit Verification Code
+                      </label>
+                      <PhoneOtpInput
+                        value={resetCode}
+                        onChange={setResetCode}
+                        length={6}
+                        disabled={loading}
+                        onComplete={(code) => handleVerifyResetCode(code)}
+                      />
+                    </div>
+
+                    {/* Resend Code Button & Countdown */}
+                    <div className="flex items-center justify-between px-1 text-xs">
+                      <span className="text-slate-500">Didn't receive email? Check spam</span>
+                      <button
+                        type="button"
+                        onClick={handleResendResetCode}
+                        disabled={resetCountdown > 0 || resending}
+                        className={`font-bold flex items-center gap-1 transition-all cursor-pointer ${resetCountdown > 0 ? 'text-slate-400 cursor-not-allowed' : 'text-emerald-700 hover:underline'
+                          }`}
+                      >
+                        <RefreshCw size={12} className={resending ? 'animate-spin' : ''} />
+                        <span>
+                          {resetCountdown > 0 ? `Resend in ${resetCountdown}s` : 'Resend Code'}
+                        </span>
+                      </button>
+                    </div>
+
+                    {/* Verify Code Action Button */}
+                    <button
+                      type="button"
+                      onClick={() => handleVerifyResetCode()}
+                      disabled={loading || resetCode.length !== 6}
+                      className="w-full mt-1.5 py-3.5 px-6 rounded-2xl bg-[#00d09c] hover:bg-[#00ba8b] active:scale-[0.98] disabled:opacity-50 text-slate-950 font-black text-sm shadow-lg shadow-[#00d09c]/25 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                    >
+                      {loading ? (
+                        <div className="w-5 h-5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <>
+                          <span>Verify Code</span>
+                          <ArrowRight size={18} strokeWidth={2.5} />
+                        </>
+                      )}
+                    </button>
+                  </div>
+                ) : emailMode === 'forgot' && forgotStep === 'set_password' ? (
+                  /* ----------------------------------------------------------- */
+                  /* FORGOT PASSWORD STEP 3: UNLOCKED SET NEW PASSWORD          */
+                  /* ----------------------------------------------------------- */
+                  <div className="flex flex-col gap-3">
+                    {/* Verified Identity Badge */}
+                    <div className="flex items-center gap-2.5 p-3 rounded-2xl bg-emerald-50 border border-emerald-200/90 text-emerald-900 text-xs font-semibold">
+                      <CheckCircle2 size={18} className="text-emerald-600 shrink-0" />
+                      <span className="leading-snug">
+                        Code verified for <strong className="font-black text-slate-900">{email}</strong>. Create your new password below.
+                      </span>
+                    </div>
+
+                    {/* New Password Input */}
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 mb-1 px-1">
+                        New Password
+                      </label>
                       <div className="relative">
                         <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
                           <Lock size={18} />
                         </div>
                         <input
-                          type={showConfirmPassword ? 'text' : 'password'}
+                          type={showNewPassword ? 'text' : 'password'}
                           required
-                          placeholder="Confirm password"
-                          value={confirmPassword}
-                          onChange={(e) => setConfirmPassword(e.target.value)}
+                          minLength={6}
+                          autoFocus
+                          placeholder="New password (min 6 characters)"
+                          value={newPassword}
+                          onChange={(e) => setNewPassword(e.target.value)}
                           className="w-full pl-11 pr-11 py-3 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 text-sm placeholder:text-slate-400 focus:outline-none focus:border-[#00d09c] focus:bg-white shadow-sm transition-all"
                         />
                         <button
                           type="button"
-                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                          onClick={() => setShowNewPassword(!showNewPassword)}
                           className="absolute inset-y-0 right-0 pr-4 flex items-center text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
                         >
-                          {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                          {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                         </button>
+                      </div>
+                    </div>
+
+                    {/* Confirm New Password Input */}
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 mb-1 px-1">
+                        Confirm New Password
+                      </label>
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
+                          <Lock size={18} />
+                        </div>
+                        <input
+                          type={showConfirmNewPassword ? 'text' : 'password'}
+                          required
+                          minLength={6}
+                          placeholder="Confirm new password"
+                          value={confirmNewPassword}
+                          onChange={(e) => setConfirmNewPassword(e.target.value)}
+                          className="w-full pl-11 pr-11 py-3 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 text-sm placeholder:text-slate-400 focus:outline-none focus:border-[#00d09c] focus:bg-white shadow-sm transition-all"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowConfirmNewPassword(!showConfirmNewPassword)}
+                          className="absolute inset-y-0 right-0 pr-4 flex items-center text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+                        >
+                          {showConfirmNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Update Password Action Button */}
+                    <button
+                      type="submit"
+                      disabled={loading || !newPassword || !confirmNewPassword || newPassword.length < 6}
+                      className="w-full mt-1.5 py-3.5 px-6 rounded-2xl bg-[#00d09c] hover:bg-[#00ba8b] active:scale-[0.98] disabled:opacity-50 text-slate-950 font-black text-sm shadow-lg shadow-[#00d09c]/25 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                    >
+                      {loading ? (
+                        <div className="w-5 h-5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <>
+                          <span>Update Password & Sign In</span>
+                          <ArrowRight size={18} strokeWidth={2.5} />
+                        </>
+                      )}
+                    </button>
+                  </div>
+                ) : (
+                  /* ----------------------------------------------------------- */
+                  /* STANDARD SIGNIN / SIGNUP / FORGOT STEP 1                   */
+                  /* ----------------------------------------------------------- */
+                  <>
+                    {/* Full Name Input (Sign Up Only) */}
+                    {emailMode === 'signup' && (
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
+                          <User size={18} />
+                        </div>
+                        <input
+                          type="text"
+                          required
+                          placeholder="Full Name"
+                          value={name}
+                          onChange={(e) => setName(e.target.value)}
+                          className="w-full pl-11 pr-4 py-3 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 text-sm placeholder:text-slate-400 focus:outline-none focus:border-[#00d09c] focus:bg-white shadow-sm transition-all"
+                        />
                       </div>
                     )}
 
-                    {/* Remember Me & Forgot Password */}
-                    <div className="flex items-center justify-between px-1 text-xs pt-0.5">
-                      <label className="flex items-center gap-2 text-slate-600 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={rememberMe}
-                          onChange={(e) => setRememberMe(e.target.checked)}
-                          className="w-4 h-4 rounded text-[#00d09c] focus:ring-[#00d09c] border-slate-300 accent-[#00d09c]"
-                        />
-                        <span>Remember Me</span>
-                      </label>
-
-                      {emailMode === 'signin' && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEmailMode('forgot');
-                            setErrorMsg(null);
-                            setSuccessMsg(null);
-                          }}
-                          className="text-emerald-700 font-semibold hover:underline cursor-pointer"
-                        >
-                          Forgot Password?
-                        </button>
-                      )}
+                    {/* Email Address */}
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
+                        <Mail size={18} />
+                      </div>
+                      <input
+                        type="email"
+                        required
+                        placeholder={emailMode === 'forgot' ? 'Enter your registered email' : 'Enter your email address'}
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="w-full pl-11 pr-4 py-3 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 text-sm placeholder:text-slate-400 focus:outline-none focus:border-[#00d09c] focus:bg-white shadow-sm transition-all"
+                      />
                     </div>
+
+                    {emailMode !== 'forgot' && (
+                      <>
+                        {/* Password Input */}
+                        <div className="relative">
+                          <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
+                            <Lock size={18} />
+                          </div>
+                          <input
+                            type={showPassword ? 'text' : 'password'}
+                            required
+                            placeholder="Password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            className="w-full pl-11 pr-11 py-3 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 text-sm placeholder:text-slate-400 focus:outline-none focus:border-[#00d09c] focus:bg-white shadow-sm transition-all"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword(!showPassword)}
+                            className="absolute inset-y-0 right-0 pr-4 flex items-center text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+                          >
+                            {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                          </button>
+                        </div>
+
+                        {/* Confirm Password (Sign Up Only) */}
+                        {emailMode === 'signup' && (
+                          <div className="relative">
+                            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
+                              <Lock size={18} />
+                            </div>
+                            <input
+                              type={showConfirmPassword ? 'text' : 'password'}
+                              required
+                              placeholder="Confirm password"
+                              value={confirmPassword}
+                              onChange={(e) => setConfirmPassword(e.target.value)}
+                              className="w-full pl-11 pr-11 py-3 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 text-sm placeholder:text-slate-400 focus:outline-none focus:border-[#00d09c] focus:bg-white shadow-sm transition-all"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                              className="absolute inset-y-0 right-0 pr-4 flex items-center text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+                            >
+                              {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Remember Me & Forgot Password */}
+                        <div className="flex items-center justify-between px-1 text-xs pt-0.5">
+                          <label className="flex items-center gap-2 text-slate-600 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={rememberMe}
+                              onChange={(e) => setRememberMe(e.target.checked)}
+                              className="w-4 h-4 rounded text-[#00d09c] focus:ring-[#00d09c] border-slate-300 accent-[#00d09c]"
+                            />
+                            <span>Remember Me</span>
+                          </label>
+
+                          {emailMode === 'signin' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEmailMode('forgot');
+                                setForgotStep('request');
+                                setErrorMsg(null);
+                                setSuccessMsg(null);
+                              }}
+                              className="text-emerald-700 font-semibold hover:underline cursor-pointer"
+                            >
+                              Forgot Password?
+                            </button>
+                          )}
+                        </div>
+                      </>
+                    )}
+
+                    {/* Primary Action Button */}
+                    <button
+                      type="submit"
+                      disabled={loading || (emailMode === 'forgot' && !email.trim())}
+                      className="w-full mt-1.5 py-3.5 px-6 rounded-2xl bg-[#00d09c] hover:bg-[#00ba8b] active:scale-[0.98] disabled:opacity-50 text-slate-950 font-black text-sm shadow-lg shadow-[#00d09c]/25 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                    >
+                      {loading ? (
+                        <div className="w-5 h-5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <>
+                          <span>
+                            {emailMode === 'signup'
+                              ? 'Sign Up To RunWar'
+                              : emailMode === 'signin'
+                                ? 'Log In To RunWar'
+                                : 'Send 6-Digit Reset Code'}
+                          </span>
+                          {emailMode === 'forgot' && <ArrowRight size={18} strokeWidth={2.5} />}
+                        </>
+                      )}
+                    </button>
                   </>
                 )}
-
-                {/* Primary Action Button */}
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full mt-1.5 py-3.5 px-6 rounded-2xl bg-[#00d09c] hover:bg-[#00ba8b] active:scale-[0.98] disabled:opacity-50 text-slate-950 font-black text-sm shadow-lg shadow-[#00d09c]/25 flex items-center justify-center gap-2 transition-all cursor-pointer"
-                >
-                  {loading ? (
-                    <div className="w-5 h-5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <>
-                      <span>
-                        {emailMode === 'signup'
-                          ? 'Sign Up To RunWar'
-                          : emailMode === 'signin'
-                            ? 'Log In To RunWar'
-                            : 'Send Reset Link'}
-                      </span>
-
-                    </>
-                  )}
-                </button>
               </form>
             )}
 
-            {/* Social Auth Divider (Always Available) */}
-            {emailOtpStep !== 'verify' && (
+            {/* Social Auth Divider (Only on main signin / signup screens) */}
+            {emailOtpStep !== 'verify' && emailMode !== 'forgot' && (
               <>
                 <div className="relative my-3.5">
                   <div className="absolute inset-0 flex items-center">
@@ -821,6 +1123,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   type="button"
                   onClick={() => {
                     setEmailMode('signin');
+                    setForgotStep('request');
+                    setResetCode('');
+                    setVerifiedResetToken('');
                     setErrorMsg(null);
                     setSuccessMsg(null);
                   }}

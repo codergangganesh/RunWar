@@ -38,6 +38,8 @@ import { weatherService } from '../services/weatherService';
 import { WeatherSnapshot } from '../types';
 import { downloadFile, generateGPX } from '../utils/exportGenerators';
 import { courseService } from '../services/courseService';
+import { tetherService } from '../services/tetherService';
+import { TetherSummaryCard } from '../components/tether/TetherSummaryCard';
 
 interface WorkoutSummaryScreenProps {
   workoutState: LiveWorkoutState | null;
@@ -70,6 +72,7 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
   const [newlyUnlockedAchievements, setNewlyUnlockedAchievements] = useState<Achievement[]>([]);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [quoteIndex, setQuoteIndex] = useState(0);
+  const [tetherSession] = useState(() => tetherService.getActiveSession() || tetherService.getLastCompletedSession());
   const [weatherData, setWeatherData] = useState<WeatherSnapshot | null>(
     workoutState?.weather || null
   );
@@ -588,6 +591,17 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
         </div>
       )}
 
+      {/* Tethered Run Accomplishment Card */}
+      {tetherSession && (
+        <TetherSummaryCard
+          session={tetherSession}
+          myDistanceMeters={distM}
+          myDurationSeconds={moving}
+          myPaceSec={avgPaceVal}
+          distanceUnit={distanceUnit}
+          paceUnit={paceUnit}
+        />
+      )}
 
       {/* 4. Your Route Map Section */}
       <div className="space-y-2">

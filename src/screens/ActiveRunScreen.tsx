@@ -34,9 +34,15 @@ import {
   Route,
   Swords,
   Radio,
+  Users,
 } from 'lucide-react';
 import { beaconService, LiveBeacon } from '../services/beaconService';
 import { LiveBeaconModal } from '../components/beacon/LiveBeaconModal';
+import { tetherService } from '../services/tetherService';
+import { TetherSession, TetherTelemetry, TetherDelta } from '../types/tether';
+import { TetherHUD } from '../components/tether/TetherHUD';
+import { TetherWalkieTalkie } from '../components/tether/TetherWalkieTalkie';
+import { TetherModal } from '../components/tether/TetherModal';
 import { formatDistance, formatDuration, formatPace, formatPaceRaw } from '../utils/formatters';
 import { WakeLockIndicator } from '../components/workout/WakeLockIndicator';
 import { WeatherBadge } from '../components/workout/WeatherBadge';
@@ -101,6 +107,54 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
   const activeChallengeIdRef = useRef<string | null>(null);
   const lastPingDistanceRef = useRef<number>(0);
   const PING_INTERVAL_METERS = 50; // send update every 50m
+
+  // ── Virtual Tether & Walkie-Talkie ──────────────────────────────────────
+  const [showTetherModal, setShowTetherModal] = useState(false);
+  const [activeTether, setActiveTether] = useState<TetherSession | null>(() => tetherService.getActiveSession());
+  const [peerTelemetry, setPeerTelemetry] = useState<TetherTelemetry | null>(null);
+  const [tetherDelta, setTetherDelta] = useState<TetherDelta | null>(null);
+
+  useEffect(() => {
+    const unsubSession = tetherService.onSessionChange((sess) => {
+      setActiveTether(sess);
+    });
+    const unsubTelem = tetherService.onTelemetry((telemetry, delta) => {
+      setPeerTelemetry(telemetry);
+      setTetherDelta(delta);
+    });
+    const unsubDisconnect = tetherService.onPartnerDisconnected(() => {
+      audioCoach.speak('Tether partner disconnected');
+    });
+    return () => {
+      unsubSession();
+      unsubTelem();
+      unsubDisconnect();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (activeTether && activeTether.status === 'active' && workoutState.status === 'tracking') {
+      tetherService.updateTelemetry({
+        userId: profile?.user_id || profile?.id || 'usr_self',
+        distanceMeters: workoutState.distanceMeters,
+        currentPaceSec: workoutState.currentPace,
+        movingTimeSec: workoutState.movingTime,
+        currentSpeedKmh: workoutState.currentSpeed,
+        splitKm: Math.floor(workoutState.distanceMeters / 1000),
+        latitude: workoutState.currentLocation?.latitude,
+        longitude: workoutState.currentLocation?.longitude,
+      });
+    }
+  }, [
+    activeTether,
+    workoutState.status,
+    workoutState.distanceMeters,
+    workoutState.currentPace,
+    workoutState.movingTime,
+    workoutState.currentSpeed,
+    workoutState.currentLocation,
+    profile,
+  ]);
 
   const pocketUnlockMode: PocketUnlockMode =
     settings?.pocket_unlock_mode ||
@@ -392,6 +446,7 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
     const finalState = gpsEngine.finishTracking();
     beaconService.stopBeacon().catch(() => {});
     setActiveBeacon(null);
+    tetherService.endSession().catch(() => {});
     onFinishWorkout(finalState);
 
     // Challenge completion – best-effort, non-blocking
@@ -539,64 +594,46 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
             {getNetworkIcon()}
           </div>
 
-          {/* Voice Coach, Audio Settings, Splits & View Switcher */}
-          <div className="flex items-center gap-1.5">
-            {/* Splits Drawer Trigger */}
-            {workoutState.splits && workoutState.splits.length > 0 && (
-              <button
-                onClick={() => setShowSplitsDrawer(!showSplitsDrawer)}
-                className={`p-2 rounded-xl border transition-all active:scale-95 ${showSplitsDrawer
-                  ? 'bg-emerald-500 text-white dark:text-slate-950 border-emerald-500'
-                  : 'bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-emerald-800 dark:text-slate-400'
-                  }`}
-                title="View kilometer splits"
-              >
-                <Flag size={15} />
-              </button>
-            )}
-
-            {/* Voice Coach Toggle */}
+          {/* Direct Controls: Voice Coach, Course, Ghost, Beacon, Tether, Pocket Mode & View Mode */}
+          <div className="flex items-center gap-1 sm:gap-1.5">
+            {/* 1. Voice Coach Toggle */}
             <button
+              type="button"
               onClick={() => {
                 const nextMuted = audioCoach.toggleMute() ? false : true;
                 setAudioMuted(nextMuted);
               }}
-              className={`p-2 rounded-xl border transition-all active:scale-95 ${audioMuted
-                ? 'bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-slate-400'
-                : 'bg-emerald-500 text-white dark:text-slate-950 border-emerald-500 shadow-sm shadow-emerald-500/20'
-                }`}
+              className={`p-1.5 sm:p-2 rounded-xl border transition-all active:scale-95 ${
+                audioMuted
+                  ? 'bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-slate-400'
+                  : 'bg-emerald-500 text-white dark:text-slate-950 border-emerald-500 shadow-sm shadow-emerald-500/20'
+              }`}
               title={audioMuted ? 'Voice coach: Muted (tap to unmute)' : 'Voice coach: Active'}
+              aria-label="Voice Coach"
             >
               {audioMuted ? <VolumeX size={15} /> : <Volume2 size={15} />}
             </button>
 
-            {/* Audio Coach Settings Trigger */}
+            {/* 2. Course / Route Navigation Trigger */}
             <button
-              onClick={() => setShowAudioSettings(true)}
-              className="p-2 rounded-xl border transition-all active:scale-95 bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400"
-              title="Customize Voice Coach, Speed & Chimes"
-              aria-label="Audio Settings"
-            >
-              <Sliders size={15} />
-            </button>
-
-            {/* Course / Route Navigation Trigger */}
-            <button
+              type="button"
               onClick={() => setShowCourseModal(true)}
-              className={`p-2 rounded-xl border transition-all active:scale-95 flex items-center gap-1 cursor-pointer ${workoutState.activeCourse
-                ? 'bg-orange-500 text-white dark:text-slate-950 border-orange-500 shadow-sm shadow-orange-500/25 font-bold'
-                : 'bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-slate-500 hover:text-orange-600 dark:hover:text-orange-400'
-                }`}
+              className={`p-1.5 sm:p-2 rounded-xl border transition-all active:scale-95 flex items-center gap-1 cursor-pointer ${
+                workoutState.activeCourse
+                  ? 'bg-orange-500 text-white dark:text-slate-950 border-orange-500 shadow-sm shadow-orange-500/25 font-bold'
+                  : 'bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-slate-500 hover:text-orange-600 dark:hover:text-orange-400'
+              }`}
               title={workoutState.activeCourse ? `Course: ${workoutState.activeCourse.name} (Tap to change)` : 'Select or upload GPX course to follow'}
               aria-label="Course navigation"
             >
               <Navigation size={15} className={workoutState.activeCourse ? 'animate-pulse' : ''} />
             </button>
 
-            {/* Ghost Rival Racing Mode Trigger */}
+            {/* 3. Ghost Rival Racing Mode Trigger */}
             <button
+              type="button"
               onClick={() => setShowGhostModal(true)}
-              className={`p-2 rounded-xl border transition-all active:scale-95 flex items-center gap-1 cursor-pointer ${
+              className={`p-1.5 sm:p-2 rounded-xl border transition-all active:scale-95 flex items-center gap-1 cursor-pointer ${
                 workoutState.ghostRival
                   ? 'bg-violet-600 text-white border-violet-500 shadow-sm shadow-violet-500/25 font-bold'
                   : 'bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-slate-500 hover:text-violet-600 dark:hover:text-violet-400'
@@ -611,10 +648,11 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
               <Swords size={15} className={workoutState.ghostRival ? 'animate-pulse' : ''} />
             </button>
 
-            {/* Live Run Beacon Trigger */}
+            {/* 4. Live Run Beacon Trigger */}
             <button
+              type="button"
               onClick={() => setShowBeaconModal(true)}
-              className={`p-2 rounded-xl border transition-all active:scale-95 flex items-center gap-1 cursor-pointer ${
+              className={`p-1.5 sm:p-2 rounded-xl border transition-all active:scale-95 flex items-center gap-1 cursor-pointer ${
                 activeBeacon
                   ? 'bg-rose-500 text-white border-rose-400 shadow-sm shadow-rose-500/25 font-bold'
                   : 'bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-slate-500 hover:text-rose-500 dark:hover:text-rose-400'
@@ -625,23 +663,45 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
               <Radio size={15} className={activeBeacon ? 'animate-pulse' : ''} />
             </button>
 
-            {/* Pocket Mode Toggle */}
+            {/* 5. Virtual Tether / Buddy Run Trigger */}
             <button
+              type="button"
+              onClick={() => setShowTetherModal(true)}
+              className={`p-1.5 sm:p-2 rounded-xl border transition-all active:scale-95 flex items-center gap-1 cursor-pointer ${
+                activeTether && activeTether.status === 'active'
+                  ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm shadow-emerald-600/25 font-bold'
+                  : 'bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400'
+              }`}
+              title={
+                activeTether && activeTether.status === 'active'
+                  ? `Tethered with ${activeTether.peer?.name || 'Buddy'} (Tap to manage)`
+                  : 'Start Virtual Tethered Run'
+              }
+              aria-label="Virtual Tether"
+            >
+              <Users size={15} className={activeTether && activeTether.status === 'active' ? 'animate-pulse' : ''} />
+            </button>
+
+            {/* 6. Pocket Mode Toggle */}
+            <button
+              type="button"
               onClick={() => setIsPocketMode(true)}
-              className="p-2 rounded-xl border transition-all active:scale-95 bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-emerald-800 dark:text-slate-300 hover:text-emerald-950 dark:hover:text-white"
+              className="p-1.5 sm:p-2 rounded-xl border transition-all active:scale-95 bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-emerald-800 dark:text-slate-300 hover:text-emerald-950 dark:hover:text-white"
               title="Pocket Mode: Lock touch & dim display"
               aria-label="Pocket Mode"
             >
               <Lock size={15} />
             </button>
 
-            {/* View Mode Switcher (Split View vs Fullscreen Map) */}
+            {/* 7. View Mode Switcher (Split View vs Fullscreen Map) */}
             <button
+              type="button"
               onClick={handleToggleViewMode}
-              className={`p-2 rounded-xl border transition-all active:scale-95 flex items-center gap-1 text-xs font-bold ${viewMode === 'map'
-                ? 'bg-emerald-500 text-white dark:text-slate-950 border-emerald-500 shadow-md'
-                : 'bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-emerald-800 dark:text-slate-300 hover:text-emerald-950 dark:hover:text-white'
-                }`}
+              className={`p-1.5 sm:p-2 rounded-xl border transition-all active:scale-95 flex items-center gap-1 text-xs font-bold ${
+                viewMode === 'map'
+                  ? 'bg-emerald-500 text-white dark:text-slate-950 border-emerald-500 shadow-md'
+                  : 'bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-800 text-emerald-800 dark:text-slate-300 hover:text-emerald-950 dark:hover:text-white'
+              }`}
               title={viewMode === 'split' ? 'Expand to Full Map View' : 'Switch to Split View (Map + Stats)'}
               aria-label={viewMode === 'split' ? 'Expand to Full Map View' : 'Switch to Split View'}
             >
@@ -827,6 +887,20 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
               challenge={activeChallenge}
               progress={challengeProgress}
               distanceUnit={(profile?.distance_unit as 'km' | 'mi') || 'km'}
+            />
+          </div>
+        )}
+
+        {/* Live Virtual Tether HUD */}
+        {activeTether && activeTether.status === 'active' && (
+          <div className="shrink-0 animate-fade-in">
+            <TetherHUD
+              session={activeTether}
+              peerTelemetry={peerTelemetry}
+              delta={tetherDelta}
+              distanceUnit={distanceUnit}
+              paceUnit={paceUnit}
+              onOpenModal={() => setShowTetherModal(true)}
             />
           </div>
         )}
@@ -1036,6 +1110,13 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
           </div>
         </BottomSheet>
 
+        {/* Walkie-Talkie Push-to-Talk Action (Active during Tether runs) */}
+        {activeTether && activeTether.status === 'active' && (
+          <div className="shrink-0 pb-1 z-20 animate-fade-in">
+            <TetherWalkieTalkie session={activeTether} />
+          </div>
+        )}
+
         {/* Clean, Circular Workout Controls */}
         <div className="py-2.5 flex items-center justify-center shrink-0 z-20">
           {!isPaused ? (
@@ -1171,6 +1252,7 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
                   onClick={() => {
                     beaconService.stopBeacon().catch(() => {});
                     setActiveBeacon(null);
+                    tetherService.endSession().catch(() => {});
                     gpsEngine.discardWorkout();
                     setShowDiscardConfirm(false);
                     onDiscardWorkout();
@@ -1431,6 +1513,17 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
         currentLat={workoutState.currentLocation?.latitude}
         currentLng={workoutState.currentLocation?.longitude}
         workoutType={workoutType}
+      />
+
+      {/* Virtual Tether & Walkie-Talkie Management Modal */}
+      <TetherModal
+        isOpen={showTetherModal}
+        onClose={() => {
+          setShowTetherModal(false);
+          setActiveTether(tetherService.getActiveSession());
+        }}
+        onSessionChange={setActiveTether}
+        profile={profile}
       />
     </div>
   );
