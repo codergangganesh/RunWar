@@ -37,59 +37,63 @@ export const LegalTermsScreen: React.FC<LegalTermsScreenProps> = ({
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-emerald-500/30 selection:text-emerald-300">
       {/* Top Fixed / Sticky Navigation Bar */}
-      <header className="sticky top-0 z-40 bg-slate-950/90 backdrop-blur-md border-b border-slate-800/80 px-4 sm:px-6 py-3.5 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <header className="sticky top-0 z-40 bg-slate-950/95 backdrop-blur-md border-b border-slate-800/80 px-3.5 sm:px-6 py-3 flex items-center justify-between gap-3 select-none">
+        {/* Left Side: Icon-only Back Arrow + Application Logo & Brand */}
+        <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0">
           <button
             type="button"
             onClick={onBack}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white transition-all text-xs font-bold cursor-pointer group active:scale-95"
-            title="Return to previous screen"
+            className="w-9 h-9 rounded-2xl bg-slate-900 border border-slate-800 hover:border-emerald-500/50 hover:bg-slate-800 text-slate-300 hover:text-white flex items-center justify-center transition-all active:scale-90 cursor-pointer shadow-sm shrink-0"
+            title="Go back"
+            aria-label="Go back"
           >
-            <ArrowLeft size={15} className="group-hover:-translate-x-0.5 transition-transform" />
-            <span>Back</span>
+            <ArrowLeft size={18} />
           </button>
 
-          <div className="h-4 w-px bg-slate-800 hidden sm:block" />
-
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center">
-              <ShieldCheck size={16} />
-            </div>
-            <div>
-              <h1 className="text-xs sm:text-sm font-black tracking-tight text-white flex items-center gap-1.5">
-                <span>RunWar</span>
-                <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.2 rounded-full uppercase tracking-wider">
-                  Legal Center
-                </span>
-              </h1>
+          <div className="flex items-center gap-2.5 min-w-0">
+            <img
+              src="/logo.png"
+              alt="RunWar Logo"
+              className="w-8 h-8 rounded-full object-contain bg-white shadow-sm border border-emerald-500/30 p-0.5 shrink-0"
+              onError={(e) => {
+                (e.target as HTMLElement).style.display = 'none';
+              }}
+            />
+            <div className="flex items-center gap-2 truncate">
+              <span className="font-display font-black text-base sm:text-lg tracking-tight text-white leading-none">
+                RunWar
+              </span>
+              <span className="hidden sm:inline-block text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full uppercase tracking-wider whitespace-nowrap">
+                Legal Center
+              </span>
             </div>
           </div>
         </div>
 
-        {/* Tab Toggle Pills */}
-        <div className="flex items-center bg-slate-900/90 p-1 rounded-2xl border border-slate-800/90 shadow-inner">
+        {/* Right Side: Tab Switcher (Terms of Service / Privacy Policy) */}
+        <div className="flex items-center bg-slate-900/90 p-1 rounded-2xl border border-slate-800/90 shadow-inner shrink-0">
           <button
             type="button"
             onClick={() => setActiveTab('terms')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'terms'
-                ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
+                ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/25 font-black'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
             }`}
           >
-            <FileText size={13} />
+            <FileText size={14} className={activeTab === 'terms' ? 'text-slate-950' : 'text-slate-400'} />
             <span>Terms of Service</span>
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('privacy')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'privacy'
-                ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
+                ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/25 font-black'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
             }`}
           >
-            <Lock size={13} />
+            <Lock size={14} className={activeTab === 'privacy' ? 'text-slate-950' : 'text-slate-400'} />
             <span>Privacy Policy</span>
           </button>
         </div>
@@ -586,10 +590,10 @@ export const LegalTermsScreen: React.FC<LegalTermsScreenProps> = ({
           <button
             type="button"
             onClick={onBack}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-lg shadow-emerald-500/20 active:scale-95 transition-all cursor-pointer"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs sm:text-sm shadow-lg shadow-emerald-500/20 active:scale-95 transition-all cursor-pointer"
           >
             <ArrowLeft size={16} />
-            <span>Return to Sign In</span>
+            <span>Back</span>
           </button>
 
           <button
