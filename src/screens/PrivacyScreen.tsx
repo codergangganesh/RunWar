@@ -2,13 +2,14 @@ import React, { useState } from 'react';
 import { UserProfile } from '../types';
 import { insforge } from '../lib/insforge';
 import { workoutService } from '../services/workoutService';
-import { Trash2, AlertTriangle, CheckCircle2, LogOut, Lock, ChevronRight } from 'lucide-react';
+import { Trash2, AlertTriangle, CheckCircle2, LogOut, Lock, ChevronRight, FileText, ShieldCheck } from 'lucide-react';
 
 interface PrivacyScreenProps {
   profile: UserProfile | null;
   onDataCleared: () => void;
   onSignOut: () => void;
   onNavigatePassword?: () => void;
+  onNavigateLegal?: (tab?: 'terms' | 'privacy') => void;
 }
 
 export const PrivacyScreen: React.FC<PrivacyScreenProps> = ({
@@ -16,6 +17,7 @@ export const PrivacyScreen: React.FC<PrivacyScreenProps> = ({
   onDataCleared,
   onSignOut,
   onNavigatePassword,
+  onNavigateLegal,
 }) => {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [clearing, setClearing] = useState(false);
@@ -101,14 +103,49 @@ export const PrivacyScreen: React.FC<PrivacyScreenProps> = ({
 
           <div>
             <strong className="text-slate-950 dark:text-white block font-bold">
-              Encrypted InsForge Cloud Storage
+              Encrypted Cloud Storage & Access Isolation
             </strong>
             <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed mt-0.5">
-              All fitness records are secured in PostgreSQL with Row Level Security (RLS) policies, ensuring only your authenticated account has permission to read and write your data.
+              All fitness records are secured with industry-standard encryption and strict access isolation policies, ensuring only your authenticated account has permission to read and write your data.
             </p>
           </div>
         </div>
       </div>
+
+      {/* Legal & Policies */}
+      {onNavigateLegal && (
+        <div className="space-y-3 pt-2 border-t border-slate-200 dark:border-slate-800">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
+            Legal & Policies
+          </h3>
+
+          <div className="grid grid-cols-2 gap-2.5 pt-1">
+            <button
+              onClick={() => onNavigateLegal('terms')}
+              className="p-3.5 rounded-2xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-500/40 text-left transition-all cursor-pointer group active:scale-98"
+            >
+              <div className="flex items-center justify-between mb-1">
+                <FileText size={16} className="text-emerald-500" />
+                <ChevronRight size={14} className="text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+              </div>
+              <span className="font-bold text-xs block text-slate-900 dark:text-white">Terms of Service</span>
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 block mt-0.5">User agreement & rules</span>
+            </button>
+
+            <button
+              onClick={() => onNavigateLegal('privacy')}
+              className="p-3.5 rounded-2xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-500/40 text-left transition-all cursor-pointer group active:scale-98"
+            >
+              <div className="flex items-center justify-between mb-1">
+                <ShieldCheck size={16} className="text-emerald-500" />
+                <ChevronRight size={14} className="text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+              </div>
+              <span className="font-bold text-xs block text-slate-900 dark:text-white">Privacy Policy</span>
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 block mt-0.5">Data protections</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Account Security & Password */}
       {onNavigatePassword && (

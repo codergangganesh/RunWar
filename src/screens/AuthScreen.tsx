@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { authService } from '../services/authService';
 import { PhoneOtpInput } from '../components/auth/PhoneOtpInput';
+import { LegalTermsScreen } from './LegalTermsScreen';
 import {
   Mail,
   Lock,
@@ -63,6 +64,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false);
   const [resetCountdown, setResetCountdown] = useState(0);
+
+  // Legal Documents Viewer Modal State
+  const [viewingDoc, setViewingDoc] = useState<'terms' | 'privacy' | null>(null);
 
   // Shared UI State
   const [loading, setLoading] = useState(false);
@@ -352,6 +356,16 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       setLoading(false);
     }
   };
+
+  // Dedicated Full-Page Legal Terms & Privacy Screen
+  if (viewingDoc) {
+    return (
+      <LegalTermsScreen
+        initialTab={viewingDoc}
+        onBack={() => setViewingDoc(null)}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen w-full bg-[#e8f3f0] flex flex-col justify-between items-center select-none relative overflow-x-hidden font-sans">
@@ -1135,6 +1149,29 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                 </button>
               </div>
             )}
+
+            {/* Terms of Service & Privacy Policy Small Text */}
+            <div className="mt-4 pt-2 pb-1 text-center">
+              <p className="text-[11px] text-slate-500 leading-relaxed max-w-xs sm:max-w-sm mx-auto select-none">
+                By continuing, you agree to RunWar's{' '}
+                <button
+                  type="button"
+                  onClick={() => setViewingDoc('terms')}
+                  className="text-emerald-700 font-bold underline underline-offset-2 hover:text-emerald-800 transition-colors cursor-pointer"
+                >
+                  Terms of Service
+                </button>{' '}
+                and{' '}
+                <button
+                  type="button"
+                  onClick={() => setViewingDoc('privacy')}
+                  className="text-emerald-700 font-bold underline underline-offset-2 hover:text-emerald-800 transition-colors cursor-pointer"
+                >
+                  Privacy Policy
+                </button>
+                .
+              </p>
+            </div>
           </div>
         </div>
       </div>

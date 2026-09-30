@@ -17,6 +17,7 @@ import { AchievementsScreen } from './screens/AchievementsScreen';
 import { PersonalRecordsScreen } from './screens/PersonalRecordsScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
 import { PrivacyScreen } from './screens/PrivacyScreen';
+import { LegalTermsScreen } from './screens/LegalTermsScreen';
 import { PasswordScreen } from './screens/PasswordScreen';
 import { BugReportScreen } from './screens/BugReportScreen';
 import { AdminBugReportsScreen } from './screens/AdminBugReportsScreen';
@@ -75,6 +76,7 @@ type ScreenState =
   | 'workout_detail'
   | 'privacy'
   | 'password'
+  | 'legal'
   | 'connected_health'
   | 'post_detail'
   | 'notifications'
@@ -121,6 +123,7 @@ export const App: React.FC = () => {
     return 'splash';
   });
   const [activeTab, setActiveTab] = useState<ActiveTab>('home');
+  const [legalInitialTab, setLegalInitialTab] = useState<'terms' | 'privacy'>('terms');
 
   // User & Settings (Synchronously load cached session on frame 0)
   const [currentUser, setCurrentUser] = useState<any>(() => authService.getCachedUser());
@@ -1232,6 +1235,14 @@ export const App: React.FC = () => {
             />
           );
 
+        case 'legal':
+          return (
+            <LegalTermsScreen
+              initialTab={legalInitialTab}
+              onBack={() => setScreen('auth')}
+            />
+          );
+
         case 'post_detail':
           return (
             <PostDetailScreen
@@ -1355,8 +1366,20 @@ export const App: React.FC = () => {
               }}
               onSignOut={handleSignOut}
               onNavigatePassword={() => setScreen('password')}
+              onNavigateLegal={(tab) => {
+                setLegalInitialTab(tab || 'terms');
+                setScreen('legal');
+              }}
             />
           </AppShell>
+        );
+
+      case 'legal':
+        return (
+          <LegalTermsScreen
+            initialTab={legalInitialTab}
+            onBack={() => setScreen('privacy')}
+          />
         );
 
       case 'password':
