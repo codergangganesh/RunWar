@@ -148,6 +148,7 @@ export const NotificationSettingsPanel: React.FC<NotificationSettingsPanelProps>
     setIsRevokingId(subId);
     try {
       await revokeDevice(subId);
+      await notificationService.purgeRevokedSubscriptions(userId);
       setSaveSuccessNotice('Device removed');
       setTimeout(() => setSaveSuccessNotice(null), 2500);
     } finally {
@@ -300,7 +301,7 @@ export const NotificationSettingsPanel: React.FC<NotificationSettingsPanelProps>
               <button
                 type="button"
                 onClick={handleSendTestPush}
-                disabled={isTestingPush}
+                disabled={isTestingPush || !isSubscribed || subscriptionCount === 0}
                 className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 flex items-center gap-1 disabled:opacity-50 cursor-pointer"
               >
                 {isTestingPush ? <Loader2 size={10} className="animate-spin" /> : <Send size={10} />}

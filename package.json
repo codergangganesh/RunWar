@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check:backend": "node scripts/verify_backend_health.js"
   },
   "dependencies": {
     "@insforge/sdk": "^1.5.2",

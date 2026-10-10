@@ -280,6 +280,27 @@ export const notificationService = {
     }
   },
 
+  /**
+   * Permanently purge revoked push subscriptions to keep database rows minimal
+   */
+  async purgeRevokedSubscriptions(userId: string): Promise<number> {
+    try {
+      const { data, error } = await insforge.database
+        .from('push_subscriptions')
+        .delete()
+        .eq('user_id', userId)
+        .not('revoked_at', 'is', null);
+
+      if (error) {
+        console.warn('[notificationService] purgeRevokedSubscriptions error:', error.message);
+        return 0;
+      }
+      return Array.isArray(data) ? (data as any[]).length : 0;
+    } catch {
+      return 0;
+    }
+  },
+
   // ── Notifications ───────────────────────────────────────────────────────────
 
   /**
@@ -524,6 +545,12 @@ export const notificationService = {
    * Send a test push notification via the InsForge edge function
    */
   async sendTestNotification(userId: string, delaySeconds: number = 0): Promise<void> {
+    // 0. Pre-flight quota guard: verify active subscription before calling Edge Function
+    const activeCount = await this.getSubscriptionCount(userId);
+    if (activeCount === 0) {
+      throw new Error('No active device push subscription found. Please toggle Push Notifications ON first.');
+    }
+
     // First create a notification record
     const notif = await this.createNotification({
       userId,
