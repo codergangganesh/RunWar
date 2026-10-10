@@ -5,6 +5,7 @@
  */
 
 import { insforge } from '../lib/insforge';
+import { authService } from './authService';
 import {
   TetherSession,
   TetherParticipant,
@@ -32,6 +33,8 @@ class TetherService {
   private peerTelemetry: TetherTelemetry | null = null;
   private lastPeerTelemetry: TetherTelemetry | null = null;
   private broadcastChannel: BroadcastChannel | null = null;
+  private activeRealtimeChannel: string | null = null;
+  private realtimeMessageHandler: ((msg: any) => void) | null = null;
   private syncInterval: any = null;
   private lastPingAt: number = 0;
   private lastAnnouncedPeerKm: number = 0;
@@ -88,7 +91,7 @@ class TetherService {
                 updated_at: new Date().toISOString(),
               })
               .eq('room_code', roomCode);
-          } catch {}
+          } catch { }
         }
       });
     }
@@ -115,6 +118,7 @@ class TetherService {
         const parsed = JSON.parse(saved);
         if (parsed && (parsed.status === 'active' || parsed.status === 'waiting')) {
           this.activeSession = parsed;
+          this.initRealtimeSubscription(parsed.roomCode);
           this.startPeriodicSync();
         }
       }
@@ -224,6 +228,8 @@ class TetherService {
     } catch {
       // Graceful fallback to real-time broadcast
     }
+
+    this.initRealtimeSubscription(session.roomCode);
 
     this.broadcastMessage({
       type: 'ROOM_CREATED',
@@ -379,6 +385,7 @@ class TetherService {
       this.syncInterval = null;
     }
 
+    this.teardownRealtimeSubscription();
     this.activeSession = null;
     this.peerTelemetry = null;
     this.saveSession();
@@ -408,6 +415,7 @@ class TetherService {
       this.syncInterval = null;
     }
 
+    this.teardownRealtimeSubscription();
     this.activeSession = null;
     this.peerTelemetry = null;
     this.saveSession();
@@ -524,8 +532,8 @@ class TetherService {
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
         : MediaRecorder.isTypeSupported('audio/mp4')
-        ? 'audio/mp4'
-        : 'audio/webm';
+          ? 'audio/mp4'
+          : 'audio/webm';
 
       this.mediaRecorder = new MediaRecorder(this.mediaStream, { mimeType });
 
@@ -636,12 +644,111 @@ class TetherService {
   // Messaging & Realtime Synchronization
   // ──────────────────────────────────────────────────────────────────────────
 
+  private getMyUserId(): string {
+    if (this.myTelemetry?.userId) return this.myTelemetry.userId;
+    try {
+      const cached = authService.getCachedUser();
+      if (cached?.id) return cached.id;
+    } catch {}
+    if (this.activeSession) {
+      return this.activeSession.peer ? this.activeSession.peer.userId : this.activeSession.host.userId;
+    }
+    return '';
+  }
+
+  private initRealtimeSubscription(roomCode: string): void {
+    if (!roomCode || typeof window === 'undefined') return;
+    const cleanCode = roomCode.trim().toUpperCase();
+    const channelName = `tether:${cleanCode}`;
+
+    if (this.activeRealtimeChannel === channelName) return;
+    this.teardownRealtimeSubscription();
+
+    try {
+      if (insforge.realtime && typeof (insforge.realtime as any).subscribe === 'function') {
+        this.activeRealtimeChannel = channelName;
+        (insforge.realtime as any).subscribe(channelName).catch((err: any) => {
+          console.warn('[Tether Realtime] Subscribe notice:', err);
+        });
+
+        this.realtimeMessageHandler = (msg: any) => {
+          if (!this.activeSession) return;
+          const payload = msg?.payload || msg?.data || msg;
+          if (!payload) return;
+
+          // Guard against processing our own echoes
+          const myId = this.getMyUserId();
+          if (payload.senderUserId && myId && payload.senderUserId === myId) {
+            return;
+          }
+
+          // Filter for active room code
+          if (payload.roomCode && payload.roomCode !== this.activeSession.roomCode) {
+            return;
+          }
+
+          this.handleIncomingBroadcast(payload);
+        };
+
+        if (typeof (insforge.realtime as any).on === 'function') {
+          (insforge.realtime as any).on('message', this.realtimeMessageHandler);
+        }
+      }
+    } catch (err) {
+      console.warn('[Tether Realtime] Setup error:', err);
+    }
+  }
+
+  private teardownRealtimeSubscription(): void {
+    if (!this.activeRealtimeChannel) return;
+    const channelToLeave = this.activeRealtimeChannel;
+    this.activeRealtimeChannel = null;
+
+    try {
+      if (insforge.realtime) {
+        if (this.realtimeMessageHandler && typeof (insforge.realtime as any).off === 'function') {
+          (insforge.realtime as any).off('message', this.realtimeMessageHandler);
+          this.realtimeMessageHandler = null;
+        }
+        if (typeof (insforge.realtime as any).unsubscribe === 'function') {
+          (insforge.realtime as any).unsubscribe(channelToLeave);
+        }
+      }
+    } catch (err) {
+      console.warn('[Tether Realtime] Teardown error:', err);
+    }
+  }
+
   private broadcastMessage(payload: any): void {
+    const activeCode = this.activeSession?.roomCode;
+    const myId = this.getMyUserId();
+    const enriched = {
+      ...payload,
+      roomCode: payload.roomCode || activeCode,
+      senderUserId: myId,
+    };
+
+    // 1. Same-device local BroadcastChannel fallback
     if (this.broadcastChannel) {
       try {
-        this.broadcastChannel.postMessage(payload);
+        this.broadcastChannel.postMessage(enriched);
       } catch {
         // Ignored
+      }
+    }
+
+    // 2. Cross-device InsForge Realtime WebSocket broadcast
+    if (activeCode && insforge.realtime && typeof (insforge.realtime as any).publish === 'function') {
+      const channelName = `tether:${activeCode}`;
+      try {
+        (insforge.realtime as any).publish(channelName, 'message', {
+          channel: channelName,
+          ...enriched,
+        }).catch((err: any) => {
+          console.warn('[Tether Realtime] Publish error:', err);
+        });
+      } catch (err) {
+        console.warn('[Tether Realtime] Publish notice:', err);
       }
     }
   }
@@ -803,7 +910,7 @@ class TetherService {
     this.disconnectListeners.forEach((fn) => {
       try {
         fn(reason);
-      } catch {}
+      } catch { }
     });
   }
 

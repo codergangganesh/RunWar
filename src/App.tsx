@@ -1,40 +1,43 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Suspense, lazy } from 'react';
 import { AppShell, ActiveTab } from './components/layout/AppShell';
 import { SplashScreen } from './screens/SplashScreen';
 import { WelcomeScreen } from './screens/WelcomeScreen';
-import { OnboardingScreen } from './screens/OnboardingScreen';
-import { AuthScreen } from './screens/AuthScreen';
-import { ProfileSetupScreen } from './screens/ProfileSetupScreen';
 import { HomeScreen } from './screens/HomeScreen';
 import { ActiveRunScreen } from './screens/ActiveRunScreen';
-import { WorkoutSummaryScreen } from './screens/WorkoutSummaryScreen';
-import { HistoryScreen } from './screens/HistoryScreen';
-import { WorkoutDetailScreen } from './screens/WorkoutDetailScreen';
-import { InsightsScreen } from './screens/InsightsScreen';
-import { CalendarScreen } from './screens/CalendarScreen';
-import { GoalsScreen } from './screens/GoalsScreen';
-import { AchievementsScreen } from './screens/AchievementsScreen';
-import { PersonalRecordsScreen } from './screens/PersonalRecordsScreen';
-import { ProfileScreen } from './screens/ProfileScreen';
-import { PrivacyScreen } from './screens/PrivacyScreen';
-import { LegalTermsScreen } from './screens/LegalTermsScreen';
-import { PasswordScreen } from './screens/PasswordScreen';
-import { BugReportScreen } from './screens/BugReportScreen';
-import { AdminBugReportsScreen } from './screens/AdminBugReportsScreen';
-import { ConnectedHealthScreen } from './screens/ConnectedHealthScreen';
-import { DailyActivityScreen } from './screens/DailyActivityScreen';
-import { StepHistoryScreen } from './screens/StepHistoryScreen';
-import { ChallengesScreen } from './screens/ChallengesScreen';
-import { SocialFeedScreen } from './screens/SocialFeedScreen';
-import { PostDetailScreen } from './screens/PostDetailScreen';
+
+// Code-split non-critical screens with React.lazy for instant startup and low memory footprint
+const OnboardingScreen = lazy(() => import('./screens/OnboardingScreen').then(m => ({ default: m.OnboardingScreen })));
+const AuthScreen = lazy(() => import('./screens/AuthScreen').then(m => ({ default: m.AuthScreen })));
+const ProfileSetupScreen = lazy(() => import('./screens/ProfileSetupScreen').then(m => ({ default: m.ProfileSetupScreen })));
+const WorkoutSummaryScreen = lazy(() => import('./screens/WorkoutSummaryScreen').then(m => ({ default: m.WorkoutSummaryScreen })));
+const HistoryScreen = lazy(() => import('./screens/HistoryScreen').then(m => ({ default: m.HistoryScreen })));
+const WorkoutDetailScreen = lazy(() => import('./screens/WorkoutDetailScreen').then(m => ({ default: m.WorkoutDetailScreen })));
+const InsightsScreen = lazy(() => import('./screens/InsightsScreen').then(m => ({ default: m.InsightsScreen })));
+const CalendarScreen = lazy(() => import('./screens/CalendarScreen').then(m => ({ default: m.CalendarScreen })));
+const GoalsScreen = lazy(() => import('./screens/GoalsScreen').then(m => ({ default: m.GoalsScreen })));
+const AchievementsScreen = lazy(() => import('./screens/AchievementsScreen').then(m => ({ default: m.AchievementsScreen })));
+const PersonalRecordsScreen = lazy(() => import('./screens/PersonalRecordsScreen').then(m => ({ default: m.PersonalRecordsScreen })));
+const ProfileScreen = lazy(() => import('./screens/ProfileScreen').then(m => ({ default: m.ProfileScreen })));
+const PrivacyScreen = lazy(() => import('./screens/PrivacyScreen').then(m => ({ default: m.PrivacyScreen })));
+const LegalTermsScreen = lazy(() => import('./screens/LegalTermsScreen').then(m => ({ default: m.LegalTermsScreen })));
+const PasswordScreen = lazy(() => import('./screens/PasswordScreen').then(m => ({ default: m.PasswordScreen })));
+const BugReportScreen = lazy(() => import('./screens/BugReportScreen').then(m => ({ default: m.BugReportScreen })));
+const AdminBugReportsScreen = lazy(() => import('./screens/AdminBugReportsScreen').then(m => ({ default: m.AdminBugReportsScreen })));
+const ConnectedHealthScreen = lazy(() => import('./screens/ConnectedHealthScreen').then(m => ({ default: m.ConnectedHealthScreen })));
+const DailyActivityScreen = lazy(() => import('./screens/DailyActivityScreen').then(m => ({ default: m.DailyActivityScreen })));
+const StepHistoryScreen = lazy(() => import('./screens/StepHistoryScreen').then(m => ({ default: m.StepHistoryScreen })));
+const ChallengesScreen = lazy(() => import('./screens/ChallengesScreen').then(m => ({ default: m.ChallengesScreen })));
+const SocialFeedScreen = lazy(() => import('./screens/SocialFeedScreen').then(m => ({ default: m.SocialFeedScreen })));
+const PostDetailScreen = lazy(() => import('./screens/PostDetailScreen').then(m => ({ default: m.PostDetailScreen })));
+const NotificationsScreen = lazy(() => import('./screens/NotificationsScreen').then(m => ({ default: m.NotificationsScreen })));
+const LiveBeaconSpectatorScreen = lazy(() => import('./screens/LiveBeaconSpectatorScreen').then(m => ({ default: m.LiveBeaconSpectatorScreen })));
+
 import { FeedPost, getPostIdFromUrl } from './services/socialService';
 import { RecoveryModal } from './components/ui/RecoveryModal';
 import { PWAInstallBanner } from './components/ui/PWAInstallBanner';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { BottomSheet } from './components/ui/BottomSheet';
 import { NotificationCenter } from './components/notifications/NotificationCenter';
-import { NotificationsScreen } from './screens/NotificationsScreen';
-import { LiveBeaconSpectatorScreen } from './screens/LiveBeaconSpectatorScreen';
 import { useNotifications } from './hooks/useNotifications';
 import { notificationService } from './services/notificationService';
 import { beaconService } from './services/beaconService';
@@ -83,6 +86,58 @@ type ScreenState =
   | 'report_bug'
   | 'admin_bug_reports'
   | 'live_beacon';
+
+const ScreenLoadingFallback: React.FC = () => (
+  <div
+    style={{
+      minHeight: '60vh',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '32px 16px',
+      color: '#94a3b8',
+    }}
+  >
+    <div
+      style={{
+        position: 'relative',
+        width: '44px',
+        height: '44px',
+        marginBottom: '16px',
+      }}
+    >
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          borderRadius: '50%',
+          border: '3px solid rgba(16, 185, 129, 0.15)',
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          borderRadius: '50%',
+          border: '3px solid transparent',
+          borderTopColor: '#10b981',
+          animation: 'spin 0.8s cubic-bezier(0.4, 0, 0.2, 1) infinite',
+        }}
+      />
+    </div>
+    <div
+      style={{
+        fontSize: '0.875rem',
+        fontWeight: 600,
+        color: '#e2e8f0',
+        letterSpacing: '0.02em',
+      }}
+    >
+      Loading RunWar...
+    </div>
+  </div>
+);
 
 export const App: React.FC = () => {
   // Check if there is an active running session from a browser refresh
@@ -848,6 +903,12 @@ export const App: React.FC = () => {
   // Handle splash completion (controlled by AppState FSM)
   const handleSplashFinish = () => { };
 
+  // Keep workouts ref fresh for popstate lookup without stale closures
+  const workoutsRef = useRef<Workout[]>(workouts);
+  useEffect(() => {
+    workoutsRef.current = workouts;
+  }, [workouts]);
+
   // Handle URL navigation params after authentication resolves
   useEffect(() => {
     if (isAuthInitializing || appState !== 'READY') return;
@@ -860,35 +921,119 @@ export const App: React.FC = () => {
     const params = new URLSearchParams(window.location.search);
     const targetScreen = params.get('screen') as ScreenState | null;
     const targetTab = params.get('tab') as ActiveTab | null;
-    if (targetScreen === 'connected_health' || targetScreen === 'privacy' || targetScreen === 'password') {
+    const targetWorkoutId = params.get('workout_id');
+    if (targetWorkoutId && workouts.length > 0) {
+      const match = workouts.find((w) => w.id === targetWorkoutId);
+      if (match) {
+        setSelectedWorkout(match);
+        setScreen('workout_detail');
+        return;
+      }
+    }
+    if (
+      targetScreen === 'connected_health' ||
+      targetScreen === 'privacy' ||
+      targetScreen === 'password' ||
+      targetScreen === 'notifications' ||
+      targetScreen === 'report_bug' ||
+      targetScreen === 'admin_bug_reports'
+    ) {
       setScreen(targetScreen);
     } else if (targetTab) {
       setActiveTab(targetTab);
     }
-  }, [isAuthInitializing, appState]);
+  }, [isAuthInitializing, appState, workouts]);
 
-  // Support browser Back/Forward navigation with deep linked posts
+  // Support mobile hardware back button and browser Back/Forward navigation
   useEffect(() => {
-    const handlePopState = () => {
+    const handlePopState = (event: PopStateEvent) => {
+      const state = event.state;
       const postParam = getPostIdFromUrl();
+
       if (postParam) {
         setActivePostId(postParam);
         setScreen('post_detail');
-      } else if (screen === 'post_detail') {
-        const cached = authService.getCachedUser();
-        if (cached) {
-          setScreen('main');
-          setActiveTab('social');
-        } else {
-          setScreen('welcome');
-        }
-        setActivePostId(null);
-        setActivePost(null);
+        return;
       }
+
+      if (state) {
+        if (state.postId) {
+          setActivePostId(state.postId);
+          setScreen('post_detail');
+          return;
+        }
+
+        if (state.screen === 'workout_detail' && state.workoutId) {
+          const match = workoutsRef.current.find((w) => w.id === state.workoutId);
+          if (match) {
+            setSelectedWorkout(match);
+            setScreen('workout_detail');
+            return;
+          }
+        }
+
+        if (state.screen === 'main') {
+          setScreen('main');
+          if (state.tab) {
+            setActiveTab(state.tab);
+          }
+          setActivePostId(null);
+          setActivePost(null);
+          setSelectedWorkout(null);
+          return;
+        }
+
+        if (state.screen) {
+          setScreen(state.screen);
+          if (state.tab) {
+            setActiveTab(state.tab);
+          }
+          return;
+        }
+      }
+
+      // URL search param fallback
+      const params = new URLSearchParams(window.location.search);
+      const urlScreen = params.get('screen') as ScreenState | null;
+      const urlTab = params.get('tab') as ActiveTab | null;
+      const urlWorkoutId = params.get('workout_id');
+
+      if (urlWorkoutId) {
+        const match = workoutsRef.current.find((w) => w.id === urlWorkoutId);
+        if (match) {
+          setSelectedWorkout(match);
+          setScreen('workout_detail');
+          return;
+        }
+      }
+
+      if (urlScreen) {
+        setScreen(urlScreen);
+        return;
+      }
+
+      if (urlTab) {
+        setActiveTab(urlTab);
+        setScreen('main');
+        return;
+      }
+
+      // Default fallback
+      const cached = authService.getCachedUser();
+      if (currentUser || cached) {
+        setScreen('main');
+        setActiveTab('home');
+      } else {
+        setScreen('welcome');
+      }
+      setActivePostId(null);
+      setActivePost(null);
+      setSelectedWorkout(null);
     };
+
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [screen]);
+  }, [currentUser]);
 
   // Open and close dedicated post detail view
   const handleOpenPostDetail = (targetPost: FeedPost | string) => {
@@ -902,20 +1047,23 @@ export const App: React.FC = () => {
     setScreen('post_detail');
     const targetId = typeof targetPost === 'string' ? targetPost : targetPost.id;
     const newUrl = `${window.location.pathname}?post=${encodeURIComponent(targetId)}`;
-    window.history.pushState({ postId: targetId }, '', newUrl);
+    window.history.pushState({ postId: targetId, screen: 'post_detail' }, '', newUrl);
   };
 
   const handleClosePostDetail = () => {
     setActivePostId(null);
     setActivePost(null);
-    window.history.replaceState({}, '', window.location.pathname);
-
-    const cached = authService.getCachedUser();
-    if (currentUser || cached) {
-      setScreen('main');
-      setActiveTab('social');
+    if (window.history.state?.screen === 'post_detail' || window.history.state?.postId) {
+      window.history.back();
     } else {
-      setScreen('welcome');
+      window.history.replaceState({ screen: 'main', tab: 'social' }, '', window.location.pathname);
+      const cached = authService.getCachedUser();
+      if (currentUser || cached) {
+        setScreen('main');
+        setActiveTab('social');
+      } else {
+        setScreen('welcome');
+      }
     }
   };
 
@@ -1046,10 +1194,32 @@ export const App: React.FC = () => {
     }
   };
 
+  // Navigate to secondary screens with history support
+  const handleNavigateScreen = useCallback((targetScreen: ScreenState, pushHistory = true) => {
+    setScreen(targetScreen);
+    if (pushHistory && typeof window !== 'undefined' && window.history?.pushState) {
+      const newUrl = `${window.location.pathname}?screen=${targetScreen}`;
+      window.history.pushState({ screen: targetScreen, tab: activeTab }, '', newUrl);
+    }
+  }, [activeTab]);
+
+  // Navigate back to main or previous history entry
+  const handleBackToMain = useCallback(() => {
+    if (typeof window !== 'undefined' && window.history?.state?.screen && window.history.state.screen !== 'main') {
+      window.history.back();
+    } else {
+      setScreen('main');
+    }
+  }, []);
+
   // Select workout for details
-  const handleSelectWorkout = (workout: Workout) => {
+  const handleSelectWorkout = (workout: Workout, pushHistory = true) => {
     setSelectedWorkout(workout);
     setScreen('workout_detail');
+    if (pushHistory && typeof window !== 'undefined' && window.history?.pushState) {
+      const newUrl = `${window.location.pathname}?screen=workout_detail&workout_id=${encodeURIComponent(workout.id)}`;
+      window.history.pushState({ screen: 'workout_detail', workoutId: workout.id, tab: activeTab }, '', newUrl);
+    }
   };
 
   // Workout deleted
@@ -1057,8 +1227,12 @@ export const App: React.FC = () => {
     // 1. Immediately reflect in memory and UI (0ms delay, no page refresh needed)
     setWorkouts((prev) => prev.filter((w) => w.id !== workoutId));
     setSelectedWorkout(null);
-    setScreen('main');
-    setActiveTab('history');
+    if (typeof window !== 'undefined' && window.history?.state?.screen === 'workout_detail') {
+      window.history.back();
+    } else {
+      setScreen('main');
+      setActiveTab('history');
+    }
 
     // 2. Silently update statistics in the background
     const activeId = currentUser?.id || authService.getCachedUser()?.id;
@@ -1080,10 +1254,17 @@ export const App: React.FC = () => {
   };
 
   // Tab switcher with fresh data fetch when entering History or Home
-  const handleTabChange = (tab: ActiveTab) => {
+  const handleTabChange = (tab: ActiveTab, pushHistory = true) => {
     setActiveTab(tab);
     if (screen !== 'main') {
       setScreen('main');
+    }
+    if (pushHistory && typeof window !== 'undefined' && window.history?.pushState) {
+      const currentHistoryState = window.history.state;
+      if (!currentHistoryState || currentHistoryState.tab !== tab || currentHistoryState.screen !== 'main') {
+        const newUrl = tab === 'home' ? window.location.pathname : `${window.location.pathname}?tab=${tab}`;
+        window.history.pushState({ screen: 'main', tab }, '', newUrl);
+      }
     }
     const activeId = currentUser?.id || authService.getCachedUser()?.id;
     if ((tab === 'history' || tab === 'home') && activeId) {
@@ -1326,7 +1507,7 @@ export const App: React.FC = () => {
             profile={profile}
             headerTitle="Workout Details"
             showBack={true}
-            onBack={() => setScreen('main')}
+            onBack={handleBackToMain}
             streakCount={todayStats.streak.currentStreak}
             theme={theme}
             onToggleTheme={handleToggleTheme}
@@ -1334,7 +1515,7 @@ export const App: React.FC = () => {
             <WorkoutDetailScreen
               workout={selectedWorkout}
               profile={profile}
-              onBack={() => setScreen('main')}
+              onBack={handleBackToMain}
               onDeleted={handleWorkoutDeleted}
             />
           </AppShell>
@@ -1348,7 +1529,7 @@ export const App: React.FC = () => {
             profile={profile}
             headerTitle="Privacy & Data"
             showBack={true}
-            onBack={() => setScreen('main')}
+            onBack={handleBackToMain}
             streakCount={todayStats.streak.currentStreak}
             theme={theme}
             onToggleTheme={handleToggleTheme}
@@ -1365,10 +1546,10 @@ export const App: React.FC = () => {
                 if (currentUser) loadAppData(currentUser.id);
               }}
               onSignOut={handleSignOut}
-              onNavigatePassword={() => setScreen('password')}
+              onNavigatePassword={() => handleNavigateScreen('password')}
               onNavigateLegal={(tab) => {
                 setLegalInitialTab(tab || 'terms');
-                setScreen('legal');
+                handleNavigateScreen('legal');
               }}
             />
           </AppShell>
@@ -1378,7 +1559,7 @@ export const App: React.FC = () => {
         return (
           <LegalTermsScreen
             initialTab={legalInitialTab}
-            onBack={() => setScreen('privacy')}
+            onBack={handleBackToMain}
           />
         );
 
@@ -1390,7 +1571,7 @@ export const App: React.FC = () => {
             profile={profile}
             headerTitle="Password"
             showBack={true}
-            onBack={() => setScreen('privacy')}
+            onBack={handleBackToMain}
             streakCount={todayStats.streak.currentStreak}
             theme={theme}
             onToggleTheme={handleToggleTheme}
@@ -1405,7 +1586,7 @@ export const App: React.FC = () => {
               currentUser={currentUser}
               profile={profile}
               onProfileUpdated={(updated) => setProfile(updated)}
-              onBack={() => setScreen('privacy')}
+              onBack={handleBackToMain}
             />
           </AppShell>
         );
@@ -1418,10 +1599,7 @@ export const App: React.FC = () => {
             profile={profile}
             headerTitle="Report a Bug"
             showBack={true}
-            onBack={() => {
-              setActiveTab('profile');
-              setScreen('main');
-            }}
+            onBack={handleBackToMain}
             streakCount={todayStats.streak.currentStreak}
             theme={theme}
             onToggleTheme={handleToggleTheme}
@@ -1436,10 +1614,7 @@ export const App: React.FC = () => {
               currentUser={currentUser}
               profile={profile}
               reportedFrom={activeTab ? `Tab: ${activeTab}` : 'Profile'}
-              onBack={() => {
-                setActiveTab('profile');
-                setScreen('main');
-              }}
+              onBack={handleBackToMain}
             />
           </AppShell>
         );
@@ -1452,10 +1627,7 @@ export const App: React.FC = () => {
             profile={profile}
             headerTitle="Admin Bug Reports"
             showBack={true}
-            onBack={() => {
-              setActiveTab('profile');
-              setScreen('main');
-            }}
+            onBack={handleBackToMain}
             streakCount={todayStats.streak.currentStreak}
             theme={theme}
             onToggleTheme={handleToggleTheme}
@@ -1469,10 +1641,7 @@ export const App: React.FC = () => {
             <AdminBugReportsScreen
               currentUser={currentUser}
               profile={profile}
-              onBack={() => {
-                setActiveTab('profile');
-                setScreen('main');
-              }}
+              onBack={handleBackToMain}
             />
           </AppShell>
         );
@@ -1500,7 +1669,7 @@ export const App: React.FC = () => {
                 const uid = currentUser?.id || profile?.user_id || authService.getCachedUser()?.id || 'guest_user';
                 return loadAppData(uid, false);
               }}
-              onBack={() => setScreen('main')}
+              onBack={handleBackToMain}
             />
           </AppShell>
         );
@@ -1521,8 +1690,7 @@ export const App: React.FC = () => {
               }
             }}
             onSelectWorkout={(workout) => {
-              setSelectedWorkout(workout);
-              setScreen('workout_detail');
+              handleSelectWorkout(workout);
             }}
             onOpenAuth={() => setScreen('auth')}
           />
@@ -1543,7 +1711,7 @@ export const App: React.FC = () => {
               setScreen('main');
               handleNotificationNavigation(url);
             }}
-            onBack={() => setScreen('main')}
+            onBack={handleBackToMain}
           />
         );
 
@@ -1583,7 +1751,7 @@ export const App: React.FC = () => {
                 loadAppData(currentUser.id, false);
               }
             }}
-            onOpenNotifications={() => setScreen('notifications')}
+            onOpenNotifications={() => handleNavigateScreen('notifications')}
             notificationUnreadCount={unreadCount}
             hideTopHeader={activeTab === 'activity' || activeTab === 'steps_history'}
             headerTitle={
@@ -1742,12 +1910,12 @@ export const App: React.FC = () => {
                   }
                 }}
                 onNavigate={(destination) => {
-                  if (destination === 'privacy') setScreen('privacy');
-                  else if (destination === 'password') setScreen('password');
-                  else if (destination === 'connected_health') setScreen('connected_health');
-                  else if (destination === 'report_bug') setScreen('report_bug');
-                  else if (destination === 'admin_bug_reports') setScreen('admin_bug_reports');
-                  else setActiveTab(destination);
+                  if (destination === 'privacy') handleNavigateScreen('privacy');
+                  else if (destination === 'password') handleNavigateScreen('password');
+                  else if (destination === 'connected_health') handleNavigateScreen('connected_health');
+                  else if (destination === 'report_bug') handleNavigateScreen('report_bug');
+                  else if (destination === 'admin_bug_reports') handleNavigateScreen('admin_bug_reports');
+                  else handleTabChange(destination);
                 }}
                 onSignOut={handleSignOut}
                 onUpdateProfile={(updated) => setProfile(updated)}
@@ -1762,7 +1930,9 @@ export const App: React.FC = () => {
 
   return (
     <ErrorBoundary>
-      {renderScreen()}
+      <Suspense fallback={<ScreenLoadingFallback />}>
+        {renderScreen()}
+      </Suspense>
 
       {/* PWA Add to Home Screen Banner */}
       {screen !== 'active_run' && screen !== 'splash' && <PWAInstallBanner />}

@@ -1834,7 +1834,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           <ChevronRight size={16} className="text-emerald-700/60 dark:text-slate-500" />
         </button>
 
-        {profile?.email === 'mannamganeshbabu8@gmail.com' && (
+        {(profile?.email === 'mannamganeshbabu8@gmail.com' || (profile as any)?.role === 'admin') && (
           <button
             onClick={() => onNavigate('admin_bug_reports')}
             className="w-full p-3 rounded-2xl bg-amber-50/60 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 hover:border-amber-300 dark:hover:border-amber-500/40 text-amber-900 dark:text-amber-300 flex items-center justify-between text-xs font-semibold active:scale-98 transition-all cursor-pointer"

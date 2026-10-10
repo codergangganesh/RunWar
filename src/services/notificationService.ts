@@ -43,7 +43,9 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 async function getActiveServiceWorkerRegistration(): Promise<ServiceWorkerRegistration> {
   const reg = await navigator.serviceWorker.getRegistration('/');
   if (reg) return reg;
-  return navigator.serviceWorker.register('/sw.js');
+  const anonKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_INSFORGE_ANON_KEY) || '';
+  const swUrl = `/sw.js?url=${encodeURIComponent(INSFORGE_URL)}&key=${encodeURIComponent(anonKey)}`;
+  return navigator.serviceWorker.register(swUrl);
 }
 
 function extractSubscriptionKeys(sub: PushSubscription): { p256dh: string; auth: string } {

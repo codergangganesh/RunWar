@@ -4,7 +4,7 @@
  * for full workout traces and GPS coordinates without ever hitting browser localStorage quota limits.
  */
 
-import { Workout } from '../types';
+import { Workout, GPSCoordinate } from '../types';
 
 const DB_NAME = 'runwar_offline_db';
 const DB_VERSION = 1;
@@ -171,6 +171,65 @@ export const indexedDbStorage = {
       });
     } catch (err) {
       console.warn('IndexedDB delete notice:', err);
+    }
+  },
+
+  /**
+   * Save live workout GPS coordinates trace asynchronously
+   */
+  async saveLiveWorkoutTrace(workoutId: string, coordinates: GPSCoordinate[]): Promise<void> {
+    try {
+      const db = await getDb();
+      return new Promise((resolve) => {
+        const tx = db.transaction(WORKOUTS_STORE, 'readwrite');
+        const store = tx.objectStore(WORKOUTS_STORE);
+        store.put({
+          id: `live_trace_${workoutId}`,
+          user_id: 'active_session',
+          route_coordinates: coordinates,
+          created_at: new Date().toISOString(),
+        } as any);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+      });
+    } catch {
+      // Non-blocking fallback
+    }
+  },
+
+  /**
+   * Fetch live workout GPS coordinates trace for crash recovery
+   */
+  async getLiveWorkoutTrace(workoutId: string): Promise<GPSCoordinate[] | null> {
+    try {
+      const db = await getDb();
+      return new Promise((resolve) => {
+        const tx = db.transaction(WORKOUTS_STORE, 'readonly');
+        const store = tx.objectStore(WORKOUTS_STORE);
+        const req = store.get(`live_trace_${workoutId}`);
+        req.onsuccess = () => resolve(req.result?.route_coordinates || null);
+        req.onerror = () => resolve(null);
+      });
+    } catch {
+      return null;
+    }
+  },
+
+  /**
+   * Clean up live trace backup once workout is finished or discarded
+   */
+  async clearLiveWorkoutTrace(workoutId: string): Promise<void> {
+    try {
+      const db = await getDb();
+      return new Promise((resolve) => {
+        const tx = db.transaction(WORKOUTS_STORE, 'readwrite');
+        const store = tx.objectStore(WORKOUTS_STORE);
+        store.delete(`live_trace_${workoutId}`);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+      });
+    } catch {
+      // Non-blocking fallback
     }
   },
 };

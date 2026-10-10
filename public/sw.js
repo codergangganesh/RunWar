@@ -208,8 +208,8 @@ self.addEventListener('notificationclick', (event) => {
 
     event.waitUntil(
       (async () => {
-        // 1. Show immediate confirmation
-        await self.registration.showNotification('⏰ Run Alarm Snoozed (10m)', {
+        // 1. Show immediate confirmation toast notification
+        await self.registration.showNotification('⏰ Run Alarm Snoozed (+10m)', {
           body: 'Taking a 10-minute breather. Lace up soon!',
           icon: '/logo.png',
           badge: '/logo.png',
@@ -218,15 +218,19 @@ self.addEventListener('notificationclick', (event) => {
         });
 
         // 2. If alarm_id is present, reschedule the alarm in cloud database for +10 minutes
+        const snoozeUtc = new Date(Date.now() + 10 * 60 * 1000).toISOString();
         if (notifData.alarm_id) {
           try {
-            const snoozeUtc = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-            await fetch(`https://9r3q7vvs.us-east.insforge.app/api/database/records/alarms?id=eq.${notifData.alarm_id}`, {
+            const swParams = new URL(self.location.href).searchParams;
+            const backendUrl = swParams.get('url') || 'https://9r3q7vvs.us-east.insforge.app';
+            const anonKey = swParams.get('key') || 'ik_3f6a564a8b2a7de0a8e58110051ed7a8';
+
+            await fetch(`${backendUrl}/api/database/records/alarms?id=eq.${notifData.alarm_id}`, {
               method: 'PATCH',
               headers: {
                 'Content-Type': 'application/json',
-                'apikey': 'ik_3f6a564a8b2a7de0a8e58110051ed7a8',
-                'Authorization': 'Bearer ik_3f6a564a8b2a7de0a8e58110051ed7a8',
+                'apikey': anonKey,
+                'Authorization': `Bearer ${anonKey}`,
               },
               body: JSON.stringify({
                 next_trigger_at: snoozeUtc,
@@ -234,28 +238,23 @@ self.addEventListener('notificationclick', (event) => {
                 updated_at: new Date().toISOString(),
               }),
             });
-            console.log('[SW] Snoozed alarm rescheduled in cloud for +10m');
+            console.log('[SW] Snoozed alarm rescheduled in cloud for +10m:', snoozeUtc);
           } catch (cloudErr) {
-            console.warn('[SW] Cloud snooze failed, using fallback:', cloudErr);
+            console.warn('[SW] Cloud snooze patch error:', cloudErr);
           }
         }
 
-        // 3. Set local fallback timer (in case app/worker stays alive)
-        setTimeout(() => {
-          self.registration.showNotification(notifTitle + ' (Snooze Ended)', {
-            body: notifBody + ' • 10m snooze complete, let\'s run!',
-            icon: '/logo.png',
-            badge: '/logo.png',
-            tag: `runwar-alarm-snooze-${Date.now()}`,
-            vibrate: [200, 100, 200, 100, 500],
-            requireInteraction: true,
-            data: { url: '/?tab=home&action=start_run', type: 'alarm' },
-            actions: [
-              { action: 'start_run', title: '🏃 Start Run' },
-              { action: 'snooze', title: '⏰ Snooze 10m' },
-            ],
+        // 3. Inform any active app clients of the snooze event
+        const windowClients = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+        for (const client of windowClients) {
+          client.postMessage({
+            type: 'RUNWAR_ALARM_SNOOZED',
+            alarmId: notifData.alarm_id,
+            snoozeUntil: snoozeUtc,
+            title: notifTitle,
+            body: notifBody,
           });
-        }, 10 * 60 * 1000);
+        }
       })()
     );
     return;

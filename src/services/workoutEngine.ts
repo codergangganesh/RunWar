@@ -25,6 +25,7 @@ import { ghostRivalService } from './ghostRivalService';
 import { stepCounterService } from './stepCounterService';
 import { CourseRoute, GhostRivalConfig } from '../types';
 import { beaconService } from './beaconService';
+import { indexedDbStorage } from './indexedDbStorage';
 
 type StateListener = (state: LiveWorkoutState) => void;
 
@@ -37,6 +38,8 @@ export class WorkoutEngine {
   private workerTimer: Worker | null = null;
   private fallbackInterval: any = null;
   private wakeLock: any = null;
+  private lastBackupSaveTime: number = 0;
+  private lastSavedEngineState: WorkoutEngineState = 'IDLE';
 
   // Configuration
   private userId: string = 'guest_user';
@@ -145,12 +148,33 @@ export class WorkoutEngine {
       listener(copy);
     }
 
-    // Persist active snapshot for crash recovery
+    // Persist active snapshot for crash recovery without main-thread jank
     if (this.state.engineState === 'ACTIVE' || this.state.engineState === 'PAUSED') {
-      try {
-        localStorage.setItem(BACKUP_STORAGE_KEY, JSON.stringify(copy));
-      } catch (e) {
-        // Ignore quota
+      const now = Date.now();
+      const isStatusShift = this.state.engineState !== this.lastSavedEngineState;
+      // Throttle synchronous localStorage writes to once every 10 seconds or immediately on pause/resume
+      if (isStatusShift || now - this.lastBackupSaveTime > 10000) {
+        this.lastBackupSaveTime = now;
+        this.lastSavedEngineState = this.state.engineState;
+
+        try {
+          const hasManyPoints = copy.coordinates.length > 100;
+          const storageCopy = hasManyPoints
+            ? {
+                ...copy,
+                coordinates: copy.coordinates.slice(-80),
+                hasTruncatedBackupCoords: true,
+              }
+            : copy;
+
+          localStorage.setItem(BACKUP_STORAGE_KEY, JSON.stringify(storageCopy));
+
+          if (hasManyPoints) {
+            indexedDbStorage.saveLiveWorkoutTrace(copy.workoutId, copy.coordinates);
+          }
+        } catch (e) {
+          // Ignore quota if device storage is exhausted
+        }
       }
     }
   }
@@ -494,6 +518,7 @@ export class WorkoutEngine {
     beaconService.stopBeacon().catch(() => {});
 
     localStorage.removeItem(BACKUP_STORAGE_KEY);
+    indexedDbStorage.clearLiveWorkoutTrace(this.state.workoutId);
     this.notify();
 
     return { ...this.state };
@@ -516,6 +541,7 @@ export class WorkoutEngine {
     this.resetGPSProcessing();
     stepCounterService.resetSessionTracking();
     localStorage.removeItem(BACKUP_STORAGE_KEY);
+    indexedDbStorage.clearLiveWorkoutTrace(this.state.workoutId);
     this.notify();
   }
 
@@ -1027,6 +1053,16 @@ export class WorkoutEngine {
 
     if (backup.steps) {
       stepCounterService.restoreSessionSteps(backup.workoutId, backup.steps);
+    }
+
+    // Asynchronously pull the full coordinate history if backup coordinates were truncated for storage
+    if ((backup as any).hasTruncatedBackupCoords) {
+      indexedDbStorage.getLiveWorkoutTrace(backup.workoutId).then((fullCoords) => {
+        if (fullCoords && fullCoords.length > this.state.coordinates.length) {
+          this.state.coordinates = fullCoords;
+          this.notify();
+        }
+      }).catch(() => {});
     }
 
     // Ensure restored course still exists

@@ -9,7 +9,6 @@ import { CourseModal } from '../components/workout/CourseModal';
 import { ghostRivalService } from '../services/ghostRivalService';
 import { GhostRivalModal } from '../components/workout/GhostRivalModal';
 import { GhostRivalConfig } from '../types';
-import { SocialFeedScreen } from './SocialFeedScreen';
 import { alarmService } from '../services/alarmService';
 import { stepCounterService } from '../services/stepCounterService';
 import { AiRouteGeneratorModal } from '../components/route/AiRouteGeneratorModal';
@@ -345,32 +344,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       {/* Loop Route Generator Showcase Card */}
 
 
-      {/* Run Goal Challenge Feature Banner */}
-      {/* {onViewChallenges && (
-        <div
-          onClick={onViewChallenges}
-          className="rounded-2xl bg-gradient-to-r from-orange-500/10 via-rose-500/10 to-amber-500/10 border border-orange-500/25 dark:border-orange-500/35 p-3.5 shadow-sm hover:border-orange-500/50 hover:shadow-md transition-all cursor-pointer group active:scale-[0.99]"
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-rose-600 flex items-center justify-center text-white shadow-md shadow-orange-500/30 group-hover:scale-105 transition-transform shrink-0">
-                <Trophy size={20} />
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-xs font-black uppercase tracking-wider text-orange-600 dark:text-orange-400">
-                    Run Goal Challenge
-                  </span>
 
-                </div>
-                <p className="text-xs text-slate-600 dark:text-slate-300 font-medium mt-0.5 truncate">
-                  Challenge a friend to a race & track live progress!
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )} */}
 
       {/* War Zone Community Social Feed Dedicated Page Card */}
       {onViewSocialFeed && (
@@ -391,7 +365,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
                 </div>
                 <p className="text-xs text-slate-600 dark:text-slate-300 font-medium mt-0.5 truncate">
-                  View global activity!
+                  Post and view the Global Activity!
                 </p>
               </div>
             </div>
