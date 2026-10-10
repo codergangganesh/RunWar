@@ -336,9 +336,10 @@ export const beaconService = {
   },
 
   /**
-   * Fetch a live beacon by code for spectators without authentication
+   * Fetch a live beacon by code for spectators without authentication.
+   * If summaryOnly is true, omits route_coordinates to save 95%+ egress when only polling cheers/status.
    */
-  async getBeaconByCode(beaconCode: string): Promise<LiveBeacon | null> {
+  async getBeaconByCode(beaconCode: string, options?: { summaryOnly?: boolean }): Promise<LiveBeacon | null> {
     if (!beaconCode) return null;
     const cleanCode = beaconCode.trim();
 
@@ -348,11 +349,13 @@ export const beaconService = {
         const redisData = await redisService.hgetall(`runwar:beacon:${cleanCode}`);
         if (redisData && redisData.beacon_code) {
           let routeCoords: any[] = [];
-          try {
-            if (redisData.route_coordinates) {
-              routeCoords = JSON.parse(redisData.route_coordinates);
-            }
-          } catch {}
+          if (!options?.summaryOnly) {
+            try {
+              if (redisData.route_coordinates) {
+                routeCoords = JSON.parse(redisData.route_coordinates);
+              }
+            } catch {}
+          }
 
           const rawExpiresAt = redisData.expires_at || null;
           const isExpired = rawExpiresAt ? Date.now() > new Date(rawExpiresAt).getTime() : false;
@@ -372,7 +375,7 @@ export const beaconService = {
             elapsed_seconds: Number(redisData.elapsed_seconds || 0),
             battery_level: redisData.battery_level != null && Number(redisData.battery_level) >= 0 ? Number(redisData.battery_level) : null,
             battery_charging: redisData.battery_charging === 'true',
-            route_coordinates: isExpired ? [] : routeCoords,
+            route_coordinates: isExpired || options?.summaryOnly ? [] : routeCoords,
             emergency_alert: redisData.emergency_alert === 'true',
             emergency_alert_message: redisData.emergency_alert_message || null,
             cheers_count: Number(redisData.cheers_count || 0),
@@ -389,14 +392,22 @@ export const beaconService = {
 
     // 2. Authoritative PostgreSQL Database Read
     try {
-      const { data, error } = await insforge.database
-        .from('live_beacons')
-        .select('*')
+      const selectCols = options?.summaryOnly
+        ? 'id, user_id, beacon_code, runner_name, runner_avatar, workout_type, status, current_lat, current_lng, current_pace, total_distance_meters, elapsed_seconds, battery_level, battery_charging, emergency_alert, emergency_alert_message, cheers_count, duration_limit, expires_at, last_ping_at, created_at, updated_at'
+        : '*';
+
+      const { data, error } = await (insforge.database.from('live_beacons') as any)
+        .select(selectCols)
         .eq('beacon_code', cleanCode)
         .single();
 
       if (!error && data) {
-        const beacon = data as LiveBeacon;
+        const row = data as any;
+        const beacon: LiveBeacon = {
+          ...row,
+          route_coordinates: Array.isArray(row.route_coordinates) ? row.route_coordinates : [],
+        };
+
         if (beacon.expires_at) {
           const expireMs = new Date(beacon.expires_at).getTime();
           if (!isNaN(expireMs) && Date.now() > expireMs) {

@@ -6,7 +6,7 @@ declare const Deno: any;
 
 const GOOGLE_CLIENT_ID = Deno.env.get('GOOGLE_CLIENT_ID') ?? '532781220302-rkkhr06ocgnm7p7o5je3cs8oel5qms0l.apps.googleusercontent.com';
 const GOOGLE_CLIENT_SECRET = Deno.env.get('GOOGLE_CLIENT_SECRET') ?? '';
-const REDIRECT_URI = 'https://7p7ewmvi.function2.insforge.app/google-fit-callback';
+const REDIRECT_URI = Deno.env.get('GOOGLE_FIT_REDIRECT_URI') ?? 'https://9r3q7vvs.function2.insforge.app/google-fit-callback';
 const FALLBACK_APP_URL = Deno.env.get('APP_URL') ?? 'http://localhost:5173';
 
 export default async function (req: Request): Promise<Response> {
@@ -93,8 +93,8 @@ export default async function (req: Request): Promise<Response> {
     // Calculate expiry (subtract 60s safety buffer)
     const expiresAt = new Date(Date.now() + (Number(expires_in || 3600) - 60) * 1000).toISOString();
 
-    const insforgeUrl = Deno.env.get('INSFORGE_BASE_URL') ?? 'https://7p7ewmvi.us-east.insforge.app';
-    const apiKey = Deno.env.get('API_KEY') ?? Deno.env.get('ANON_KEY') ?? 'ik_9d2a844d3d742c432e4c93745a27c78d';
+    const insforgeUrl = Deno.env.get('INSFORGE_BASE_URL') ?? 'https://9r3q7vvs.us-east.insforge.app';
+    const apiKey = Deno.env.get('API_KEY') ?? Deno.env.get('ANON_KEY') ?? 'ik_3f6a564a8b2a7de0a8e58110051ed7a8';
 
     // If refresh_token is missing, check if one already exists in DB
     let finalRefreshToken = refresh_token;

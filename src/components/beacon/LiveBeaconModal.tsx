@@ -50,13 +50,16 @@ export const LiveBeaconModal: React.FC<LiveBeaconModalProps> = ({
 
       if (session) {
         // Fetch latest server stats (including spectator cheers) immediately
-        beaconService.getBeaconByCode(session.beacon_code).then((fresh) => {
+        beaconService.getBeaconByCode(session.beacon_code, { summaryOnly: true }).then((fresh) => {
           if (fresh) setActiveBeacon(fresh);
         }).catch(() => {});
 
-        // Poll every 3 seconds while modal is open to see new cheers live
+        // Poll every 3 seconds while modal is open to see new cheers live (skipping background tabs & omitting GPS blobs)
         const interval = setInterval(() => {
-          beaconService.getBeaconByCode(session.beacon_code).then((fresh) => {
+          if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+            return;
+          }
+          beaconService.getBeaconByCode(session.beacon_code, { summaryOnly: true }).then((fresh) => {
             if (fresh) setActiveBeacon(fresh);
           }).catch(() => {});
         }, 3000);

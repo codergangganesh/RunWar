@@ -5,7 +5,7 @@
 declare const Deno: any;
 
 const GOOGLE_CLIENT_ID = Deno.env.get('GOOGLE_CLIENT_ID') ?? '532781220302-rkkhr06ocgnm7p7o5je3cs8oel5qms0l.apps.googleusercontent.com';
-const REDIRECT_URI = 'https://7p7ewmvi.function2.insforge.app/google-fit-callback';
+const REDIRECT_URI = Deno.env.get('GOOGLE_FIT_REDIRECT_URI') ?? 'https://9r3q7vvs.function2.insforge.app/google-fit-callback';
 
 const SCOPES = [
   'https://www.googleapis.com/auth/fitness.activity.read',

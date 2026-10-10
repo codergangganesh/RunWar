@@ -143,10 +143,25 @@ export const LiveBeaconSpectatorScreen: React.FC<LiveBeaconSpectatorScreenProps>
 
   useEffect(() => {
     fetchBeaconData();
-    // Poll updates every 4 seconds for real-time tracking
-    pollTimerRef.current = setInterval(fetchBeaconData, 4000);
+
+    // Poll updates every 4 seconds for real-time tracking, pausing when tab is hidden
+    pollTimerRef.current = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
+      fetchBeaconData();
+    }, 4000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchBeaconData();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [fetchBeaconData]);
 

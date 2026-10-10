@@ -1,8 +1,8 @@
 import { insforge } from '../lib/insforge';
 import { AppNotification, PushSubscriptionRecord } from '../types';
 
-const INSFORGE_URL = import.meta.env.VITE_INSFORGE_URL || 'https://7p7ewmvi.us-east.insforge.app';
-const FUNCTIONS_URL = import.meta.env.VITE_INSFORGE_FUNCTIONS_URL || 'https://7p7ewmvi.function2.insforge.app';
+const INSFORGE_URL = import.meta.env.VITE_INSFORGE_URL || 'https://9r3q7vvs.us-east.insforge.app';
+const FUNCTIONS_URL = import.meta.env.VITE_INSFORGE_FUNCTIONS_URL || 'https://9r3q7vvs.function2.insforge.app';
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY || '';
 
 // ── Browser Feature Detection ─────────────────────────────────────────────────

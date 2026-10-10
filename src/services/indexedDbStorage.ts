@@ -68,7 +68,9 @@ export const indexedDbStorage = {
   },
 
   /**
-   * Batch save full workouts with high-frequency GPS into IndexedDB
+   * Batch save full workouts with high-frequency GPS into IndexedDB.
+   * If incoming record is a lightweight summary without route_coordinates,
+   * preserves previously cached route_coordinates so detailed traces are never erased.
    */
   async saveWorkoutsBatch(workouts: Workout[]): Promise<void> {
     if (!workouts || workouts.length === 0) return;
@@ -79,7 +81,26 @@ export const indexedDbStorage = {
         const store = tx.objectStore(WORKOUTS_STORE);
 
         workouts.forEach((w) => {
-          store.put(w);
+          // If incoming workout lacks route_coordinates, look up existing record to preserve it
+          if (!w.route_coordinates || w.route_coordinates.length === 0) {
+            const getReq = store.get(w.id);
+            getReq.onsuccess = () => {
+              const existing = getReq.result as Workout | undefined;
+              if (existing && existing.route_coordinates && existing.route_coordinates.length > 0) {
+                store.put({
+                  ...w,
+                  route_coordinates: existing.route_coordinates,
+                });
+              } else {
+                store.put(w);
+              }
+            };
+            getReq.onerror = () => {
+              store.put(w);
+            };
+          } else {
+            store.put(w);
+          }
         });
 
         tx.oncomplete = () => resolve();

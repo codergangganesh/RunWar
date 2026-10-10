@@ -30,7 +30,7 @@ const STRAVA_CLIENT_SECRET: string =
 // InsForge backend Edge Function URL for secure server-side token exchange
 const FN_BASE =
   (import.meta as any).env?.VITE_INSFORGE_FUNCTIONS_URL ||
-  'https://7p7ewmvi.function2.insforge.app';
+  'https://9r3q7vvs.function2.insforge.app';
 const FN_STRAVA_AUTH = `${FN_BASE}/strava-auth`;
 
 export class StravaProvider implements HealthProvider {

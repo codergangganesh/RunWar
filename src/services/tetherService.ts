@@ -54,6 +54,21 @@ class TetherService {
     this.initBroadcastChannel();
     this.restoreSession();
     this.initUnloadListener();
+    this.initVisibilityListener();
+  }
+
+  private initVisibilityListener(): void {
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && this.activeSession) {
+          if (this.activeSession.status === 'waiting') {
+            this.pollPeerJoinStatus();
+          } else if (this.activeSession.status === 'active') {
+            this.pollActiveSessionStatus();
+          }
+        }
+      });
+    }
   }
 
   private initUnloadListener(): void {
@@ -690,6 +705,12 @@ class TetherService {
         }
         return;
       }
+
+      // Bandwidth Guard: Skip network poll if browser tab or device screen is hidden/minimized
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
+
       if (this.activeSession.status === 'waiting') {
         // Polling database for peer join if not already connected
         this.pollPeerJoinStatus();
@@ -697,7 +718,7 @@ class TetherService {
         // Polling database to check if peer has disconnected/ended
         this.pollActiveSessionStatus();
       }
-    }, 2000);
+    }, 2500);
   }
 
   private async pollActiveSessionStatus(): Promise<void> {
@@ -724,7 +745,7 @@ class TetherService {
     try {
       const { data } = await insforge.database
         .from('tether_sessions')
-        .select('*')
+        .select('status, peer_user_id, peer_name, peer_avatar')
         .eq('room_code', this.activeSession.roomCode)
         .single();
 

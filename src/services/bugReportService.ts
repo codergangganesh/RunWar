@@ -8,16 +8,17 @@ import {
   BugStatus,
 } from '../types/bugReport';
 import { collectSystemDiagnostics } from '../utils/systemDiagnostics';
+import { compressImageFile } from '../utils/imageCompressor';
 
 const INSFORGE_URL =
   (typeof import.meta !== 'undefined' && import.meta.env?.VITE_INSFORGE_URL) ||
-  'https://7p7ewmvi.us-east.insforge.app';
+  'https://9r3q7vvs.us-east.insforge.app';
 const INSFORGE_API_KEY =
   (typeof import.meta !== 'undefined' && import.meta.env?.VITE_INSFORGE_ANON_KEY) ||
-  'ik_9d2a844d3d742c432e4c93745a27c78d';
+  'ik_3f6a564a8b2a7de0a8e58110051ed7a8';
 const FUNCTIONS_URL =
   (typeof import.meta !== 'undefined' && import.meta.env?.VITE_INSFORGE_FUNCTIONS_URL) ||
-  'https://7p7ewmvi.function2.insforge.app';
+  'https://9r3q7vvs.function2.insforge.app';
 const ADMIN_EMAIL = 'mannamganeshbabu8@gmail.com';
 const SENDER_EMAIL = 'RunWar <mannamganeshbabu8@gmail.com>';
 
@@ -78,22 +79,24 @@ export class BugReportService {
         throw new Error(validation.error);
       }
 
-      const fileExt = file.name.split('.').pop() || 'png';
+      // Compress screenshot client-side (max 1024x1024 JPEG) to minimize upload/storage egress
+      const compressed = await compressImageFile(file, { maxWidth: 1024, maxHeight: 1024, quality: 0.8, mimeType: 'image/jpeg' });
+      const fileExt = compressed.name.split('.').pop() || 'jpg';
       const storageKey = `bugs/${userId}/${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${fileExt}`;
 
       try {
         // Try avatars bucket (configured in project) with unique bug path
         const { data, error } = await insforge.storage
           .from('avatars')
-          .upload(storageKey, file);
+          .upload(storageKey, compressed);
 
         if (!error && data?.url) {
           attachments.push({
             url: data.url,
             key: data.key || storageKey,
             name: file.name,
-            size: file.size,
-            mimeType: file.type,
+            size: compressed.size,
+            mimeType: compressed.type,
           });
           continue;
         }
@@ -105,7 +108,7 @@ export class BugReportService {
       const dataUrl = await new Promise<string>((resolve) => {
         const reader = new FileReader();
         reader.onloadend = () => resolve(reader.result as string);
-        reader.readAsDataURL(file);
+        reader.readAsDataURL(compressed);
       });
 
       attachments.push({

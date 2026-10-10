@@ -5,9 +5,9 @@
 
 declare const Deno: any;
 
-const INSFORGE_URL = Deno.env.get('INSFORGE_BASE_URL') ?? Deno.env.get('INSFORGE_URL') ?? 'https://7p7ewmvi.us-east.insforge.app';
-const SERVICE_ROLE_KEY = Deno.env.get('API_KEY') ?? Deno.env.get('ANON_KEY') ?? Deno.env.get('INSFORGE_SERVICE_ROLE_KEY') ?? 'ik_9d2a844d3d742c432e4c93745a27c78d';
-const FUNCTIONS_HOST = Deno.env.get('INSFORGE_FUNCTIONS_URL') ?? 'https://7p7ewmvi.function2.insforge.app';
+const INSFORGE_URL = Deno.env.get('INSFORGE_BASE_URL') ?? Deno.env.get('INSFORGE_URL') ?? 'https://9r3q7vvs.us-east.insforge.app';
+const SERVICE_ROLE_KEY = Deno.env.get('API_KEY') ?? Deno.env.get('ANON_KEY') ?? Deno.env.get('INSFORGE_SERVICE_ROLE_KEY') ?? 'ik_3f6a564a8b2a7de0a8e58110051ed7a8';
+const FUNCTIONS_HOST = Deno.env.get('INSFORGE_FUNCTIONS_URL') ?? 'https://9r3q7vvs.function2.insforge.app';
 const SEND_PUSH_URL = `${FUNCTIONS_HOST}/send-push-notification`;
 
 const corsHeaders = {

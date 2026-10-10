@@ -12,14 +12,14 @@ const GOOGLE_CLIENT_ID: string =
 
 // InsForge backend base URL — edge functions live here
 const INSFORGE_URL: string =
-  (import.meta as any).env?.VITE_INSFORGE_URL || 'https://7p7ewmvi.us-east.insforge.app';
+  (import.meta as any).env?.VITE_INSFORGE_URL || 'https://9r3q7vvs.us-east.insforge.app';
 const INSFORGE_ANON_KEY: string =
   (import.meta as any).env?.VITE_INSFORGE_ANON_KEY || '';
 
 // Backend edge function URLs hosted on InsForge
 const FN_BASE =
   (import.meta as any).env?.VITE_INSFORGE_FUNCTIONS_URL ||
-  'https://7p7ewmvi.function2.insforge.app';
+  'https://9r3q7vvs.function2.insforge.app';
 
 export const FN_AUTH = `${FN_BASE}/google-fit-auth`;
 export const FN_CALLBACK = `${FN_BASE}/google-fit-callback`;

@@ -2,6 +2,7 @@ import { insforge } from '../lib/insforge';
 import { UserProfile, UserSettings, PasswordAccountState } from '../types';
 import { firebaseAuthService } from './firebaseAuthService';
 import { toDeterministicUUID, isValidUUID } from '../utils/uuid';
+import { compressImageFile } from '../utils/imageCompressor';
 
 const PROFILE_CACHE_KEY = 'runwar_cached_profile';
 const SETTINGS_CACHE_KEY = 'runwar_cached_settings';
@@ -1055,13 +1056,15 @@ export const authService = {
    */
   async uploadAvatar(userId: string, file: File): Promise<{ url: string; profile: UserProfile }> {
     const normalizedId = normalizeUserId(userId);
-    const fileExt = file.name.split('.').pop() || 'jpg';
+    // Compress avatar client-side (max 400x400 JPEG) to save 95%+ bandwidth and storage space
+    const compressed = await compressImageFile(file, { maxWidth: 400, maxHeight: 400, quality: 0.8, mimeType: 'image/jpeg' });
+    const fileExt = compressed.name.split('.').pop() || 'jpg';
     const filePath = `user_${normalizedId}_${Date.now()}.${fileExt}`;
 
     // Upload to InsForge 'avatars' storage bucket
     const { data, error } = await insforge.storage
       .from('avatars')
-      .upload(filePath, file);
+      .upload(filePath, compressed);
 
     if (error) throw error;
     if (!data?.url) throw new Error('Upload succeeded but no URL was returned');

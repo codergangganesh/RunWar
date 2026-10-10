@@ -221,12 +221,12 @@ self.addEventListener('notificationclick', (event) => {
         if (notifData.alarm_id) {
           try {
             const snoozeUtc = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-            await fetch(`https://7p7ewmvi.us-east.insforge.app/api/database/records/alarms?id=eq.${notifData.alarm_id}`, {
+            await fetch(`https://9r3q7vvs.us-east.insforge.app/api/database/records/alarms?id=eq.${notifData.alarm_id}`, {
               method: 'PATCH',
               headers: {
                 'Content-Type': 'application/json',
-                'apikey': 'ik_9d2a844d3d742c432e4c93745a27c78d',
-                'Authorization': 'Bearer ik_9d2a844d3d742c432e4c93745a27c78d',
+                'apikey': 'ik_3f6a564a8b2a7de0a8e58110051ed7a8',
+                'Authorization': 'Bearer ik_3f6a564a8b2a7de0a8e58110051ed7a8',
               },
               body: JSON.stringify({
                 next_trigger_at: snoozeUtc,
