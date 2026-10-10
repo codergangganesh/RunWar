@@ -367,6 +367,18 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
   const [recenterTrigger, setRecenterTrigger] = useState(0);
   const playbackIntervalRef = useRef<any>(null);
 
+  const validCoords = useMemo(() => {
+    if (!coordinates || !Array.isArray(coordinates)) return [];
+    return coordinates.filter(
+      (c) =>
+        c &&
+        typeof c.latitude === 'number' &&
+        !isNaN(c.latitude) &&
+        typeof c.longitude === 'number' &&
+        !isNaN(c.longitude)
+    );
+  }, [coordinates]);
+
   // Keyboard shortcut listener to close fullscreen on Escape
   useEffect(() => {
     if (!isFullscreen) return;
@@ -381,15 +393,16 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
 
   // Playback timer animation
   useEffect(() => {
+    if (validCoords.length === 0) return;
     if (isPlaying) {
-      const step = coordinates.length > 500 ? Math.ceil(coordinates.length / 300) : 1;
+      const step = validCoords.length > 500 ? Math.ceil(validCoords.length / 300) : 1;
       const intervalMs = Math.max(25, Math.round(100 / playbackSpeed));
       playbackIntervalRef.current = setInterval(() => {
         setPlaybackIndex((prev) => {
           const next = prev + step;
-          if (next >= coordinates.length - 1) {
+          if (next >= validCoords.length - 1) {
             setIsPlaying(false);
-            return coordinates.length - 1;
+            return validCoords.length - 1;
           }
           return next;
         });
@@ -400,25 +413,35 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
     return () => {
       if (playbackIntervalRef.current) clearInterval(playbackIntervalRef.current);
     };
-  }, [isPlaying, playbackSpeed, coordinates?.length]);
+  }, [isPlaying, playbackSpeed, validCoords.length]);
 
   const totalDistanceMeters = useMemo(() => {
-    if (!coordinates || coordinates.length < 2) return 0;
+    if (validCoords.length < 2) return 0;
     let total = 0;
-    for (let i = 1; i < coordinates.length; i++) {
+    for (let i = 1; i < validCoords.length; i++) {
       total +=
-        coordinates[i].distanceFromPrevious ??
+        validCoords[i].distanceFromPrevious ??
         calculateHaversineDistance(
-          coordinates[i - 1].latitude,
-          coordinates[i - 1].longitude,
-          coordinates[i].latitude,
-          coordinates[i].longitude
+          validCoords[i - 1].latitude,
+          validCoords[i - 1].longitude,
+          validCoords[i].latitude,
+          validCoords[i].longitude
         );
     }
     return Math.round(total);
-  }, [coordinates]);
+  }, [validCoords]);
 
-  if (!coordinates || coordinates.length === 0) {
+  // ── All hooks must be called BEFORE any early return (React rules of hooks) ──
+  const kilometerMilestones = useMemo(
+    () => (validCoords.length > 0 ? getRouteDistanceMilestones(validCoords) : []),
+    [validCoords]
+  );
+  const kilometerSplits = useMemo(
+    () => (validCoords.length > 0 ? calculateSplits(validCoords) : []),
+    [validCoords]
+  );
+
+  if (validCoords.length === 0) {
     return (
       <div
         className={`rounded-2xl bg-emerald-50/50 dark:bg-slate-900/60 border border-emerald-200/80 dark:border-slate-800 flex flex-col items-center justify-center text-slate-400 text-xs p-6 ${className}`}
@@ -431,19 +454,13 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
     );
   }
 
-  const startCoord = coordinates[0];
-  const endCoord = coordinates[coordinates.length - 1];
-  const currentCoord = coordinates[Math.min(playbackIndex, coordinates.length - 1)] || startCoord;
-  const polylinePositions: [number, number][] = coordinates.map((c) => [c.latitude, c.longitude]);
-  const playedPolylinePositions: [number, number][] = coordinates
+  const startCoord = validCoords[0];
+  const endCoord = validCoords[validCoords.length - 1];
+  const currentCoord = validCoords[Math.min(playbackIndex, validCoords.length - 1)] || startCoord;
+  const polylinePositions: [number, number][] = validCoords.map((c) => [c.latitude, c.longitude]);
+  const playedPolylinePositions: [number, number][] = validCoords
     .slice(0, playbackIndex + 1)
     .map((c) => [c.latitude, c.longitude]);
-
-  const kilometerMilestones = useMemo(
-    () => getRouteDistanceMilestones(coordinates),
-    [coordinates]
-  );
-  const kilometerSplits = useMemo(() => calculateSplits(coordinates), [coordinates]);
   const center: [number, number] = [startCoord.latitude, startCoord.longitude];
 
   const handleFullscreenClick = (e?: React.MouseEvent) => {
@@ -456,7 +473,7 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
   };
 
   const handleTogglePlay = () => {
-    if (playbackIndex >= coordinates.length - 1) {
+    if (playbackIndex >= validCoords.length - 1) {
       setPlaybackIndex(0);
     }
     setIsPlaying(!isPlaying);
@@ -491,7 +508,7 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
           style={{ height: '100%', width: '100%' }}
         >
           <MapInnerContent
-            coordinates={coordinates}
+            coordinates={validCoords}
             polylinePositions={polylinePositions}
             playedPolylinePositions={playedPolylinePositions}
             startCoord={startCoord}
@@ -507,12 +524,12 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
         </MapContainer>
 
         {/* Floating Minimal GPS Route Playback Pill */}
-        {showPlaybackControl && coordinates.length > 5 && (
+        {showPlaybackControl && validCoords.length > 5 && (
           <PlaybackControl
             isPlaying={isPlaying}
             playbackIndex={playbackIndex}
             playbackSpeed={playbackSpeed}
-            totalPoints={coordinates.length}
+            totalPoints={validCoords.length}
             onTogglePlay={handleTogglePlay}
             onReset={handleResetPlayback}
             onCycleSpeed={handleCycleSpeed}
@@ -562,7 +579,7 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
                 <div>
                   <div className="text-xs sm:text-sm font-bold text-white">GPS Route Map</div>
                   <div className="text-[10px] sm:text-[11px] text-slate-400 font-medium">
-                    {formatDistance(totalDistanceMeters, 'km')} km • {coordinates.length} GPS points
+                    {formatDistance(totalDistanceMeters, 'km')} km • {validCoords.length} GPS points
                   </div>
                 </div>
 
@@ -597,7 +614,7 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
                   style={{ height: '100%', width: '100%' }}
                 >
                   <MapInnerContent
-                    coordinates={coordinates}
+                    coordinates={validCoords}
                     polylinePositions={polylinePositions}
                     playedPolylinePositions={playedPolylinePositions}
                     startCoord={startCoord}
@@ -613,12 +630,12 @@ export const StaticRouteMap: React.FC<StaticRouteMapProps> = ({
                 </MapContainer>
 
                 {/* Floating Minimal GPS Route Playback Pill in Fullscreen */}
-                {showPlaybackControl && coordinates.length > 5 && (
+                {showPlaybackControl && validCoords.length > 5 && (
                   <PlaybackControl
                     isPlaying={isPlaying}
                     playbackIndex={playbackIndex}
                     playbackSpeed={playbackSpeed}
-                    totalPoints={coordinates.length}
+                    totalPoints={validCoords.length}
                     onTogglePlay={handleTogglePlay}
                     onReset={handleResetPlayback}
                     onCycleSpeed={handleCycleSpeed}

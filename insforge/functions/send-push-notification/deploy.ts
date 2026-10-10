@@ -204,38 +204,49 @@ async function sendWebPush(
   return { status: res.status, ok: res.ok, expired };
 }
 
+const DEFAULT_VAPID_PUBLIC_KEY = 'BLR3ZhaiwqGCN8_kLzWOi8DPTnsm1pewvLsXLbhnzYuOef0Pt7-Q8a1_oPvnQDvHZS-PUAIQbTgzLF1zyAl6g1o';
+const DEFAULT_VAPID_PRIVATE_KEY = 'gjIZzs840bBC-pNTyfh5kum0RFkwFFMyxY6TtV-mzWU';
+const DEFAULT_VAPID_SUBJECT = 'mailto:runwarcastle@gmail.com';
+
 function getVapidConfig(): VapidConfig {
   const privateKeyJwkRaw = Deno.env.get('VAPID_PRIVATE_KEY_JWK') ?? '';
-  const privateKeyRaw = Deno.env.get('VAPID_PRIVATE_KEY') ?? '';
-  const publicKeyBase64 = Deno.env.get('VAPID_PUBLIC_KEY') ?? '';
-  const subject = Deno.env.get('VAPID_SUBJECT') ?? 'mailto:support@runwar.app';
+  const privateKeyRaw = (Deno.env.get('VAPID_PRIVATE_KEY') ?? '').trim() || DEFAULT_VAPID_PRIVATE_KEY;
+  const publicKeyBase64 = (Deno.env.get('VAPID_PUBLIC_KEY') ?? '').trim() || DEFAULT_VAPID_PUBLIC_KEY;
+  const subject = (Deno.env.get('VAPID_SUBJECT') ?? '').trim() || DEFAULT_VAPID_SUBJECT;
 
-  if (!publicKeyBase64 || (!privateKeyJwkRaw && !privateKeyRaw)) {
-    throw new Error('VAPID secrets not configured');
-  }
-
-  let privateKeyJwk: object;
+  let privateKeyJwk: object | null = null;
   if (privateKeyJwkRaw) {
     try {
       privateKeyJwk = JSON.parse(privateKeyJwkRaw);
     } catch {
-      throw new Error('VAPID_PRIVATE_KEY_JWK is not valid JSON');
+      // ignore parse error if raw scalar is available
     }
-  } else {
-    const pubBytes = base64urlDecode(publicKeyBase64);
-    const xBytes = pubBytes.slice(1, 33);
-    const yBytes = pubBytes.slice(33, 65);
-    privateKeyJwk = {
-      kty: 'EC',
-      crv: 'P-256',
-      x: base64urlEncode(xBytes),
-      y: base64urlEncode(yBytes),
-      d: privateKeyRaw.trim(),
-    };
+  }
+
+  if (!privateKeyJwk && privateKeyRaw && publicKeyBase64) {
+    try {
+      const pubBytes = base64urlDecode(publicKeyBase64);
+      const xBytes = pubBytes.slice(1, 33);
+      const yBytes = pubBytes.slice(33, 65);
+      privateKeyJwk = {
+        kty: 'EC',
+        crv: 'P-256',
+        x: base64urlEncode(xBytes),
+        y: base64urlEncode(yBytes),
+        d: privateKeyRaw.trim(),
+      };
+    } catch (err: any) {
+      console.warn('[vapid] Failed to construct JWK from raw keys:', err?.message);
+    }
+  }
+
+  if (!privateKeyJwk) {
+    throw new Error('VAPID secrets not configured: unable to assemble valid ECDSA P-256 key');
   }
 
   return { privateKeyJwk, publicKeyBase64, subject };
 }
+
 
 // ══════════════════════════════════════════════════════════════════════════════
 // EDGE FUNCTION: send-push-notification

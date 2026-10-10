@@ -873,12 +873,12 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                 placeholder="e.g. ganesh_runner"
                 maxLength={20}
                 className={`w-full pl-8 pr-10 py-2.5 rounded-xl text-sm font-bold outline-none transition-all ${profile?.username
-                    ? 'bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 cursor-not-allowed select-none'
-                    : isUsernameTaken || isUsernameInvalid
-                      ? 'border-rose-500 focus:border-rose-500 bg-rose-50/20 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400'
-                      : usernameStatus === 'available'
-                        ? 'border-emerald-500 focus:border-emerald-500 text-emerald-950 dark:text-white'
-                        : 'border-emerald-200 dark:border-slate-800 text-emerald-950 dark:text-white focus:border-emerald-500'
+                  ? 'bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 cursor-not-allowed select-none'
+                  : isUsernameTaken || isUsernameInvalid
+                    ? 'border-rose-500 focus:border-rose-500 bg-rose-50/20 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400'
+                    : usernameStatus === 'available'
+                      ? 'border-emerald-500 focus:border-emerald-500 text-emerald-950 dark:text-white'
+                      : 'border-emerald-200 dark:border-slate-800 text-emerald-950 dark:text-white focus:border-emerald-500'
                   }`}
               />
 
@@ -902,10 +902,10 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
               </p>
             ) : usernameMessage && (
               <p className={`text-[11px] font-semibold flex items-center gap-1 mt-1 ${isUsernameTaken || isUsernameInvalid
-                  ? 'text-rose-500'
-                  : usernameStatus === 'available'
-                    ? 'text-emerald-600 dark:text-emerald-400'
-                    : 'text-slate-400'
+                ? 'text-rose-500'
+                : usernameStatus === 'available'
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-slate-400'
                 }`}>
                 {isUsernameTaken && <span>⚠️ Username already taken</span>}
                 {usernameStatus === 'available' && <span>✓ Username available</span>}

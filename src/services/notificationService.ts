@@ -558,11 +558,19 @@ export const notificationService = {
       }),
     });
 
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err?.error || `Edge function returned ${res.status}`);
+      throw new Error(data?.error || `Edge function returned ${res.status}`);
     }
 
-    console.log('[notificationService] Test notification sent');
+    if (data?.skipped) {
+      throw new Error(`Push skipped: ${data.reason ? data.reason.replace(/_/g, ' ') : 'quiet hours or preference'}`);
+    }
+
+    if (data?.success === false && data?.reason === 'no_subscriptions') {
+      throw new Error('No active device push subscription found. Please toggle Push Notifications ON.');
+    }
+
+    console.log('[notificationService] Test notification sent', data);
   },
 };

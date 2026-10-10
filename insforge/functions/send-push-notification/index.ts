@@ -4,7 +4,137 @@
 // Uses pure Deno Web Crypto VAPID — no npm dependencies.
 
 declare const Deno: any;
-import { sendWebPush, getVapidConfig } from '../_shared/vapid.ts';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Inlined VAPID + Web Push helpers (RFC 8030 / RFC 8188)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function base64urlEncode(data: Uint8Array | ArrayBuffer): string {
+  const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+  let str = '';
+  for (const b of bytes) str += String.fromCharCode(b);
+  return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+function base64urlDecode(str: string): Uint8Array {
+  const b64 = str.replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(b64.padEnd(b64.length + (4 - (b64.length % 4)) % 4, '='));
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+}
+
+async function buildVapidJWT(audience: string, subject: string, privateKeyJwk: object): Promise<string> {
+  const header = { alg: 'ES256', typ: 'JWT' };
+  const claims = { aud: audience, sub: subject, exp: Math.floor(Date.now() / 1000) + 12 * 3600, iat: Math.floor(Date.now() / 1000) };
+  const enc = (obj: object) => base64urlEncode(new TextEncoder().encode(JSON.stringify(obj)));
+  const signingInput = `${enc(header)}.${enc(claims)}`;
+  const key = await crypto.subtle.importKey('jwk', privateKeyJwk as JsonWebKey, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign({ name: 'ECDSA', hash: { name: 'SHA-256' } }, key, new TextEncoder().encode(signingInput));
+  return `${signingInput}.${base64urlEncode(sig)}`;
+}
+
+function concatBuffers(...arrays: Uint8Array[]): Uint8Array {
+  const total = arrays.reduce((n, a) => n + a.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const a of arrays) { out.set(a, offset); offset += a.length; }
+  return out;
+}
+
+async function deriveHKDF(ikm: Uint8Array, salt: Uint8Array, info: Uint8Array, length: number): Promise<Uint8Array> {
+  const key = await crypto.subtle.importKey('raw', ikm as any, 'HKDF', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt: salt as any, info: info as any }, key, length * 8);
+  return new Uint8Array(bits);
+}
+
+async function encryptPushPayload(endpoint: string, p256dhBase64: string, authBase64: string, plaintext: string, vapidJwt: string, vapidPublicKeyBase64: string): Promise<{ body: Uint8Array; headers: Record<string, string> }> {
+  const authSecret = base64urlDecode(authBase64);
+  const receiverPublicKeyBytes = base64urlDecode(p256dhBase64);
+  const serverKeyPair = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey', 'deriveBits']);
+  const serverPublicKeyRaw = await crypto.subtle.exportKey('raw', serverKeyPair.publicKey);
+  const receiverPublicKey = await crypto.subtle.importKey('raw', receiverPublicKeyBytes as any, { name: 'ECDH', namedCurve: 'P-256' }, false, []);
+  const sharedSecret = await crypto.subtle.deriveBits({ name: 'ECDH', public: receiverPublicKey }, serverKeyPair.privateKey, 256);
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const prk = await deriveHKDF(new Uint8Array(sharedSecret), authSecret, concatBuffers(new TextEncoder().encode('WebPush: info\x00'), receiverPublicKeyBytes, new Uint8Array(serverPublicKeyRaw)), 32);
+  const cek = await deriveHKDF(prk, salt, new TextEncoder().encode('Content-Encoding: aes128gcm\x00'), 16);
+  const nonce = await deriveHKDF(prk, salt, new TextEncoder().encode('Content-Encoding: nonce\x00'), 12);
+  const cekKey = await crypto.subtle.importKey('raw', cek as any, 'AES-GCM', false, ['encrypt']);
+  const plaintextBytes = new TextEncoder().encode(plaintext);
+  const padded = new Uint8Array(plaintextBytes.length + 1);
+  padded.set(plaintextBytes);
+  padded[plaintextBytes.length] = 2;
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce as any, tagLength: 128 }, cekKey, padded as any);
+  const recordSize = 4096;
+  const keyIdLen = serverPublicKeyRaw.byteLength;
+  const encHeader = new Uint8Array(16 + 4 + 1 + keyIdLen);
+  encHeader.set(salt, 0);
+  new DataView(encHeader.buffer).setUint32(16, recordSize, false);
+  encHeader[20] = keyIdLen;
+  encHeader.set(new Uint8Array(serverPublicKeyRaw), 21);
+  const body = concatBuffers(encHeader, new Uint8Array(ciphertext));
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/octet-stream',
+    'Content-Encoding': 'aes128gcm',
+    'Authorization': `vapid t=${vapidJwt},k=${vapidPublicKeyBase64}`,
+    'TTL': '86400',
+  };
+  return { body, headers };
+}
+
+interface PushSubscription { endpoint: string; p256dh: string; auth: string; }
+interface VapidConfig { privateKeyJwk: object; publicKeyBase64: string; subject: string; }
+
+async function sendWebPush(subscription: PushSubscription, payload: object, vapid: VapidConfig): Promise<{ status: number; ok: boolean; expired: boolean }> {
+  const audience = new URL(subscription.endpoint).origin;
+  const jwt = await buildVapidJWT(audience, vapid.subject, vapid.privateKeyJwk);
+  const { body, headers } = await encryptPushPayload(subscription.endpoint, subscription.p256dh, subscription.auth, JSON.stringify(payload), jwt, vapid.publicKeyBase64);
+  const res = await fetch(subscription.endpoint, { method: 'POST', headers: { ...headers, 'Content-Length': String(body.byteLength) }, body: body as any });
+  const expired = res.status === 404 || res.status === 410;
+  if (!res.ok && !expired) { const text = await res.text().catch(() => ''); console.error(`[vapid] Push failed ${res.status}:`, text); }
+  return { status: res.status, ok: res.ok, expired };
+}
+
+const DEFAULT_VAPID_PUBLIC_KEY = 'BLR3ZhaiwqGCN8_kLzWOi8DPTnsm1pewvLsXLbhnzYuOef0Pt7-Q8a1_oPvnQDvHZS-PUAIQbTgzLF1zyAl6g1o';
+const DEFAULT_VAPID_PRIVATE_KEY = 'gjIZzs840bBC-pNTyfh5kum0RFkwFFMyxY6TtV-mzWU';
+const DEFAULT_VAPID_SUBJECT = 'mailto:runwarcastle@gmail.com';
+
+function getVapidConfig(): VapidConfig {
+  const privateKeyJwkRaw = Deno.env.get('VAPID_PRIVATE_KEY_JWK') ?? '';
+  const privateKeyRaw = (Deno.env.get('VAPID_PRIVATE_KEY') ?? '').trim() || DEFAULT_VAPID_PRIVATE_KEY;
+  const publicKeyBase64 = (Deno.env.get('VAPID_PUBLIC_KEY') ?? '').trim() || DEFAULT_VAPID_PUBLIC_KEY;
+  const subject = (Deno.env.get('VAPID_SUBJECT') ?? '').trim() || DEFAULT_VAPID_SUBJECT;
+
+  let privateKeyJwk: object | null = null;
+  if (privateKeyJwkRaw) {
+    try {
+      privateKeyJwk = JSON.parse(privateKeyJwkRaw);
+    } catch {
+      // Non-fatal if JSON parsing fails; fall through to reconstructing from raw scalar
+    }
+  }
+
+  if (!privateKeyJwk && privateKeyRaw && publicKeyBase64) {
+    try {
+      const pubBytes = base64urlDecode(publicKeyBase64);
+      privateKeyJwk = {
+        kty: 'EC',
+        crv: 'P-256',
+        x: base64urlEncode(pubBytes.slice(1, 33)),
+        y: base64urlEncode(pubBytes.slice(33, 65)),
+        d: privateKeyRaw.trim(),
+      };
+    } catch (err: any) {
+      console.warn('[vapid] Failed to construct JWK from raw keys:', err?.message);
+    }
+  }
+
+  if (!privateKeyJwk) {
+    throw new Error('VAPID secrets not configured: unable to assemble valid ECDSA P-256 key');
+  }
+
+  return { privateKeyJwk, publicKeyBase64, subject };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 const INSFORGE_URL = Deno.env.get('INSFORGE_BASE_URL') ?? Deno.env.get('INSFORGE_URL') ?? 'https://9r3q7vvs.us-east.insforge.app';
 const SERVICE_ROLE_KEY = Deno.env.get('API_KEY') ?? Deno.env.get('ANON_KEY') ?? Deno.env.get('INSFORGE_SERVICE_ROLE_KEY') ?? 'ik_3f6a564a8b2a7de0a8e58110051ed7a8';
