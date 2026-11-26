@@ -554,6 +554,12 @@ export const authService = {
       });
 
       if (!error && (data?.user || data?.accessToken)) {
+        if (data?.accessToken) {
+          localStorage.setItem(AUTH_TOKEN_KEY, data.accessToken);
+          if (typeof (insforge as any).setAccessToken === 'function') {
+            (insforge as any).setAccessToken(data.accessToken);
+          }
+        }
         const user: any = data.user || (await this.getCurrentUser());
         if (user) {
           const normalizedId = normalizeUserId(user.id);
@@ -586,20 +592,35 @@ export const authService = {
         const randBytes = new Uint8Array(18);
         crypto.getRandomValues(randBytes);
         const ephemeralPassword = `Rw_${btoa(String.fromCharCode(...randBytes)).replace(/[^a-zA-Z0-9]/g, '').slice(0, 18)}!9aA`;
-        await insforge.auth.resetPassword({
+        const { error: resetErr } = await insforge.auth.resetPassword({
           otp: exchangeRes.data.token,
           newPassword: ephemeralPassword,
         });
-        const finalSignIn = await insforge.auth.signInWithPassword({
-          email: cleanEmail,
-          password: ephemeralPassword,
-        });
-        if (finalSignIn.data?.user) {
-          const normalizedId = normalizeUserId(finalSignIn.data.user.id);
-          const normalizedUser = { ...finalSignIn.data.user, id: normalizedId };
-          this.setCachedUser(normalizedUser);
-          let profile = await this.getProfile(normalizedId);
-          return { user: normalizedUser, isNew: !profile };
+        if (!resetErr) {
+          const finalSignIn = await insforge.auth.signInWithPassword({
+            email: cleanEmail,
+            password: ephemeralPassword,
+          });
+          if (!finalSignIn.error && finalSignIn.data?.user) {
+            if (finalSignIn.data?.accessToken) {
+              localStorage.setItem(AUTH_TOKEN_KEY, finalSignIn.data.accessToken);
+              if (typeof (insforge as any).setAccessToken === 'function') {
+                (insforge as any).setAccessToken(finalSignIn.data.accessToken);
+              }
+            }
+            const normalizedId = normalizeUserId(finalSignIn.data.user.id);
+            const normalizedUser = { ...finalSignIn.data.user, id: normalizedId };
+            this.setCachedUser(normalizedUser);
+            // Ephemeral OTP password replaced any previous user password — keep profile state accurate
+            try {
+              await insforge.database
+                .from('profiles')
+                .update({ password_configured: false })
+                .eq('user_id', normalizedId);
+            } catch {}
+            const profile = await this.getProfile(normalizedId);
+            return { user: normalizedUser, isNew: !profile };
+          }
         }
       }
     } catch {

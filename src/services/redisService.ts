@@ -10,8 +10,9 @@ interface RedisResponse<T = any> {
   error?: string;
 }
 
-const REDIS_REST_URL = (import.meta.env.VITE_UPSTASH_REDIS_REST_URL || '').replace(/\/$/, '');
-const REDIS_REST_TOKEN = import.meta.env.VITE_UPSTASH_REDIS_REST_TOKEN || '';
+// Browser clients must never embed privileged Redis write tokens; live beacon/tether safely fall back to Postgres + Realtime.
+const REDIS_REST_URL = '';
+const REDIS_REST_TOKEN = '';
 
 export const redisService = {
   /**

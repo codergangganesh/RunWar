@@ -1140,11 +1140,37 @@ export const workoutService = {
       }
     }
 
-    // 5. Recalculate PRs/goals cleanly and broadcast global update events
+    // 5. Recalculate PRs only if deleted workout held a PR (fetch lightweight summaries so older PRs aren't lost) & update goals
     if (canonicalUserId) {
-      const remaining = this.getCachedWorkouts(canonicalUserId);
       Promise.allSettled([
-        recordsService.recalculateAllPRs(canonicalUserId, remaining),
+        (async () => {
+          const existingPRs = await recordsService.getPersonalRecords(canonicalUserId);
+          const heldPR = existingPRs.some((r) => r.workout_id === workoutId);
+          const remainingCached = this.getCachedWorkouts(canonicalUserId);
+          if (!heldPR && existingPRs.length > 0 && remainingCached.length > 0) {
+            return;
+          }
+          let allSummaries: Workout[] = remainingCached;
+          const isGuest = canonicalUserId === 'guest_user' || canonicalUserId === 'usr_guest_demo';
+          if (navigator.onLine && !isGuest) {
+            const dbUserId = toDeterministicUUID(canonicalUserId);
+            const { data } = await insforge.database
+              .from('workouts')
+              .select('id, user_id, type, started_at, ended_at, duration_seconds, distance_meters, average_pace, max_speed, elevation_gain, calories, status')
+              .eq('user_id', dbUserId)
+              .order('started_at', { ascending: false })
+              .limit(500);
+            if (Array.isArray(data) && data.length > 0) {
+              const cachedMap = new Map(remainingCached.map((w) => [w.id, w]));
+              allSummaries = data.map((row: any) => ({
+                ...row,
+                splits: cachedMap.get(row.id)?.splits || [],
+                route_coordinates: [],
+              })) as Workout[];
+            }
+          }
+          await recordsService.recalculateAllPRs(canonicalUserId, allSummaries);
+        })(),
         goalsService.updateProgress(canonicalUserId),
       ]).catch(() => {});
     }

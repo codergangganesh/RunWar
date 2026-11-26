@@ -191,17 +191,18 @@ export const recordsService = {
     const guestMode = isGuest(userId);
     const dbUserId = guestMode ? userId : toDeterministicUUID(userId);
 
-    saveLocalPRs(dbUserId, []);
-    if (!guestMode) {
-      try {
-        await insforge.database.from('personal_records').delete().eq('user_id', dbUserId);
-      } catch (err) {
-        console.warn('Could not clear stale PRs before recalculation:', err);
-      }
-    }
-
     const completed = (workouts || []).filter((w) => w.status === 'completed' || !w.status);
-    if (completed.length === 0) return [];
+    if (completed.length === 0) {
+      saveLocalPRs(dbUserId, []);
+      if (!guestMode) {
+        try {
+          await insforge.database.from('personal_records').delete().eq('user_id', dbUserId);
+        } catch (err) {
+          console.warn('Could not clear stale PRs before recalculation:', err);
+        }
+      }
+      return [];
+    }
 
     // Compute winning PR per category in memory (single batch upsert instead of N writes)
     const bestByType = new Map<PersonalRecord['record_type'], { value: number; workout: Workout }>();
@@ -245,7 +246,15 @@ export const recordsService = {
       achieved_at: entry.workout.ended_at || entry.workout.started_at || new Date().toISOString(),
     }));
 
-    if (payloads.length === 0) return [];
+    if (payloads.length === 0) {
+      saveLocalPRs(dbUserId, []);
+      if (!guestMode) {
+        try {
+          await insforge.database.from('personal_records').delete().eq('user_id', dbUserId);
+        } catch {}
+      }
+      return [];
+    }
 
     if (guestMode) {
       const localRecords: PersonalRecord[] = payloads.map((p) => ({
@@ -263,6 +272,19 @@ export const recordsService = {
         .select();
       if (!error && data) {
         const records = data as PersonalRecord[];
+        // Clean up any stale categories that no longer qualify
+        const validTypes = new Set(records.map((r) => r.record_type));
+        const allCached = getLocalPRs(dbUserId);
+        const obsoleteTypes = allCached
+          .map((r) => r.record_type)
+          .filter((rt) => !validTypes.has(rt));
+        if (obsoleteTypes.length > 0) {
+          await insforge.database
+            .from('personal_records')
+            .delete()
+            .eq('user_id', dbUserId)
+            .in('record_type', obsoleteTypes);
+        }
         saveLocalPRs(dbUserId, records);
         return records;
       }

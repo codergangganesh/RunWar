@@ -184,6 +184,25 @@ function getAlarmTitle(alarm: any): string {
 
 // ── Main handler ─────────────────────────────────────────────────────────────
 
+function constantTimeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+async function computeSnoozeToken(alarmId: string, userId: string): Promise<string> {
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(SERVICE_ROLE_KEY),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const sig = await crypto.subtle.sign('HMAC', keyMaterial, new TextEncoder().encode(`${alarmId}:${userId}`));
+  return Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 export default async function handler(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') {
     return new Response(null, {
@@ -193,6 +212,28 @@ export default async function handler(req: Request): Promise<Response> {
         'Access-Control-Allow-Methods': 'POST, OPTIONS',
       },
     });
+  }
+
+  if (req.method === 'POST') {
+    const body = await req.clone().json().catch(() => null);
+    if (body && body.action === 'snooze') {
+      const { alarmId, userId, snoozeToken } = body;
+      if (!alarmId || !userId || !snoozeToken) {
+        return new Response(JSON.stringify({ error: 'Missing snooze parameters' }), { status: 400, headers: corsHeaders });
+      }
+      const expectedToken = await computeSnoozeToken(String(alarmId), String(userId));
+      if (!constantTimeEqual(String(snoozeToken), expectedToken)) {
+        return new Response(JSON.stringify({ error: 'Unauthorized snooze token' }), { status: 401, headers: corsHeaders });
+      }
+      const snoozeUtc = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+      await db(
+        'alarms',
+        'PATCH',
+        `id=eq.${encodeURIComponent(String(alarmId))}&user_id=eq.${encodeURIComponent(String(userId))}`,
+        { next_trigger_at: snoozeUtc, enabled: true, updated_at: new Date().toISOString() }
+      );
+      return new Response(JSON.stringify({ ok: true, snoozeUntil: snoozeUtc }), { status: 200, headers: corsHeaders });
+    }
   }
 
   const now = new Date();
@@ -292,6 +333,7 @@ export default async function handler(req: Request): Promise<Response> {
           continue;
         }
 
+        const snoozeToken = await computeSnoozeToken(String(alarm.id), String(alarm.user_id));
         const pushRes = await fetch(SEND_PUSH_URL, {
           method: 'POST',
           headers: {
@@ -306,7 +348,12 @@ export default async function handler(req: Request): Promise<Response> {
             body: alarm.message || '⏰ Your RunWar reminder.',
             url: getAlarmRouteUrl(alarm.alarm_type),
             type: 'alarm',
-            data: { alarm_id: alarm.id, alarm_type: alarm.alarm_type },
+            data: {
+              alarm_id: alarm.id,
+              alarm_type: alarm.alarm_type,
+              user_id: alarm.user_id,
+              snooze_token: snoozeToken,
+            },
           }),
         });
 

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'runwar-cache-v5';
+const CACHE_NAME = 'runwar-cache-v6';
 
 // Only pre-cache critical small assets. Large media and hero images use runtime caching below.
 const STATIC_ASSETS = [
@@ -55,7 +55,7 @@ self.addEventListener('fetch', (event) => {
 
   // 1. Navigation / HTML requests: Network-First (skip caching sensitive OAuth/reset/beacon URLs)
   if (event.request.mode === 'navigate' || event.request.headers.get('accept')?.includes('text/html')) {
-    const hasSensitiveParams = /[?&](code|insforge_code|token|error|error_description|beacon|invite)=/i.test(url.search);
+    const hasSensitiveParams = /[?&](code|insforge_code|token|error|error_description|google_error|google_connected|email|beacon|invite)=/i.test(url.search);
     event.respondWith(
       fetch(event.request)
         .then((networkResponse) => {
@@ -67,7 +67,10 @@ self.addEventListener('fetch', (event) => {
         })
         .catch(() => {
           // Offline fallback
-          return caches.match(event.request).then((cached) => cached || caches.match('/index.html') || Response.error());
+          return caches.match(event.request).then((cached) => {
+            if (cached) return cached;
+            return caches.match('/index.html').then((fallback) => fallback || Response.error());
+          });
         })
     );
     return;
@@ -211,41 +214,43 @@ self.addEventListener('notificationclick', (event) => {
 
     event.waitUntil(
       (async () => {
-        // 1. Show immediate confirmation toast notification
-        await self.registration.showNotification('⏰ Run Alarm Snoozed (+10m)', {
-          body: 'Taking a 10-minute breather. Lace up soon!',
-          icon: '/logo.png',
-          badge: '/logo.png',
-          tag: 'runwar-snooze-notice',
-          vibrate: [100, 50, 100],
-        });
-
-        // 2. If alarm_id is present, reschedule the alarm in cloud database for +10 minutes
+        // 1. If alarm_id + snooze_token are present, reschedule via signed process-alarms snooze endpoint
         const snoozeUtc = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-        if (notifData.alarm_id) {
+        let snoozedOk = false;
+        if (notifData.alarm_id && notifData.snooze_token && notifData.user_id) {
           try {
-            const swParams = new URL(self.location.href).searchParams;
-            const backendUrl = swParams.get('url') || 'https://9r3q7vvs.us-east.insforge.app';
-            const anonKey = swParams.get('key') || 'ik_3f6a564a8b2a7de0a8e58110051ed7a8';
-
-            await fetch(`${backendUrl}/api/database/records/alarms?id=eq.${notifData.alarm_id}`, {
-              method: 'PATCH',
-              headers: {
-                'Content-Type': 'application/json',
-                'apikey': anonKey,
-                'Authorization': `Bearer ${anonKey}`,
-              },
+            const snoozeRes = await fetch('https://9r3q7vvs.function2.insforge.app/process-alarms', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                next_trigger_at: snoozeUtc,
-                enabled: true,
-                updated_at: new Date().toISOString(),
+                action: 'snooze',
+                alarmId: notifData.alarm_id,
+                userId: notifData.user_id,
+                snoozeToken: notifData.snooze_token,
               }),
             });
-            console.log('[SW] Snoozed alarm rescheduled in cloud for +10m:', snoozeUtc);
+            snoozedOk = snoozeRes.ok;
+            if (!snoozeRes.ok) {
+              console.warn('[SW] Signed snooze failed:', snoozeRes.status);
+            }
           } catch (cloudErr) {
-            console.warn('[SW] Cloud snooze patch error:', cloudErr);
+            console.warn('[SW] Cloud snooze error:', cloudErr);
           }
         }
+
+        // 2. Show accurate notification toast
+        await self.registration.showNotification(
+          snoozedOk ? '⏰ Run Alarm Snoozed (+10m)' : '⏰ Open RunWar to Snooze Alarm',
+          {
+            body: snoozedOk
+              ? 'Taking a 10-minute breather. Lace up soon!'
+              : 'Could not sync snooze in background. Tap to open RunWar.',
+            icon: '/logo.png',
+            badge: '/logo.png',
+            tag: 'runwar-snooze-notice',
+            vibrate: [100, 50, 100],
+          }
+        );
 
         // 3. Inform any active app clients of the snooze event
         const windowClients = await clients.matchAll({ type: 'window', includeUncontrolled: true });
@@ -270,7 +275,13 @@ self.addEventListener('notificationclick', (event) => {
   else if (action === 'view_challenge') targetUrl = '/?tab=challenges';
   else if (action === 'view_achievement') targetUrl = '/?tab=achievements';
 
-  const absoluteUrl = new URL(targetUrl, self.location.origin).href;
+  let absoluteUrl = `${self.location.origin}/`;
+  try {
+    const parsedUrl = new URL(targetUrl, self.location.origin);
+    if (parsedUrl.origin === self.location.origin) {
+      absoluteUrl = parsedUrl.href;
+    }
+  } catch {}
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {

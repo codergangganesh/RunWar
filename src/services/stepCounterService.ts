@@ -65,6 +65,7 @@ export class StepCounterService {
   private hasRealMotionSample: boolean = false;
   private restoredStepOffset: number = 0;
   private lastStorageWriteMs: number = 0;
+  private lastCheckpointWriteMs: number = 0;
   private gravityX: number = 0;
   private gravityY: number = 0;
   private gravityZ: number = 0;
@@ -593,8 +594,8 @@ export class StepCounterService {
   private persistCheckpoint(force: boolean = false): void {
     if (!this.activeWorkoutId || typeof localStorage === 'undefined') return;
     const now = Date.now();
-    if (!force && now - this.lastStorageWriteMs < 4000) return;
-    this.lastStorageWriteMs = now;
+    if (!force && now - this.lastCheckpointWriteMs < 4000) return;
+    this.lastCheckpointWriteMs = now;
     const checkpoint: StepCheckpoint = {
       workoutId: this.activeWorkoutId,
       baselineDeviceSteps: this.baselineSteps,

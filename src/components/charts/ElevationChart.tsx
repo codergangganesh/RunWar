@@ -26,7 +26,14 @@ export const ElevationChart: React.FC<ElevationChartProps> = ({
   // Filter valid points and compute cumulative distance
   const pointsData = useMemo(() => {
     if (!coordinates || coordinates.length === 0) return [];
-    const valid = coordinates.filter((c) => c.altitude != null);
+    const valid = coordinates.filter(
+      (c) =>
+        c &&
+        c.altitude != null &&
+        Number.isFinite(Number(c.altitude)) &&
+        Number.isFinite(c.latitude) &&
+        Number.isFinite(c.longitude)
+    );
     if (valid.length < 2) return [];
 
     let cumDist = 0;
@@ -41,7 +48,7 @@ export const ElevationChart: React.FC<ElevationChartProps> = ({
             pt.latitude,
             pt.longitude
           );
-        cumDist += dist;
+        cumDist += Number.isFinite(dist) ? dist : 0;
       }
       return {
         altitude: Number(pt.altitude),
@@ -52,30 +59,21 @@ export const ElevationChart: React.FC<ElevationChartProps> = ({
     });
   }, [coordinates]);
 
-  if (pointsData.length < 2) {
-    return (
-      <div
-        className={`rounded-3xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-slate-800 p-6 flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 text-xs shadow-sm ${className}`}
-      >
-        <Mountain size={20} className="mb-1 text-slate-400 opacity-60" />
-        <span>No elevation data recorded for this workout</span>
-      </div>
-    );
-  }
-
-  const altitudes = pointsData.map((p) => p.altitude);
+  const hasEnoughPoints = pointsData.length >= 2;
+  const altitudes = hasEnoughPoints ? pointsData.map((p) => p.altitude) : [0];
   const minAlt = Math.min(...altitudes);
   const maxAlt = Math.max(...altitudes);
-  const startAlt = pointsData[0].altitude;
-  const finishAlt = pointsData[pointsData.length - 1].altitude;
+  const startAlt = hasEnoughPoints ? pointsData[0].altitude : 0;
+  const finishAlt = hasEnoughPoints ? pointsData[pointsData.length - 1].altitude : 0;
   const altRange = Math.max(5, maxAlt - minAlt);
-  const totalDistanceMeters = pointsData[pointsData.length - 1].distanceMeters;
+  const totalDistanceMeters = hasEnoughPoints ? pointsData[pointsData.length - 1].distanceMeters : 0;
 
   // Sample points for smooth rendering while preserving accuracy
-  const sampleCount = Math.min(80, Math.max(20, pointsData.length));
-  const step = Math.max(1, (pointsData.length - 1) / (sampleCount - 1));
+  const sampleCount = hasEnoughPoints ? Math.min(80, Math.max(20, pointsData.length)) : 0;
+  const step = sampleCount > 1 ? Math.max(1, (pointsData.length - 1) / (sampleCount - 1)) : 1;
 
   const sampledPoints = useMemo(() => {
+    if (!hasEnoughPoints || sampleCount < 2) return [];
     const pts: {
       x: number;
       y: number;
@@ -93,7 +91,7 @@ export const ElevationChart: React.FC<ElevationChartProps> = ({
       pts.push({ x, y, alt: pt.altitude, dist: pt.distanceMeters, dataIndex: idx });
     }
     return pts;
-  }, [pointsData, sampleCount, step, totalDistanceMeters, minAlt, altRange]);
+  }, [hasEnoughPoints, pointsData, sampleCount, step, totalDistanceMeters, minAlt, altRange]);
 
   // Construct SVG Path
   const pathD = useMemo(() => {
@@ -107,7 +105,7 @@ export const ElevationChart: React.FC<ElevationChartProps> = ({
 
   // Determine selected point
   const selectedPoint = useMemo(() => {
-    if (selectedIndex === null || selectedIndex < 0 || selectedIndex >= pointsData.length) {
+    if (!hasEnoughPoints || selectedIndex === null || selectedIndex < 0 || selectedIndex >= pointsData.length) {
       return null;
     }
     const pt = pointsData[selectedIndex];
@@ -123,13 +121,14 @@ export const ElevationChart: React.FC<ElevationChartProps> = ({
       diffFromStart,
       progressPct,
     };
-  }, [selectedIndex, pointsData, totalDistanceMeters, minAlt, altRange, startAlt]);
+  }, [hasEnoughPoints, selectedIndex, pointsData, totalDistanceMeters, minAlt, altRange, startAlt]);
 
   // Interaction handler for click/touch/scrub
   const handleInteract = useCallback(
     (clientX: number) => {
-      if (!svgRef.current || totalDistanceMeters <= 0) return;
+      if (!svgRef.current || totalDistanceMeters <= 0 || !hasEnoughPoints) return;
       const rect = svgRef.current.getBoundingClientRect();
+      if (rect.width <= 0) return;
       const relativeX = Math.max(0, Math.min(rect.width, clientX - rect.left));
       const ratio = relativeX / rect.width;
       const targetDist = ratio * totalDistanceMeters;
@@ -146,8 +145,19 @@ export const ElevationChart: React.FC<ElevationChartProps> = ({
       }
       setSelectedIndex(closestIdx);
     },
-    [pointsData, totalDistanceMeters]
+    [hasEnoughPoints, pointsData, totalDistanceMeters]
   );
+
+  if (!hasEnoughPoints) {
+    return (
+      <div
+        className={`rounded-3xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-slate-800 p-6 flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 text-xs shadow-sm ${className}`}
+      >
+        <Mountain size={20} className="mb-1 text-slate-400 opacity-60" />
+        <span>No elevation data recorded for this workout</span>
+      </div>
+    );
+  }
 
   const onMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
     setIsInteracting(true);

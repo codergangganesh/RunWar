@@ -567,13 +567,17 @@ export const notificationService = {
 
     if (!notif) throw new Error('Failed to create test notification');
 
-    // Trigger the edge function to send push immediately
+    // Trigger the edge function to send push immediately (include user session JWT)
     const anonKey = import.meta.env.VITE_INSFORGE_ANON_KEY || '';
+    let userJwt = '';
+    try {
+      userJwt = localStorage.getItem('runwar_auth_token') || '';
+    } catch {}
     const res = await fetch(`${FUNCTIONS_URL}/send-push-notification`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${anonKey}`,
+        'Authorization': `Bearer ${userJwt || anonKey}`,
         'apikey': anonKey,
       },
       body: JSON.stringify({

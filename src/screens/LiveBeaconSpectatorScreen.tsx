@@ -99,16 +99,18 @@ export const LiveBeaconSpectatorScreen: React.FC<LiveBeaconSpectatorScreenProps>
   const [isTimeExceeded, setIsTimeExceeded] = useState(false);
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
   const hasBeaconRef = useRef(false);
+  const isFetchingRef = useRef(false);
 
   const fetchBeaconData = useCallback(async () => {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
     try {
       const data = await beaconService.getBeaconByCode(beaconCode);
       if (data) {
         // Server-enforced Expiration Check
         const isExpired = Boolean(
           data.is_expired ||
-          (data.expires_at && new Date(data.expires_at).getTime() <= Date.now()) ||
-          (data.status === 'completed' && Boolean(data.expires_at))
+          (data.expires_at && new Date(data.expires_at).getTime() <= Date.now())
         );
 
         if (isExpired) {
@@ -125,6 +127,11 @@ export const LiveBeaconSpectatorScreen: React.FC<LiveBeaconSpectatorScreenProps>
         setBeacon(data);
         setLocalCheers((prev) => Math.max(prev, data.cheers_count || 0));
         setErrorMessage(null);
+
+        if (data.status === 'completed' && pollTimerRef.current) {
+          clearInterval(pollTimerRef.current);
+          pollTimerRef.current = null;
+        }
       } else {
         if (!hasBeaconRef.current) {
           setErrorMessage('Live Run Beacon session not found or has expired.');
@@ -135,6 +142,7 @@ export const LiveBeaconSpectatorScreen: React.FC<LiveBeaconSpectatorScreenProps>
         setErrorMessage('Unable to connect to live stream. Checking connection...');
       }
     } finally {
+      isFetchingRef.current = false;
       setIsLoading(false);
     }
   }, [beaconCode]);

@@ -859,11 +859,11 @@ class TetherService {
       if (this.activeSession.status === 'waiting') {
         // Polling database for peer join if not already connected
         this.pollPeerJoinStatus();
-      } else if (this.activeSession.status === 'active') {
-        // Polling database to check if peer has disconnected/ended
+      } else if (this.activeSession.status === 'active' && !this.activeRealtimeChannel) {
+        // Fallback DB status poll only when Realtime channel is unavailable
         this.pollActiveSessionStatus();
       }
-    }, 2500);
+    }, 6000);
   }
 
   private async pollActiveSessionStatus(): Promise<void> {

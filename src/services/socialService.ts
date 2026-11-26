@@ -208,6 +208,45 @@ export function calculateExactStreak(
   return currentStreak;
 }
 
+function compactRouteForFeed(coords?: any[]): any[] {
+  if (!Array.isArray(coords) || coords.length === 0) return [];
+  const maxPts = 36;
+  const pick = (pt: any, idx: number) => ({
+    latitude: Number(Number(pt.latitude).toFixed(5)),
+    longitude: Number(Number(pt.longitude).toFixed(5)),
+    sequence_number: pt.sequence_number ?? idx + 1,
+  });
+  if (coords.length <= maxPts) {
+    return coords
+      .filter((c) => c && typeof c.latitude === 'number' && typeof c.longitude === 'number')
+      .map(pick);
+  }
+  const step = (coords.length - 1) / (maxPts - 1);
+  const out: any[] = [];
+  for (let i = 0; i < maxPts; i++) {
+    const idx = Math.min(Math.round(i * step), coords.length - 1);
+    const pt = coords[idx];
+    if (pt && typeof pt.latitude === 'number' && typeof pt.longitude === 'number') {
+      out.push(pick(pt, idx));
+    }
+  }
+  return out;
+}
+
+function compactWorkoutForPost(
+  workout: Workout,
+  photoUrl?: string | null,
+  hasPhotoStatsOverlay?: boolean
+): Workout {
+  return {
+    ...workout,
+    route_coordinates: compactRouteForFeed(workout.route_coordinates),
+    splits: Array.isArray(workout.splits) ? workout.splits.slice(0, 25) : [],
+    photo_url: photoUrl ?? (workout as any).photo_url ?? null,
+    has_photo_stats_overlay: Boolean(hasPhotoStatsOverlay && photoUrl),
+  } as Workout;
+}
+
 export const socialService = {
   /**
    * Universal helper to check if a user is the author of a post
@@ -1292,13 +1331,22 @@ export const socialService = {
   },
 
   /**
-   * Save posts to local cache
+   * Save posts to local cache (bounded to avoid exceeding localStorage 5MB quota)
    */
   saveCachedPosts(posts: FeedPost[]): void {
     try {
-      localStorage.setItem(FEED_STORAGE_KEY, JSON.stringify(posts));
-    } catch (e) {
-      console.error('Failed to save social feed cache', e);
+      const bounded = posts.slice(0, 25).map((p) =>
+        p.workout?.route_coordinates && p.workout.route_coordinates.length > 36
+          ? { ...p, workout: compactWorkoutForPost(p.workout, p.photoUrl, p.hasPhotoStatsOverlay) }
+          : p
+      );
+      localStorage.setItem(FEED_STORAGE_KEY, JSON.stringify(bounded));
+    } catch {
+      try {
+        localStorage.setItem(FEED_STORAGE_KEY, JSON.stringify(posts.slice(0, 10)));
+      } catch (e) {
+        console.error('Failed to save social feed cache', e);
+      }
     }
   },
 
@@ -1386,11 +1434,7 @@ export const socialService = {
     const distKm = (distM / 1000).toFixed(2);
 
     const workoutData: Workout = (workout
-      ? {
-        ...workout,
-        photo_url: photoUrl || (workout as any).photo_url || null,
-        has_photo_stats_overlay: Boolean(hasPhotoStatsOverlay && photoUrl),
-      }
+      ? compactWorkoutForPost(workout, photoUrl || (workout as any).photo_url || null, hasPhotoStatsOverlay)
       : {
         id: `w_post_${Date.now()}`,
         user_id: resolvedUserId,
@@ -1828,11 +1872,12 @@ export const socialService = {
       ? Boolean(updateData.hasPhotoStatsOverlay && finalPhotoUrl)
       : Boolean(target.hasPhotoStatsOverlay);
 
-    const payloadWorkoutData = {
-      ...(updatedWorkout || {}),
-      photo_url: finalPhotoUrl || null,
-      has_photo_stats_overlay: finalBurnStats,
-    };
+    const payloadWorkoutData = updatedWorkout
+      ? compactWorkoutForPost(updatedWorkout, finalPhotoUrl || null, finalBurnStats)
+      : {
+          photo_url: finalPhotoUrl || null,
+          has_photo_stats_overlay: finalBurnStats,
+        };
 
     let locationName = target.locationName || 'Global Sector';
     if (finalVisibility === 'private') {

@@ -5,7 +5,7 @@ import { healthService } from './healthService';
 import { toDeterministicUUID } from '../../utils/uuid';
 import { googleHealthProvider, FN_DATA } from './googleHealthProvider';
 import { stepCounterService } from '../stepCounterService';
-import { isSameLocalDate } from '../../utils/dateUtils';
+import { isSameLocalDate, getLocalDateKey } from '../../utils/dateUtils';
 
 const GOOGLE_FIT_AUTH_STORAGE_KEY = 'runwar_google_fit_token';
 
@@ -33,8 +33,8 @@ class DailyActivityService {
     workouts: Workout[] = [],
     profile: UserProfile | null = null
   ): Promise<DailyActivityMetrics> {
-    const todayStr = new Date().toISOString().split('T')[0];
     const now = new Date();
+    const todayStr = getLocalDateKey(now);
     const todayStart = new Date(now);
     todayStart.setHours(0, 0, 0, 0);
     const todayStartMs = todayStart.getTime();
@@ -444,7 +444,10 @@ class DailyActivityService {
         if (resWeek.ok) {
           const weekData = await resWeek.json();
           const wBuckets = weekData.bucket || [];
-          for (let i = 0; i < wBuckets.length && i < weeklyHistory.length; i++) {
+          const historyByDate = new Map(weeklyHistory.map((d) => [d.date, d]));
+          const last7StartIndex = Math.max(0, weeklyHistory.length - 7);
+
+          for (let i = 0; i < wBuckets.length; i++) {
             const b = wBuckets[i];
             let daySteps = 0;
             let dayDist = 0;
@@ -462,10 +465,19 @@ class DailyActivityService {
             }
 
             if (daySteps > 0) {
-              weeklyHistory[i].steps = daySteps;
-              weeklyHistory[i].distanceKm = Number((dayDist / 1000).toFixed(2));
-              weeklyHistory[i].calories = Math.round(dayCal);
-              weeklyHistory[i].isCompleted = daySteps >= 10000;
+              const bucketStartMs = Number(b.startTimeMillis);
+              const bucketDateKey = Number.isFinite(bucketStartMs)
+                ? getLocalDateKey(new Date(bucketStartMs))
+                : null;
+              const target =
+                (bucketDateKey && historyByDate.get(bucketDateKey)) ||
+                weeklyHistory[last7StartIndex + i];
+              if (target) {
+                target.steps = daySteps;
+                target.distanceKm = Number((dayDist / 1000).toFixed(2));
+                target.calories = Math.round(dayCal);
+                target.isCompleted = daySteps >= 10000;
+              }
             }
           }
         }

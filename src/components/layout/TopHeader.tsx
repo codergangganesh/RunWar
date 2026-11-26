@@ -142,7 +142,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
                 decoding="async"
               />
             ) : (
-              <span className="text-xs font-black">{profile.name.charAt(0).toUpperCase()}</span>
+              <span className="text-xs font-black">{(profile.name || 'R').charAt(0).toUpperCase()}</span>
             )}
           </button>
         )}

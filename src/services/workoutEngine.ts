@@ -610,6 +610,29 @@ export class WorkoutEngine {
     if (this.state.engineState !== 'ACTIVE') {
       coord.distanceFromPrevious = 0;
       this.state.currentLocation = coord;
+
+      // Allow auto-resume when engine was auto-paused and runner starts moving again
+      if (this.state.engineState === 'PAUSED' && this.state.isAutoPaused) {
+        let resumeSpeedKmh = coord.speed && coord.speed > 0 ? coord.speed * 3.6 : 0;
+        if (resumeSpeedKmh <= 0 && prevCoord) {
+          const dtSec = Math.max(1, (coord.timestamp - prevCoord.timestamp) / 1000);
+          const distM = calculateHaversineDistance(
+            prevCoord.latitude,
+            prevCoord.longitude,
+            coord.latitude,
+            coord.longitude
+          );
+          if (Number.isFinite(distM) && distM >= 2) {
+            resumeSpeedKmh = (distM / 1000) / (dtSec / 3600);
+          }
+        }
+        this.state.currentSpeed = Number(resumeSpeedKmh.toFixed(2));
+        if (resumeSpeedKmh >= 1.5) {
+          this.resumeWorkout();
+          return;
+        }
+      }
+
       this.notify();
       return;
     }

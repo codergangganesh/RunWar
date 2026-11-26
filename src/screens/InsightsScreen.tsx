@@ -141,6 +141,9 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({ workouts, profil
 
     // Populate metric values for each bucket
     if (filteredWorkouts.length > 0) {
+      const paceSums = new Array<number>(ticks.length).fill(0);
+      const paceCounts = new Array<number>(ticks.length).fill(0);
+
       filteredWorkouts.forEach((w) => {
         const wDate = new Date(w.started_at).getTime();
         let closestIdx = 0;
@@ -165,11 +168,20 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({ workouts, profil
         }
 
         if (activeMetric === 'pace') {
-          ticks[closestIdx].value = ticks[closestIdx].value > 0 ? (ticks[closestIdx].value + valToAdd) / 2 : valToAdd;
+          if (valToAdd > 0) {
+            paceSums[closestIdx] += valToAdd;
+            paceCounts[closestIdx] += 1;
+          }
         } else {
           ticks[closestIdx].value += valToAdd;
         }
       });
+
+      if (activeMetric === 'pace') {
+        for (let i = 0; i < ticks.length; i++) {
+          ticks[i].value = paceCounts[i] > 0 ? paceSums[i] / paceCounts[i] : 0;
+        }
+      }
     }
 
     return ticks;
@@ -529,7 +541,9 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({ workouts, profil
                     fontFamily="monospace"
                     className="fill-slate-400 dark:fill-slate-500 font-semibold"
                   >
-                    {lbl}
+                    {activeMetric === 'pace'
+                      ? (lbl > 0 ? formatPace(lbl, paceUnit).replace(/\s*\/?\w+\/\w+/, '').trim() : '0:00')
+                      : lbl}
                   </text>
                 </g>
               );
@@ -643,7 +657,9 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({ workouts, profil
                   fill="#ffffff"
                   fontFamily="sans-serif"
                 >
-                  {activePoint.tick.value.toFixed(1)} {currentMetricOption.unit}
+                  {activeMetric === 'pace'
+                    ? formatPace(activePoint.tick.value, paceUnit)
+                    : `${activePoint.tick.value.toFixed(1)} ${currentMetricOption.unit}`}
                 </text>
               </g>
             )}
@@ -749,7 +765,7 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({ workouts, profil
                 {bestPaceSec > 0 ? formatPace(bestPaceSec, paceUnit).replace(/\s*\/\w+/, '') : '--:--'}
               </span>
               <span className="text-[8px] sm:text-xs font-semibold text-slate-400 dark:text-slate-500">
-                /{distanceUnit}
+                /{paceUnit === 'min_mi' ? 'mi' : 'km'}
               </span>
             </div>
           </div>

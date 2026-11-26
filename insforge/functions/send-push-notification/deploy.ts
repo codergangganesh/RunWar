@@ -171,11 +171,38 @@ interface VapidConfig {
   subject: string;
 }
 
+function isSafePushEndpoint(endpoint: string): boolean {
+  try {
+    const parsed = new URL(endpoint);
+    if (parsed.protocol !== 'https:') return false;
+    const host = parsed.hostname.toLowerCase();
+    if (
+      host === 'localhost' ||
+      host === '::1' ||
+      host === '[::1]' ||
+      host.endsWith('.local') ||
+      /^127\./.test(host) ||
+      /^10\./.test(host) ||
+      /^192\.168\./.test(host) ||
+      /^169\.254\./.test(host) ||
+      /^172\.(1[6-9]|2\d|3[0-1])\./.test(host)
+    ) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function sendWebPush(
   subscription: PushSub,
   payload: object,
   vapid: VapidConfig,
 ): Promise<{ status: number; ok: boolean; expired: boolean }> {
+  if (!isSafePushEndpoint(subscription.endpoint)) {
+    throw new Error('Blocked unsafe push subscription endpoint');
+  }
   const audience = new URL(subscription.endpoint).origin;
   const jwt = await buildVapidJWT(audience, vapid.subject, vapid.privateKeyJwk);
   const bodyStr = JSON.stringify(payload);
@@ -347,6 +374,40 @@ export default async function handler(req: Request): Promise<Response> {
     );
   }
 
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_RE.test(String(notificationId)) || !UUID_RE.test(String(userId))) {
+    return new Response(
+      JSON.stringify({ error: 'Invalid notificationId or userId format' }),
+      { status: 400, headers: corsHeaders }
+    );
+  }
+
+  const authHeader = req.headers.get('Authorization') || '';
+  const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+  const configuredApiKey = (Deno.env.get('API_KEY') ?? '').trim();
+  const configuredAnonKey = (Deno.env.get('ANON_KEY') ?? '').trim();
+  const isInternalService = Boolean(
+    configuredApiKey && configuredApiKey !== configuredAnonKey && bearerToken === configuredApiKey
+  );
+
+  if (!isInternalService) {
+    let authedUserId: string | null = null;
+    if (bearerToken && bearerToken !== configuredAnonKey) {
+      try {
+        const meRes = await fetch(`${INSFORGE_URL}/api/auth/current-user`, {
+          headers: { Authorization: `Bearer ${bearerToken}` },
+        });
+        if (meRes.ok) {
+          const meData = await meRes.json();
+          authedUserId = meData?.user?.id || meData?.id || null;
+        }
+      } catch {}
+    }
+    if (!authedUserId || authedUserId.toLowerCase() !== String(userId).toLowerCase()) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: corsHeaders });
+    }
+  }
+
   const safeTitle = String(title).slice(0, 100);
   const safeBody = String(msgBody).slice(0, 500);
 
@@ -359,7 +420,7 @@ export default async function handler(req: Request): Promise<Response> {
 
   try {
     const notifData: any[] = await dbQuery('notifications', 'GET',
-      `id=eq.${notificationId}&user_id=eq.${userId}&select=id,status`
+      `id=eq.${encodeURIComponent(String(notificationId))}&user_id=eq.${encodeURIComponent(String(userId))}&select=id,status`
     );
     if (!notifData || notifData.length === 0) {
       return new Response(JSON.stringify({ error: 'Notification not found or does not belong to user' }), {

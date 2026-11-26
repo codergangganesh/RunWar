@@ -9,6 +9,7 @@ import { DEFAULT_ACHIEVEMENTS } from '../services/achievementsService';
 import { downloadFile, generateWorkoutsCSV } from '../utils/exportGenerators';
 import { formatDistance, formatDuration, formatPace } from '../utils/formatters';
 import { BottomSheet } from '../components/ui/BottomSheet';
+import { ConfirmDeleteModal } from '../components/ui/ConfirmDeleteModal';
 import { optimizeImage } from '../utils/imageOptimizer';
 import { useUsernameCheck } from '../hooks/useUsernameCheck';
 import {
@@ -136,13 +137,23 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     }
   };
 
-  const handleDeleteAlarm = async (alarm: Alarm) => {
-    try {
-      await alarmService.deleteAlarm(alarm.id);
-      setAlarms((prev) => prev.filter((a) => a.id !== alarm.id));
-    } catch (err) {
-      console.error('[ProfileScreen] Failed to delete alarm:', err);
-    }
+  const [pendingDelete, setPendingDelete] = useState<{
+    kind: 'alarm' | 'goal' | 'shoe';
+    id: string;
+    label: string;
+    alarm?: Alarm;
+  } | null>(null);
+  const [isConfirmDeleting, setIsConfirmDeleting] = useState(false);
+  const [confirmDeleteError, setConfirmDeleteError] = useState<string | null>(null);
+
+  const handleDeleteAlarm = (alarm: Alarm) => {
+    setConfirmDeleteError(null);
+    setPendingDelete({
+      kind: 'alarm',
+      id: alarm.id,
+      label: alarm.title || 'Running Alarm',
+      alarm,
+    });
   };
 
   const handleSaveAlarm = (savedAlarm: Alarm) => {
@@ -244,11 +255,14 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     onRefreshGoals?.();
   };
 
-  const handleDeleteGoal = async (goalId: string) => {
-    if (!window.confirm('Are you sure you want to delete this goal?')) return;
-    await goalsService.deleteGoal(goalId);
-    setLocalGoals((prev) => prev.filter((g) => g.id !== goalId));
-    onRefreshGoals?.();
+  const handleDeleteGoal = (goalId: string) => {
+    const goal = localGoals.find((g) => g.id === goalId);
+    setConfirmDeleteError(null);
+    setPendingDelete({
+      kind: 'goal',
+      id: goalId,
+      label: goal ? goal.goal_type.replace(/_/g, ' ') : 'Fitness Goal',
+    });
   };
 
   const [healthState, setHealthState] = useState(() => healthService.getPrimaryConnectionState());
@@ -497,11 +511,39 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     setGearList(updated);
   };
 
-  const handleDeleteShoe = async (gearId: string) => {
+  const handleDeleteShoe = (gearId: string) => {
     if (!profile) return;
-    if (!window.confirm('Are you sure you want to remove this shoe from your gear closet?')) return;
-    const updated = await gearService.deleteGear(profile.user_id, gearId);
-    setGearList(updated);
+    const gear = gearList.find((g) => g.id === gearId);
+    setConfirmDeleteError(null);
+    setPendingDelete({
+      kind: 'shoe',
+      id: gearId,
+      label: gear ? `${gear.brand} ${gear.model}`.trim() : 'Running Shoe',
+    });
+  };
+
+  const handleExecutePendingDelete = async () => {
+    if (!pendingDelete) return;
+    setIsConfirmDeleting(true);
+    setConfirmDeleteError(null);
+    try {
+      if (pendingDelete.kind === 'alarm' && pendingDelete.alarm) {
+        await alarmService.deleteAlarm(pendingDelete.alarm.id);
+        setAlarms((prev) => prev.filter((a) => a.id !== pendingDelete.alarm!.id));
+      } else if (pendingDelete.kind === 'goal') {
+        await goalsService.deleteGoal(pendingDelete.id);
+        setLocalGoals((prev) => prev.filter((g) => g.id !== pendingDelete.id));
+        onRefreshGoals?.();
+      } else if (pendingDelete.kind === 'shoe' && profile) {
+        const updated = await gearService.deleteGear(profile.user_id, pendingDelete.id);
+        setGearList(updated);
+      }
+      setPendingDelete(null);
+    } catch (err: any) {
+      setConfirmDeleteError(err?.message || 'Delete failed. Please try again.');
+    } finally {
+      setIsConfirmDeleting(false);
+    }
   };
 
   const handleSyncShoeWithWorkouts = async (gearId: string) => {
@@ -2263,6 +2305,29 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           isPushEnabled={settings?.push_enabled ?? false}
         />
       )}
+
+      <ConfirmDeleteModal
+        isOpen={Boolean(pendingDelete)}
+        title={
+          pendingDelete?.kind === 'alarm'
+            ? 'Delete Alarm?'
+            : pendingDelete?.kind === 'goal'
+              ? 'Delete Goal?'
+              : 'Remove Running Shoe?'
+        }
+        itemName={pendingDelete?.label}
+        description={
+          pendingDelete?.kind === 'alarm'
+            ? 'This scheduled reminder will stop triggering notifications.'
+            : pendingDelete?.kind === 'goal'
+              ? 'Are you sure you want to remove this goal? Existing workouts are kept.'
+              : 'This shoe will be removed from your gear closet.'
+        }
+        isDeleting={isConfirmDeleting}
+        errorMessage={confirmDeleteError}
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={handleExecutePendingDelete}
+      />
     </div>
   );
 };

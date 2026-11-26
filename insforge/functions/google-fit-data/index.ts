@@ -260,8 +260,7 @@ export default async function (req: Request): Promise<Response> {
         const candidate = rows?.[0];
         if (
           candidate &&
-          (candidate.user_id?.toLowerCase() === verifiedAuthUserId.toLowerCase() ||
-            String(candidate.user_id).startsWith('usr_'))
+          candidate.user_id?.toLowerCase() === verifiedAuthUserId.toLowerCase()
         ) {
           tokenRow = candidate;
         }

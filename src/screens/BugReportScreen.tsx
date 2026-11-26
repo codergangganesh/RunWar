@@ -128,12 +128,17 @@ export const BugReportScreen: React.FC<BugReportScreenProps> = ({
   const userId = currentUser?.id || profile?.user_id;
   const userEmail = currentUser?.email || profile?.email;
 
-  // Cleanup object URLs on unmount or removal
+  const selectedImagesRef = useRef(selectedImages);
+  useEffect(() => {
+    selectedImagesRef.current = selectedImages;
+  }, [selectedImages]);
+
+  // Cleanup object URLs only when component unmounts (individual removals revoke directly)
   useEffect(() => {
     return () => {
-      selectedImages.forEach((img) => URL.revokeObjectURL(img.previewUrl));
+      selectedImagesRef.current.forEach((img) => URL.revokeObjectURL(img.previewUrl));
     };
-  }, [selectedImages]);
+  }, []);
 
   // Load user bug history initially and when switching tabs
   useEffect(() => {
@@ -179,6 +184,8 @@ export const BugReportScreen: React.FC<BugReportScreenProps> = ({
       const file = files[i];
       const validation = bugReportService.validateImageFile(file);
       if (!validation.valid) {
+        newItems.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+        if (fileInputRef.current) fileInputRef.current.value = '';
         setInlineError(validation.error || 'Invalid file format.');
         return;
       }

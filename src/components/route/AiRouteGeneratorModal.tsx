@@ -31,6 +31,7 @@ import { AiRoutePreviewMap } from './AiRoutePreviewMap';
 import { AiRouteBigViewScreen } from '../../screens/AiRouteBigViewScreen';
 import { UserProfile, CourseRoute } from '../../types';
 import { formatDuration } from '../../utils/formatters';
+import { ConfirmDeleteModal } from '../ui/ConfirmDeleteModal';
 
 interface AiRouteGeneratorModalProps {
   isOpen: boolean;
@@ -241,36 +242,43 @@ export const AiRouteGeneratorModal: React.FC<AiRouteGeneratorModalProps> = ({
     onClose();
   };
 
-  const handleDeleteSaved = async (id: string, e: React.MouseEvent) => {
+  const [pendingDeleteRouteId, setPendingDeleteRouteId] = useState<string | null>(null);
+  const [isDeletingRoute, setIsDeletingRoute] = useState(false);
+
+  const handleDeleteSaved = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    const deletedRoute = savedRoutes.find((r) => r.id === id);
-    await aiRouteService.deleteRoute(id);
-    courseService.deleteCourse(id);
+    setPendingDeleteRouteId(id);
+  };
 
-    // If the deleted route is currently active on the running screen, clear it immediately
-    const activeCourse = courseService.getActiveCourse();
-    const engineActiveCourse = gpsEngine.getState().activeCourse;
-    const isCurrentActive =
-      activeCourse?.id === id ||
-      engineActiveCourse?.id === id ||
-      (deletedRoute && (
-        activeCourse?.name === deletedRoute.name ||
-        engineActiveCourse?.name === deletedRoute.name ||
-        (activeCourse?.totalDistanceMeters === deletedRoute.target_distance_meters &&
-          Math.abs((activeCourse?.points[0]?.latitude || 0) - deletedRoute.start_lat) < 0.001)
-      ));
+  const handleConfirmDeleteSaved = async () => {
+    if (!pendingDeleteRouteId) return;
+    const id = pendingDeleteRouteId;
+    setIsDeletingRoute(true);
+    try {
+      await aiRouteService.deleteRoute(id);
+      courseService.deleteCourse(id);
 
-    if (isCurrentActive) {
-      courseService.setActiveCourse(null);
-      gpsEngine.setActiveCourse(null);
-      if (onRouteActivated) {
-        onRouteActivated(null as any);
+      const activeCourse = courseService.getActiveCourse();
+      const engineActiveCourse = gpsEngine.getState().activeCourse;
+      const isCurrentActive =
+        activeCourse?.id === id ||
+        engineActiveCourse?.id === id;
+
+      if (isCurrentActive) {
+        courseService.setActiveCourse(null);
+        gpsEngine.setActiveCourse(null);
+        if (onRouteActivated) {
+          onRouteActivated(null as any);
+        }
       }
-    }
 
-    setSavedRoutes((prev) => prev.filter((r) => r.id !== id));
-    if (currentRoute?.id === id) {
-      updateRoutePreview();
+      setSavedRoutes((prev) => prev.filter((r) => r.id !== id));
+      if (currentRoute?.id === id) {
+        updateRoutePreview();
+      }
+      setPendingDeleteRouteId(null);
+    } finally {
+      setIsDeletingRoute(false);
     }
   };
 
@@ -714,6 +722,16 @@ export const AiRouteGeneratorModal: React.FC<AiRouteGeneratorModalProps> = ({
         onRouteChange={(route) => {
           setCurrentRoute(route);
         }}
+      />
+
+      <ConfirmDeleteModal
+        isOpen={Boolean(pendingDeleteRouteId)}
+        title="Delete Saved Loop?"
+        itemName={savedRoutes.find((r) => r.id === pendingDeleteRouteId)?.name}
+        description="Are you sure you want to delete this saved route? This cannot be undone."
+        isDeleting={isDeletingRoute}
+        onCancel={() => setPendingDeleteRouteId(null)}
+        onConfirm={handleConfirmDeleteSaved}
       />
     </div>,
     document.body

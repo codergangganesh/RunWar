@@ -209,7 +209,10 @@ export const App: React.FC = () => {
   });
   const [settings, setSettings] = useState<UserSettings | null>(null);
 
-  // Notification State & Handlers
+  // Notification State & Handlers (skip cloud hooks in guest mode)
+  const isRealAuthenticatedId = Boolean(
+    currentUser?.id && currentUser.id !== 'usr_guest_demo' && currentUser.id !== 'guest_user'
+  );
   const {
     notifications,
     unreadCount,
@@ -218,7 +221,7 @@ export const App: React.FC = () => {
     markAllAsRead,
     deleteNotification,
     deleteAllNotifications,
-  } = useNotifications(currentUser?.id || null);
+  } = useNotifications(isRealAuthenticatedId ? currentUser!.id : null);
 
   const handleNotificationNavigation = useCallback((url: string) => {
     if (!url) return;
@@ -356,8 +359,23 @@ export const App: React.FC = () => {
     }
   }, []);
 
-  // Fetch all app data with optional background/silent mode
-  const loadAppData = useCallback(async (userId: string, silent = false) => {
+  // Fetch all app data with optional background/silent mode & 30s tab-switch cooldown
+  const lastAppDataFetchRef = useRef<{ userId: string; timestamp: number }>({
+    userId: '',
+    timestamp: 0,
+  });
+
+  const loadAppData = useCallback(async (userId: string, silent = false, force = true) => {
+    const now = Date.now();
+    if (
+      !force &&
+      lastAppDataFetchRef.current.userId === userId &&
+      now - lastAppDataFetchRef.current.timestamp < 30_000
+    ) {
+      return;
+    }
+    lastAppDataFetchRef.current = { userId, timestamp: now };
+
     if (!silent) setIsDataLoading(true);
     setDataError(null);
 
@@ -695,7 +713,7 @@ export const App: React.FC = () => {
               sessionStorage.removeItem('runwar_pending_strava_code');
               sessionStorage.removeItem('runwar_pending_strava_state');
               sessionStorage.removeItem('runwar_strava_oauth_state');
-              if (!expectedState || !returnedState || returnedState === expectedState) {
+              if (expectedState && returnedState && returnedState === expectedState) {
                 stravaProvider.exchangeAuthorizationCode(pendingStravaCode, undefined, user.id).catch((err) => {
                   console.warn('Failed to exchange pending Strava code:', err);
                 });
@@ -888,10 +906,18 @@ export const App: React.FC = () => {
     };
   }, [loadAppData]);
 
-  // Realtime subscription: sync workout changes across devices in real time
+  // Realtime subscription: sync workout changes across devices in real time (skip guests, debounce stats reload)
   useEffect(() => {
     const activeUserId = currentUser?.id || profile?.user_id;
-    if (!activeUserId) return;
+    if (!activeUserId || activeUserId === 'usr_guest_demo' || activeUserId === 'guest_user') return;
+
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleStatsRefresh = () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => {
+        loadAppData(activeUserId, true, false);
+      }, 2500);
+    };
 
     const unsubscribeRealtime = workoutService.subscribeToUserWorkouts(
       activeUserId,
@@ -913,19 +939,20 @@ export const App: React.FC = () => {
             }
             return [normalized, ...prev];
           });
-          loadAppData(activeUserId, true);
+          scheduleStatsRefresh();
         } else if (eventType === 'UPDATE' && workout) {
           const normalized = normalizeWorkout(workout);
           setWorkouts((prev) => prev.map((w) => (w.id === normalized.id ? normalized : w)));
-          loadAppData(activeUserId, true);
+          scheduleStatsRefresh();
         } else if (eventType === 'DELETE' && id) {
           setWorkouts((prev) => prev.filter((w) => w.id !== id));
-          loadAppData(activeUserId, true);
+          scheduleStatsRefresh();
         }
       }
     );
 
     return () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
       if (typeof unsubscribeRealtime === 'function') {
         unsubscribeRealtime();
       }
@@ -1236,7 +1263,7 @@ export const App: React.FC = () => {
     setScreen('main');
     setActiveTab('home');
     if (currentUser?.id) {
-      loadAppData(currentUser.id, true);
+      loadAppData(currentUser.id, true, false);
     }
   };
 
@@ -1314,7 +1341,7 @@ export const App: React.FC = () => {
     }
     const activeId = currentUser?.id || authService.getCachedUser()?.id;
     if ((tab === 'history' || tab === 'home') && activeId) {
-      loadAppData(activeId, true);
+      loadAppData(activeId, true, false);
     }
   };
 

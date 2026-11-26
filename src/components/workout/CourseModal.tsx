@@ -24,6 +24,7 @@ import { downloadFile, generateCourseGPX } from '../../utils/exportGenerators';
 import { AiRouteGeneratorModal } from '../route/AiRouteGeneratorModal';
 import { aiRouteService } from '../../services/aiRouteService';
 import { gpsEngine } from '../../services/gpsEngine';
+import { ConfirmDeleteModal } from '../ui/ConfirmDeleteModal';
 
 interface CourseModalProps {
   isOpen: boolean;
@@ -139,21 +140,27 @@ export const CourseModal: React.FC<CourseModalProps> = ({
     }
   };
 
+  const [pendingDeleteCourse, setPendingDeleteCourse] = useState<CourseRoute | null>(null);
+
   const handleDelete = (e: React.MouseEvent, courseId: string) => {
     e.stopPropagation();
-    const courseToDelete = courses.find((c) => c.id === courseId);
+    const courseToDelete = courses.find((c) => c.id === courseId) || null;
+    if (courseToDelete) {
+      setPendingDeleteCourse(courseToDelete);
+    }
+  };
+
+  const handleConfirmDeleteCourse = () => {
+    if (!pendingDeleteCourse) return;
+    const courseId = pendingDeleteCourse.id;
     courseService.deleteCourse(courseId);
     aiRouteService.deleteRoute(courseId).catch(() => {});
     setCourses(courseService.getSavedCourses());
-    
+
     const engineCourse = gpsEngine.getState().activeCourse;
     const isCurrentActive =
       activeCourse?.id === courseId ||
-      engineCourse?.id === courseId ||
-      (courseToDelete && (
-        activeCourse?.name === courseToDelete.name ||
-        engineCourse?.name === courseToDelete.name
-      ));
+      engineCourse?.id === courseId;
 
     if (isCurrentActive) {
       setActiveCourse(null);
@@ -161,6 +168,7 @@ export const CourseModal: React.FC<CourseModalProps> = ({
       gpsEngine.setActiveCourse(null);
       if (onSelectCourse) onSelectCourse(null);
     }
+    setPendingDeleteCourse(null);
   };
 
   const handleFileProcess = async (file: File) => {
@@ -568,6 +576,15 @@ export const CourseModal: React.FC<CourseModalProps> = ({
           setActiveCourse(course);
           if (onSelectCourse) onSelectCourse(course);
         }}
+      />
+
+      <ConfirmDeleteModal
+        isOpen={Boolean(pendingDeleteCourse)}
+        title="Delete Saved Course?"
+        itemName={pendingDeleteCourse?.name}
+        description="Are you sure you want to delete this course? It will also be cleared if currently selected."
+        onCancel={() => setPendingDeleteCourse(null)}
+        onConfirm={handleConfirmDeleteCourse}
       />
     </div>,
     document.body

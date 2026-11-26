@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Goal, UserProfile } from '../types';
 import { goalsService } from '../services/goalsService';
 import { BottomSheet } from '../components/ui/BottomSheet';
+import { ConfirmDeleteModal } from '../components/ui/ConfirmDeleteModal';
 import { Target, Plus, CheckCircle2, Pause, Play, Trash2, Trophy, Flame, Pencil } from 'lucide-react';
 
 interface GoalsScreenProps {
@@ -17,6 +18,9 @@ export const GoalsScreen: React.FC<GoalsScreenProps> = ({ goals, profile, onRefr
   const [targetValue, setTargetValue] = useState<number>(20);
   const [period, setPeriod] = useState<Goal['period']>('weekly');
   const [loading, setLoading] = useState(false);
+  const [confirmDeleteGoalId, setConfirmDeleteGoalId] = useState<string | null>(null);
+  const [isDeletingGoal, setIsDeletingGoal] = useState(false);
+  const [deleteGoalError, setDeleteGoalError] = useState<string | null>(null);
 
   const handleStartEdit = (goal: Goal) => {
     setEditingGoal(goal);
@@ -63,9 +67,24 @@ export const GoalsScreen: React.FC<GoalsScreenProps> = ({ goals, profile, onRefr
     onRefresh();
   };
 
-  const handleDelete = async (goalId: string) => {
-    await goalsService.deleteGoal(goalId);
-    onRefresh();
+  const handleDelete = (goalId: string) => {
+    setDeleteGoalError(null);
+    setConfirmDeleteGoalId(goalId);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!confirmDeleteGoalId) return;
+    setIsDeletingGoal(true);
+    setDeleteGoalError(null);
+    try {
+      await goalsService.deleteGoal(confirmDeleteGoalId);
+      setConfirmDeleteGoalId(null);
+      onRefresh();
+    } catch (err: any) {
+      setDeleteGoalError(err?.message || 'Could not delete goal. Please try again.');
+    } finally {
+      setIsDeletingGoal(false);
+    }
   };
 
   return (
@@ -276,6 +295,16 @@ export const GoalsScreen: React.FC<GoalsScreenProps> = ({ goals, profile, onRefr
           </div>
         </form>
       </BottomSheet>
+
+      <ConfirmDeleteModal
+        isOpen={Boolean(confirmDeleteGoalId)}
+        title="Delete Goal?"
+        description="Are you sure you want to delete this fitness goal? Your existing workouts will stay safe."
+        isDeleting={isDeletingGoal}
+        errorMessage={deleteGoalError}
+        onCancel={() => setConfirmDeleteGoalId(null)}
+        onConfirm={handleConfirmDelete}
+      />
     </div>
   );
 };

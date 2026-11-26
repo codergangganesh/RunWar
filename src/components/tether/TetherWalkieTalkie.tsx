@@ -15,38 +15,71 @@ export const TetherWalkieTalkie: React.FC<TetherWalkieTalkieProps> = ({ session,
   const [permissionError, setPermissionError] = useState<string | null>(null);
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const clipTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isPressingRef = useRef(false);
+  const releaseRequestedRef = useRef(false);
   const partnerName = session.peer?.name || session.host.name || 'Buddy';
   const partnerFirstName = partnerName.split(' ')[0];
 
-  // Listen for incoming voice clips
+  // Handle pointer up (release to send)
+  const stopAndSend = async () => {
+    releaseRequestedRef.current = true;
+    if (!isPressingRef.current) return;
+    isPressingRef.current = false;
+    setIsPressing(false);
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    await tetherService.stopVoiceRecording();
+    setRecordingSeconds(0);
+  };
+
+  // Listen for incoming voice clips & ensure mic/timers stop cleanly on unmount
   useEffect(() => {
     const unsubscribe = tetherService.onVoiceClip((clip) => {
       setIncomingClip(clip);
-      // Automatically clear after clip duration + 2s buffer
-      const clearTimer = setTimeout(() => {
+      if (clipTimerRef.current) clearTimeout(clipTimerRef.current);
+      clipTimerRef.current = setTimeout(() => {
         setIncomingClip(null);
       }, (clip.durationSec + 2) * 1000);
-      return () => clearTimeout(clearTimer);
     });
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      if (clipTimerRef.current) clearTimeout(clipTimerRef.current);
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      if (isPressingRef.current) {
+        isPressingRef.current = false;
+        tetherService.stopVoiceRecording().catch(() => {});
+      }
+    };
   }, []);
 
   // Handle pointer down (press to talk)
   const handlePointerDown = async (e: React.PointerEvent) => {
     e.preventDefault();
-    if (isPressing) return;
+    if (isPressingRef.current) return;
+    releaseRequestedRef.current = false;
     setPermissionError(null);
 
     const started = await tetherService.startVoiceRecording();
     if (started) {
+      if (releaseRequestedRef.current) {
+        // User released pointer before mic permission/recording finished starting
+        await tetherService.stopVoiceRecording().catch(() => {});
+        return;
+      }
+      isPressingRef.current = true;
       setIsPressing(true);
       setRecordingSeconds(0);
 
       timerRef.current = setInterval(() => {
         setRecordingSeconds((prev) => {
           if (prev >= 6) {
-            // Auto stop at 6 seconds maximum
-            handlePointerUp();
+            stopAndSend();
             return 6;
           }
           return prev + 1;
@@ -57,16 +90,8 @@ export const TetherWalkieTalkie: React.FC<TetherWalkieTalkieProps> = ({ session,
     }
   };
 
-  // Handle pointer up (release to send)
   const handlePointerUp = async () => {
-    if (!isPressing) return;
-    setIsPressing(false);
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-    await tetherService.stopVoiceRecording();
-    setRecordingSeconds(0);
+    await stopAndSend();
   };
 
   return (

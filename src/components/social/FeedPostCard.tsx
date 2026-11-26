@@ -304,16 +304,18 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
 
               <div className="my-1 border-t border-slate-100 dark:border-white/[0.06]" />
 
-              <button
-                type="button"
-                onClick={() => {
-                  gpxExporter.downloadGPX(post.workout);
-                  onToggleMenu();
-                }}
-                className="w-full px-3.5 py-2 text-left flex items-center gap-2 hover:bg-slate-100 dark:hover:bg-white/[0.06] text-slate-800 dark:text-white cursor-pointer"
-              >
-                <Download size={14} className="text-emerald-600" /> Export GPX File
-              </button>
+              {post.workout && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    gpxExporter.downloadGPX(post.workout);
+                    onToggleMenu();
+                  }}
+                  className="w-full px-3.5 py-2 text-left flex items-center gap-2 hover:bg-slate-100 dark:hover:bg-white/[0.06] text-slate-800 dark:text-white cursor-pointer"
+                >
+                  <Download size={14} className="text-emerald-600" /> Export GPX File
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {
