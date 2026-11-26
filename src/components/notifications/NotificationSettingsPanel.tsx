@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Bell,
   BellOff,
@@ -136,11 +136,36 @@ export const NotificationSettingsPanel: React.FC<NotificationSettingsPanelProps>
     }
   };
 
+  // Keep user_settings.push_enabled synced with active push subscriptions
+  useEffect(() => {
+    const hasActivePush = isSubscribed || subscriptionCount > 0;
+    if (settings && hasActivePush && !settings.push_enabled) {
+      authService
+        .updateSettings(userId, { push_enabled: true })
+        .then((updated) => onUpdateSettings?.(updated))
+        .catch(() => {});
+    }
+  }, [isSubscribed, subscriptionCount, settings?.push_enabled, userId]);
+
   const handleTogglePush = async () => {
     if (isSubscribed) {
       await unsubscribe();
+      try {
+        const remaining = await notificationService.getSubscriptionCount(userId);
+        if (remaining === 0 && settings?.push_enabled) {
+          const updated = await authService.updateSettings(userId, { push_enabled: false });
+          onUpdateSettings?.(updated);
+        }
+      } catch {}
     } else {
       await subscribe();
+      try {
+        const subOk = await notificationService.isSubscribed();
+        if (subOk) {
+          const updated = await authService.updateSettings(userId, { push_enabled: true });
+          onUpdateSettings?.(updated);
+        }
+      } catch {}
     }
   };
 
@@ -149,6 +174,11 @@ export const NotificationSettingsPanel: React.FC<NotificationSettingsPanelProps>
     try {
       await revokeDevice(subId);
       await notificationService.purgeRevokedSubscriptions(userId);
+      const remaining = await notificationService.getSubscriptionCount(userId);
+      if (remaining === 0 && settings?.push_enabled) {
+        const updated = await authService.updateSettings(userId, { push_enabled: false });
+        onUpdateSettings?.(updated);
+      }
       setSaveSuccessNotice('Device removed');
       setTimeout(() => setSaveSuccessNotice(null), 2500);
     } finally {

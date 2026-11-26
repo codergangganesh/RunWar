@@ -44,6 +44,32 @@ async function db(
 
 // ── Timezone-aware next trigger calculation (matches frontend) ────────────────
 
+function getLocalDatePartsInTz(date: Date, tz: string): { year: number; month: number; day: number } {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour12: false,
+    });
+    const parts = formatter.formatToParts(date);
+    const pMap: Record<string, string> = {};
+    for (const p of parts) pMap[p.type] = p.value;
+    return {
+      year: parseInt(pMap.year, 10),
+      month: parseInt(pMap.month, 10) - 1,
+      day: parseInt(pMap.day, 10),
+    };
+  } catch {
+    return {
+      year: date.getUTCFullYear(),
+      month: date.getUTCMonth(),
+      day: date.getUTCDate(),
+    };
+  }
+}
+
 function calculateNextTrigger(
   scheduledTime: string,  // 'HH:MM'
   timezone: string,
@@ -55,18 +81,25 @@ function calculateNextTrigger(
 
   if (recurrence === 'once') return null; // handled separately
 
+  const baseLocal = getLocalDatePartsInTz(fromDate, timezone);
+  // Require at least 30s in the future so an alarm firing at :00 never reschedules onto itself
+  const minNextMs = fromDate.getTime() + 30_000;
+
   if (recurrence === 'daily') {
-    const tomorrow = new Date(fromDate);
-    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-    return buildUtcFromLocal(
-      tomorrow.getUTCFullYear(), tomorrow.getUTCMonth(), tomorrow.getUTCDate(),
-      hours, minutes, timezone,
-    );
+    for (let i = 0; i <= 2; i++) {
+      const approx = new Date(Date.UTC(baseLocal.year, baseLocal.month, baseLocal.day + i, 12, 0, 0));
+      const parts = getLocalDatePartsInTz(approx, timezone);
+      const target = buildUtcFromLocal(parts.year, parts.month, parts.day, hours, minutes, timezone);
+      if (target.getTime() > minNextMs) return target;
+    }
+    const approx = new Date(Date.UTC(baseLocal.year, baseLocal.month, baseLocal.day + 1, 12, 0, 0));
+    const parts = getLocalDatePartsInTz(approx, timezone);
+    return buildUtcFromLocal(parts.year, parts.month, parts.day, hours, minutes, timezone);
   }
 
   if (recurrence === 'weekly' || recurrence === 'custom') {
     const days = recurrenceDays && recurrenceDays.length > 0 ? recurrenceDays : [1];
-    return findNextWeekdayServer(fromDate, days, hours, minutes, timezone);
+    return findNextWeekdayServer(fromDate, baseLocal, days, hours, minutes, timezone, minNextMs);
   }
 
   return null;
@@ -106,28 +139,27 @@ function getWeekdayInTz(date: Date, tz: string): number {
 }
 
 function findNextWeekdayServer(
-  from: Date, days: number[], hours: number, minutes: number, tz: string,
+  from: Date,
+  baseLocal: { year: number; month: number; day: number },
+  days: number[],
+  hours: number,
+  minutes: number,
+  tz: string,
+  minNextMs: number,
 ): Date {
   const sorted = [...days].sort((a, b) => a - b);
-  for (let i = 1; i <= 7; i++) {
-    const candidate = new Date(from);
-    candidate.setUTCDate(from.getUTCDate() + i);
-    const wd = getWeekdayInTz(candidate, tz);
+  for (let i = 0; i <= 7; i++) {
+    const approx = new Date(Date.UTC(baseLocal.year, baseLocal.month, baseLocal.day + i, 12, 0, 0));
+    const wd = getWeekdayInTz(approx, tz);
     if (sorted.includes(wd)) {
-      const target = buildUtcFromLocal(
-        candidate.getUTCFullYear(), candidate.getUTCMonth(), candidate.getUTCDate(),
-        hours, minutes, tz,
-      );
-      if (target > from) return target;
+      const parts = getLocalDatePartsInTz(approx, tz);
+      const target = buildUtcFromLocal(parts.year, parts.month, parts.day, hours, minutes, tz);
+      if (target.getTime() > minNextMs) return target;
     }
   }
-  // Fallback: 7 days later
-  const fallback = new Date(from);
-  fallback.setUTCDate(from.getUTCDate() + 7);
-  return buildUtcFromLocal(
-    fallback.getUTCFullYear(), fallback.getUTCMonth(), fallback.getUTCDate(),
-    hours, minutes, tz,
-  );
+  const fallback = new Date(Date.UTC(baseLocal.year, baseLocal.month, baseLocal.day + 7, 12, 0, 0));
+  const fallbackParts = getLocalDatePartsInTz(fallback, tz);
+  return buildUtcFromLocal(fallbackParts.year, fallbackParts.month, fallbackParts.day, hours, minutes, tz);
 }
 
 function getAlarmRouteUrl(alarmType: string): string {
@@ -180,16 +212,15 @@ export default async function handler(req: Request): Promise<Response> {
       `enabled=eq.true&next_trigger_at=lte.${encodeURIComponent(nowIso)}&select=*&limit=100`
     );
 
-    if (dueAlarms.length === 0) {
-      console.log('[process-alarms] No due alarms');
-      return new Response(JSON.stringify({ processed: 0 }), { status: 200, headers: corsHeaders });
-    }
-
-    console.log(`[process-alarms] Found ${dueAlarms.length} due alarm(s)`);
-
     let processed = 0;
     let skipped = 0;
     let errors = 0;
+
+    if (dueAlarms.length === 0) {
+      console.log('[process-alarms] No due alarms');
+    } else {
+      console.log(`[process-alarms] Found ${dueAlarms.length} due alarm(s)`);
+    }
 
     for (const alarm of dueAlarms) {
       try {

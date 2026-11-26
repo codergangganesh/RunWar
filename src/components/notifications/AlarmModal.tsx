@@ -4,6 +4,7 @@ import {
   alarmService,
   ALARM_LABELS,
   ALARM_DEFAULT_MESSAGES,
+  getLocalDateParts,
   getTriggerCountdownInfo,
   getUserTimezone,
 } from '../../services/alarmService';
@@ -27,6 +28,11 @@ interface AlarmModalProps {
   onSave: (alarm: Alarm) => void;
   onClose: () => void;
   isPushEnabled: boolean;
+}
+
+function getLocalDateString(): string {
+  const parts = getLocalDateParts(new Date(), getUserTimezone());
+  return `${parts.year}-${String(parts.month + 1).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
 }
 
 function formatPreviewTime(timeStr: string): string {
@@ -55,7 +61,7 @@ export const AlarmModal: React.FC<AlarmModalProps> = ({
   const [recurrence, setRecurrence] = useState<AlarmRecurrence>(editAlarm?.recurrence || 'daily');
   const [days, setDays] = useState<number[]>(editAlarm?.recurrence_days || [1, 3, 5]);
   const [scheduledDate, setScheduledDate] = useState(
-    editAlarm?.scheduled_date || new Date().toISOString().split('T')[0]
+    editAlarm?.scheduled_date || getLocalDateString()
   );
   const [enabled, setEnabled] = useState(editAlarm?.enabled !== false);
   const [isSaving, setIsSaving] = useState(false);
@@ -72,7 +78,7 @@ export const AlarmModal: React.FC<AlarmModalProps> = ({
         setTime(editAlarm.scheduled_time?.slice(0, 5) || '06:00');
         setRecurrence(editAlarm.recurrence || 'daily');
         setDays(editAlarm.recurrence_days || [1, 3, 5]);
-        setScheduledDate(editAlarm.scheduled_date || new Date().toISOString().split('T')[0]);
+        setScheduledDate(editAlarm.scheduled_date || getLocalDateString());
         setEnabled(editAlarm.enabled !== false);
       } else {
         setAlarmType('morning_run');
@@ -81,7 +87,7 @@ export const AlarmModal: React.FC<AlarmModalProps> = ({
         setTime('06:00');
         setRecurrence('daily');
         setDays([1, 3, 5]);
-        setScheduledDate(new Date().toISOString().split('T')[0]);
+        setScheduledDate(getLocalDateString());
         setEnabled(true);
       }
       setIsSaving(false);
@@ -302,7 +308,7 @@ export const AlarmModal: React.FC<AlarmModalProps> = ({
               type="date"
               required
               value={scheduledDate}
-              min={new Date().toISOString().split('T')[0]}
+              min={getLocalDateString()}
               onChange={(e) => setScheduledDate(e.target.value)}
               className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-sm font-medium text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500 transition-all"
             />
