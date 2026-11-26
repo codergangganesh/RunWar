@@ -234,7 +234,7 @@ export const ConnectedHealthScreen: React.FC<ConnectedHealthScreenProps> = ({
         setSyncFeedback({
           type: 'error',
           message:
-            'No valid workouts could be extracted. Please ensure you uploaded valid .tcx, .gpx, or .json workout files.',
+            'No valid workouts could be extracted. Please ensure you uploaded valid .tcx, .gpx, .json, or .csv workout files.',
         });
       }
     } catch (err: any) {
@@ -707,6 +707,9 @@ export const ConnectedHealthScreen: React.FC<ConnectedHealthScreenProps> = ({
               <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
                 .JSON
               </span>
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                .CSV
+              </span>
             </div>
           </div>
 
@@ -728,13 +731,13 @@ export const ConnectedHealthScreen: React.FC<ConnectedHealthScreenProps> = ({
                 {isUploadingFiles ? 'Parsing & Importing Workouts...' : 'Choose files or drag & drop here'}
               </span>
               <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                Select one or multiple .tcx, .gpx, or .json workout files
+                Select one or multiple .tcx, .gpx, .json, or .csv workout files
               </span>
             </div>
             <input
               type="file"
               multiple
-              accept=".tcx,.gpx,.json"
+              accept=".tcx,.gpx,.json,.csv"
               onChange={handleFileInputChange}
               disabled={isUploadingFiles}
               className="hidden"

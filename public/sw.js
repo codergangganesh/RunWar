@@ -1,7 +1,9 @@
-const CACHE_NAME = 'runwar-cache-v4';
+const CACHE_NAME = 'runwar-cache-v5';
 
 // Only pre-cache critical small assets. Large media and hero images use runtime caching below.
 const STATIC_ASSETS = [
+  '/',
+  '/index.html',
   '/logo.png',
   '/manifest.webmanifest',
 ];
@@ -51,12 +53,13 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 1. Navigation / HTML requests: Network-First (always get latest Vercel deployment)
+  // 1. Navigation / HTML requests: Network-First (skip caching sensitive OAuth/reset/beacon URLs)
   if (event.request.mode === 'navigate' || event.request.headers.get('accept')?.includes('text/html')) {
+    const hasSensitiveParams = /[?&](code|insforge_code|token|error|error_description|beacon|invite)=/i.test(url.search);
     event.respondWith(
       fetch(event.request)
         .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
+          if (networkResponse && networkResponse.status === 200 && !hasSensitiveParams) {
             const copy = networkResponse.clone();
             caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
           }
@@ -64,7 +67,7 @@ self.addEventListener('fetch', (event) => {
         })
         .catch(() => {
           // Offline fallback
-          return caches.match(event.request).then((cached) => cached || caches.match('/index.html'));
+          return caches.match(event.request).then((cached) => cached || caches.match('/index.html') || Response.error());
         })
     );
     return;
@@ -81,7 +84,7 @@ self.addEventListener('fetch', (event) => {
           }
           return networkResponse;
         })
-        .catch(() => null);
+        .catch(() => cachedResponse || Response.error());
 
       return cachedResponse || fetchPromise;
     })

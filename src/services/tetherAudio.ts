@@ -162,6 +162,11 @@ class TetherAudioEngine {
    * Play an incoming voice clip with realistic radio chirp-in and chirp-out
    */
   async playVoiceClip(audioDataUri: string, onEnd?: () => void): Promise<void> {
+    if (typeof audioDataUri !== 'string' || !/^data:audio\/[a-z0-9.+-]+(;[^,]*)?,/i.test(audioDataUri)) {
+      console.warn('Blocked invalid voice clip URI');
+      if (onEnd) onEnd();
+      return;
+    }
     try {
       // 1. Play chirp-in
       this.playRadioChirpIn();

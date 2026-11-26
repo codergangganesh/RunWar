@@ -14,17 +14,43 @@ export interface QueuedPointBatch {
 
 const POINT_BATCH_QUEUE_KEY = 'runwar_point_batches_queue';
 const WORKOUT_QUEUE_KEY = 'runwar_offline_workouts_queue';
+const MAX_SYNC_RETRIES = 5;
 
 class SyncQueueManager {
   private isProcessing = false;
+  private activeWorkoutFlushes = new Set<string>();
 
   constructor() {
     if (typeof window !== 'undefined') {
+      // Recover any stale UPLOADING locks left behind by tab close / crash
+      this.recoverStuckUploads();
       window.addEventListener('online', () => {
         workoutLogger.log('SYNC_STARTED', 'info', { reason: 'online_event' });
         this.processAllQueues();
       });
     }
+  }
+
+  private recoverStuckUploads() {
+    const batches = this.getPointBatches();
+    let changed = false;
+    for (const b of batches) {
+      if (b.status === 'UPLOADING') {
+        b.status = 'PENDING';
+        changed = true;
+      }
+    }
+    if (changed) this.savePointBatches(batches);
+
+    const wQueue = this.getWorkoutQueue();
+    let wChanged = false;
+    for (const item of wQueue) {
+      if (item.status === 'UPLOADING') {
+        item.status = 'PENDING';
+        wChanged = true;
+      }
+    }
+    if (wChanged) this.saveWorkoutQueue(wQueue);
   }
 
   /**
@@ -57,10 +83,17 @@ class SyncQueueManager {
    * Flush point batches for a confirmed saved workout
    */
   public async flushWorkoutPoints(workoutId: string) {
-    if (!navigator.onLine) return;
-    const batches = this.getPointBatches().filter((b) => b.workoutId === workoutId);
-    for (const batch of batches) {
-      await this.processPointBatch(batch.batchId);
+    if (!navigator.onLine || this.activeWorkoutFlushes.has(workoutId)) return;
+    this.activeWorkoutFlushes.add(workoutId);
+    try {
+      const batches = this.getPointBatches().filter(
+        (b) => b.workoutId === workoutId && b.retryCount < MAX_SYNC_RETRIES
+      );
+      for (const batch of batches) {
+        await this.processPointBatch(batch.batchId);
+      }
+    } finally {
+      this.activeWorkoutFlushes.delete(workoutId);
     }
   }
 
@@ -139,7 +172,9 @@ class SyncQueueManager {
       if (idx !== -1) {
         currentBatches[idx].status = 'FAILED';
         currentBatches[idx].retryCount += 1;
-        this.savePointBatches(currentBatches);
+        // Drop dead-letter batches that exceeded MAX_SYNC_RETRIES so they don't loop forever
+        const cleaned = currentBatches.filter((b) => b.retryCount < MAX_SYNC_RETRIES);
+        this.savePointBatches(cleaned);
       }
 
       workoutLogger.log('SYNC_FAILED', 'warn', {
@@ -160,7 +195,7 @@ class SyncQueueManager {
       // 1. Process point batches
       const batches = this.getPointBatches();
       for (const batch of batches) {
-        if (batch.status === 'PENDING' || batch.status === 'FAILED') {
+        if ((batch.status === 'PENDING' || batch.status === 'FAILED') && batch.retryCount < MAX_SYNC_RETRIES) {
           await this.processPointBatch(batch.batchId);
         }
       }
@@ -260,7 +295,9 @@ class SyncQueueManager {
       } catch (err) {
         item.status = 'FAILED';
         item.retryCount += 1;
-        remaining.push(item);
+        if (item.retryCount < MAX_SYNC_RETRIES) {
+          remaining.push(item);
+        }
       }
     }
 

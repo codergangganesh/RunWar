@@ -1,4 +1,3 @@
-import { createAdminClient } from '@insforge/sdk';
 import { insforge } from '../lib/insforge';
 import {
   BugReport,
@@ -10,17 +9,12 @@ import {
 import { collectSystemDiagnostics } from '../utils/systemDiagnostics';
 import { compressImageFile } from '../utils/imageCompressor';
 
-const INSFORGE_URL =
-  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_INSFORGE_URL) ||
-  'https://9r3q7vvs.us-east.insforge.app';
-const INSFORGE_API_KEY =
-  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_INSFORGE_ANON_KEY) ||
-  'ik_3f6a564a8b2a7de0a8e58110051ed7a8';
+const INSFORGE_ANON_KEY =
+  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_INSFORGE_ANON_KEY) || '';
 const FUNCTIONS_URL =
   (typeof import.meta !== 'undefined' && import.meta.env?.VITE_INSFORGE_FUNCTIONS_URL) ||
   'https://9r3q7vvs.function2.insforge.app';
 const ADMIN_EMAIL = 'mannamganeshbabu8@gmail.com';
-const SENDER_EMAIL = 'RunWar <mannamganeshbabu8@gmail.com>';
 
 // Max file size: 5 MB
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
@@ -241,26 +235,6 @@ export class BugReportService {
   }
 
   /**
-   * Dedicated Admin Client instance for server-level operations.
-   * Ensures requests to /api/email/send-raw use the project API key
-   * instead of standard end-user JWT session scoping.
-   */
-  private getAdminClientInstance() {
-    try {
-      return createAdminClient({
-        baseUrl: INSFORGE_URL,
-        apiKey: INSFORGE_API_KEY,
-        headers: {
-          apikey: INSFORGE_API_KEY,
-        },
-      });
-    } catch (e) {
-      console.warn('[BugReportService] Could not initialize createAdminClient:', e);
-      return null;
-    }
-  }
-
-  /**
    * Resend bug report email notification via SMTP (callable by user or admin)
    */
   async resendBugReportEmail(reportId: string): Promise<{ success: boolean; error?: string }> {
@@ -278,416 +252,72 @@ export class BugReportService {
   }
 
   /**
-   * Format and send bug report email via InsForge SMTP service
-   * Employs multi-layer fallback strategy for guaranteed SMTP dispatch.
+   * Dispatch bug report email notification via the server-side `send-bug-report` Edge Function.
+   * Avoids exposing any admin API key or sending raw SMTP requests from the browser.
    */
   async sendBugReportEmail(report: BugReport): Promise<{ success: boolean; error?: string }> {
-    const adminEmail = ADMIN_EMAIL;
-    const emailSubject = `[Bug Report] ${report.title} (${report.report_code || 'New'})`;
-
-    const severityColors: Record<string, string> = {
-      critical: '#ef4444',
-      high: '#f97316',
-      medium: '#eab308',
-      low: '#10b981',
-    };
-    const color = severityColors[report.severity] || '#64748b';
-
-    let screenshotsHtml = '<span class="text" style="color: #64748b;">No screenshots attached.</span>';
-    if (Array.isArray(report.screenshot_urls) && report.screenshot_urls.length > 0) {
-      screenshotsHtml = report.screenshot_urls
-        .map(
-          (item: any, idx: number) =>
-            `<a href="${item.url}" target="_blank" rel="noopener noreferrer">View Screenshot ${idx + 1} ${item.name ? `(${item.name})` : ''}</a>`
-        )
-        .join('');
-    }
-
-    const emailHtml = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: #f5f7f9;
-      color: #1e293b;
-      margin: 0;
-      padding: 24px 12px;
-    }
-    .container {
-      max-width: 600px;
-      margin: 0 auto;
-      background: #ffffff;
-      border: 1px solid #e2e8f0;
-      border-radius: 10px;
-      overflow: hidden;
-    }
-    .header {
-      padding: 20px 24px;
-      border-bottom: 1px solid #e2e8f0;
-    }
-    .header h1 {
-      margin: 0;
-      font-size: 18px;
-      color: #0f172a;
-    }
-    .header p {
-      margin: 5px 0 0;
-      font-size: 12px;
-      color: #64748b;
-    }
-    .content {
-      padding: 24px;
-    }
-    .title {
-      margin: 0 0 20px;
-      font-size: 20px;
-      color: #0f172a;
-    }
-    .section {
-      margin-bottom: 20px;
-    }
-    .label {
-      margin-bottom: 6px;
-      font-size: 11px;
-      font-weight: bold;
-      text-transform: uppercase;
-      color: #64748b;
-    }
-    .text {
-      font-size: 14px;
-      line-height: 1.6;
-      color: #334155;
-      white-space: pre-wrap;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 10px;
-    }
-    td {
-      padding: 8px 0;
-      border-bottom: 1px solid #f1f5f9;
-      font-size: 13px;
-      vertical-align: top;
-    }
-    .key {
-      width: 130px;
-      color: #64748b;
-      font-weight: 600;
-    }
-    .value {
-      color: #1e293b;
-      word-break: break-word;
-    }
-    .screenshots {
-      margin-top: 8px;
-    }
-    .screenshots a {
-      display: block;
-      margin-bottom: 6px;
-      color: #059669;
-      font-size: 13px;
-      text-decoration: none;
-      font-weight: 600;
-    }
-    .app-details {
-      padding: 20px 24px 18px;
-      background: #f8fafc;
-      border-top: 1px solid #e2e8f0;
-      text-align: center;
-    }
-    .app-logo {
-      width: 48px;
-      height: 48px;
-      margin: 0 auto 10px;
-      border-radius: 12px;
-      display: block;
-    }
-    .app-name {
-      font-size: 17px;
-      font-weight: 800;
-      letter-spacing: 0.5px;
-      color: #0f172a;
-      margin-bottom: 5px;
-    }
-    .app-tagline {
-      font-size: 11px;
-      color: #059669;
-      font-weight: 600;
-      margin-bottom: 7px;
-    }
-    .app-description {
-      max-width: 470px;
-      margin: 0 auto;
-      font-size: 11px;
-      line-height: 1.5;
-      color: #64748b;
-    }
-    .app-meta {
-      margin-top: 12px;
-      display: flex;
-      justify-content: center;
-      flex-wrap: wrap;
-      gap: 6px;
-    }
-    .app-meta span {
-      padding: 5px 10px;
-      border-radius: 999px;
-      background: #ffffff;
-      border: 1px solid #e2e8f0;
-      color: #475569;
-      font-size: 10px;
-      font-weight: 600;
-    }
-    .footer {
-      padding: 13px 24px;
-      background: #ffffff;
-      border-top: 1px solid #e2e8f0;
-      font-size: 11px;
-      color: #94a3b8;
-      text-align: center;
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1>RunWar — New Bug Report</h1>
-      <p>Report ID: ${report.report_code || report.id}</p>
-    </div>
-    <div class="content">
-      <h2 class="title">${report.title}</h2>
-      <div class="section">
-        <div class="label">Description</div>
-        <div class="text">${report.description}</div>
-      </div>
-      ${
-        report.steps_to_reproduce
-          ? `
-          <div class="section">
-            <div class="label">Steps to Reproduce</div>
-            <div class="text">${report.steps_to_reproduce}</div>
-          </div>
-          `
-          : ''
-      }
-      ${
-        report.expected_behavior
-          ? `
-          <div class="section">
-            <div class="label">Expected Behavior</div>
-            <div class="text">${report.expected_behavior}</div>
-          </div>
-          `
-          : ''
-      }
-      ${
-        report.actual_behavior
-          ? `
-          <div class="section">
-            <div class="label">Actual Behavior</div>
-            <div class="text">${report.actual_behavior}</div>
-          </div>
-          `
-          : ''
-      }
-      <div class="section">
-        <div class="label">Report Information</div>
-        <table>
-          <tr><td class="key">Category</td><td class="value">${report.category}</td></tr>
-          <tr><td class="key">Severity</td><td class="value">${report.severity}</td></tr>
-          <tr><td class="key">Reporter</td><td class="value">${report.user_email}</td></tr>
-          <tr><td class="key">User ID</td><td class="value">${report.user_id}</td></tr>
-          <tr><td class="key">Reported From</td><td class="value">${report.reported_from || 'Direct Screen'}</td></tr>
-          <tr><td class="key">App Version</td><td class="value">v${report.app_version || '1.0.0'}</td></tr>
-          <tr><td class="key">Platform</td><td class="value">${report.platform || 'Unknown'}</td></tr>
-          <tr><td class="key">OS</td><td class="value">${report.os_version || 'Unknown'}</td></tr>
-          <tr><td class="key">Screen Size</td><td class="value">${report.screen_size || 'Unknown'}</td></tr>
-          <tr><td class="key">Submitted</td><td class="value">${new Date(report.created_at).toLocaleString()}</td></tr>
-        </table>
-      </div>
-      <div class="section">
-        <div class="label">Screenshots & Attachments</div>
-        <div class="screenshots">
-          ${screenshotsHtml}
-        </div>
-      </div>
-    </div>
-    <div class="app-details">
-      <img src="https://run-war-chi.vercel.app/logo.png" alt="RUN WAR" width="48" height="48" class="app-logo" />
-      <div class="app-name">RUN WAR</div>
-      <div class="app-tagline">Run. Compete. Improve.</div>
-      <div class="app-description">
-        RUN WAR is a smart jogging and running platform designed to help users track workouts, set goals, participate in challenges, build consistency, and improve their running performance.
-      </div>
-      <div class="app-meta">
-        <span>Run Tracking</span>
-        <span>Goals</span>
-        <span>Challenges</span>
-        <span>Notifications</span>
-      </div>
-    </div>
-    <div class="footer">
-      Automated bug report from RUN WAR.
-    </div>
-  </div>
-</body>
-</html>
-    `;
-
     let lastError = '';
 
-    // ─────────────────────────────────────────────────────────────
-    // STRATEGY 1: Dedicated Admin Client via `createAdminClient`
-    // Sends with Project API Key (avoids end-user JWT scoping issues)
-    // ─────────────────────────────────────────────────────────────
+    // STRATEGY 1: Authenticated SDK Edge Function invocation (attaches user JWT automatically)
     try {
-      const adminClient = this.getAdminClientInstance();
-      if (adminClient?.emails?.send) {
-        console.log('[BugReportService] Attempt 1: Sending via createAdminClient.emails.send...');
-        const emailRes = await adminClient.emails.send({
-          from: SENDER_EMAIL,
-          to: adminEmail,
-          replyTo: report.user_email || adminEmail,
-          subject: emailSubject,
-          html: emailHtml,
-        });
-
-        if (!emailRes.error) {
-          console.log('[BugReportService] Attempt 1 successful! SMTP email sent.');
-          await this.markEmailStatus(report.id, 'sent');
-          return { success: true };
-        } else {
-          lastError = emailRes.error?.message || 'AdminClient email send returned error';
-          console.warn('[BugReportService] Attempt 1 error:', lastError);
-        }
-      }
-    } catch (err: any) {
-      lastError = err?.message || 'AdminClient send error';
-      console.warn('[BugReportService] Attempt 1 exception:', lastError);
-    }
-
-    // ─────────────────────────────────────────────────────────────
-    // STRATEGY 2: Direct HTTP POST to InsForge `/api/email/send-raw`
-    // Explicitly sends `apikey` and `Authorization: Bearer` headers
-    // ─────────────────────────────────────────────────────────────
-    try {
-      console.log('[BugReportService] Attempt 2: Sending via direct HTTP POST to /api/email/send-raw...');
-      const directRes = await fetch(`${INSFORGE_URL}/api/email/send-raw`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': INSFORGE_API_KEY,
-          'Authorization': `Bearer ${INSFORGE_API_KEY}`,
-        },
-        body: JSON.stringify({
-          from: SENDER_EMAIL,
-          to: adminEmail,
-          replyTo: report.user_email || adminEmail,
-          subject: emailSubject,
-          html: emailHtml,
-        }),
-      });
-
-      if (directRes.ok) {
-        console.log('[BugReportService] Attempt 2 successful! Direct SMTP endpoint sent email.');
-        await this.markEmailStatus(report.id, 'sent');
-        return { success: true };
-      } else {
-        const errorText = await directRes.text().catch(() => '');
-        lastError = `HTTP ${directRes.status}: ${errorText || directRes.statusText}`;
-        console.warn('[BugReportService] Attempt 2 error:', lastError);
-      }
-    } catch (err: any) {
-      lastError = err?.message || 'Direct HTTP send-raw exception';
-      console.warn('[BugReportService] Attempt 2 exception:', lastError);
-    }
-
-    // ─────────────────────────────────────────────────────────────
-    // STRATEGY 3: Standard Client `insforge.emails.send`
-    // With explicit `from` parameter
-    // ─────────────────────────────────────────────────────────────
-    try {
-      console.log('[BugReportService] Attempt 3: Sending via insforge.emails.send with from parameter...');
-      const fallbackRes = await insforge.emails.send({
-        from: SENDER_EMAIL,
-        to: adminEmail,
-        replyTo: report.user_email || adminEmail,
-        subject: emailSubject,
-        html: emailHtml,
-      });
-
-      if (!fallbackRes.error) {
-        console.log('[BugReportService] Attempt 3 successful! insforge.emails.send worked.');
-        await this.markEmailStatus(report.id, 'sent');
-        return { success: true };
-      } else {
-        lastError = fallbackRes.error?.message || 'insforge.emails.send error';
-        console.warn('[BugReportService] Attempt 3 error:', lastError);
-      }
-    } catch (err: any) {
-      lastError = err?.message || 'insforge.emails.send exception';
-      console.warn('[BugReportService] Attempt 3 exception:', lastError);
-    }
-
-    // ─────────────────────────────────────────────────────────────
-    // STRATEGY 4: Dedicated Edge Function Endpoint
-    // ─────────────────────────────────────────────────────────────
-    try {
-      console.log('[BugReportService] Attempt 4: Invoking edge function endpoint...');
-      const fnUrl = `${FUNCTIONS_URL}/send-bug-report`;
-      const fnRes = await fetch(fnUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': INSFORGE_API_KEY,
-          'Authorization': `Bearer ${INSFORGE_API_KEY}`,
-        },
-        body: JSON.stringify({ reportId: report.id }),
-      });
-
-      if (fnRes.ok) {
-        const data = await fnRes.json().catch(() => ({}));
-        if (data?.success && data?.emailSent) {
-          console.log('[BugReportService] Attempt 4 successful! Edge function delivered email.');
-          await this.markEmailStatus(report.id, 'sent');
-          return { success: true };
-        }
-      } else {
-        const fnErr = await fnRes.text().catch(() => '');
-        console.warn('[BugReportService] Attempt 4 edge function status:', fnRes.status, fnErr);
-      }
-    } catch (err: any) {
-      console.warn('[BugReportService] Attempt 4 exception:', err?.message);
-    }
-
-    // ─────────────────────────────────────────────────────────────
-    // STRATEGY 5: SDK Functions invoke fallback
-    // ─────────────────────────────────────────────────────────────
-    try {
-      console.log('[BugReportService] Attempt 5: Calling insforge.functions.invoke...');
       const sdkRes = await insforge.functions.invoke('send-bug-report', {
         body: { reportId: report.id },
       });
 
       if (!sdkRes.error && sdkRes.data?.success && sdkRes.data?.emailSent) {
-        console.log('[BugReportService] Attempt 5 successful!');
         await this.markEmailStatus(report.id, 'sent');
         return { success: true };
       }
+      if (sdkRes.error) {
+        lastError = sdkRes.error?.message || 'Edge function invoke error';
+      } else if (sdkRes.data?.warning || sdkRes.data?.error) {
+        lastError = sdkRes.data?.error || sdkRes.data?.warning;
+      }
     } catch (err: any) {
-      console.warn('[BugReportService] Attempt 5 exception:', err?.message);
+      lastError = err?.message || 'Edge function invoke exception';
+      console.warn('[BugReportService] SDK invoke exception:', lastError);
+    }
+
+    // STRATEGY 2: Direct HTTP POST to Edge Function endpoint with current session token or anon key
+    if (INSFORGE_ANON_KEY) {
+      try {
+        let bearerToken = INSFORGE_ANON_KEY;
+        try {
+          bearerToken = localStorage.getItem('runwar_auth_token') || INSFORGE_ANON_KEY;
+        } catch {}
+        const fnRes = await fetch(`${FUNCTIONS_URL}/send-bug-report`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': INSFORGE_ANON_KEY,
+            'Authorization': `Bearer ${bearerToken}`,
+          },
+          body: JSON.stringify({ reportId: report.id }),
+        });
+
+        if (fnRes.ok) {
+          const data = await fnRes.json().catch(() => ({}));
+          if (data?.success && data?.emailSent) {
+            await this.markEmailStatus(report.id, 'sent');
+            return { success: true };
+          }
+          lastError = data?.error || data?.warning || lastError;
+        } else {
+          const fnErr = await fnRes.text().catch(() => '');
+          lastError = `HTTP ${fnRes.status}: ${fnErr || fnRes.statusText}`;
+        }
+      } catch (err: any) {
+        lastError = err?.message || lastError || 'Edge function fetch exception';
+        console.warn('[BugReportService] Direct edge function exception:', lastError);
+      }
     }
 
     // All attempts failed
-    console.error('[BugReportService] All SMTP dispatch attempts exhausted. Last error:', lastError);
+    console.error('[BugReportService] Bug report email dispatch failed. Last error:', lastError);
     await this.markEmailStatus(
       report.id,
       'failed',
-      `SMTP dispatch error: ${lastError || 'Unable to connect to SMTP server'}`
+      `SMTP dispatch error: ${lastError || 'Unable to reach notification service'}`
     );
 
     return { success: false, error: lastError };

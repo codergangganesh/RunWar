@@ -84,7 +84,8 @@ export const aiRouteService = {
       let query = insforge.database
         .from('ai_generated_routes')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(30);
 
       if (userId) {
         const normalizedId = toDeterministicUUID(userId);

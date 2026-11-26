@@ -19,6 +19,7 @@ import {
 import { tetherAudio } from './tetherAudio';
 
 const STORAGE_ACTIVE_TETHER = 'runwar_active_tether_session';
+const STORAGE_LOCAL_TETHER_UID = 'runwar_tether_local_uid';
 const BROADCAST_CHANNEL_NAME = 'runwar_tether_channel';
 
 type TelemetryListener = (telemetry: TetherTelemetry, delta: TetherDelta) => void;
@@ -28,6 +29,7 @@ type DisconnectListener = (reason: string) => void;
 
 class TetherService {
   private activeSession: TetherSession | null = null;
+  private localUserId: string = '';
   private lastCompletedSession: TetherSession | null = null;
   private myTelemetry: TetherTelemetry | null = null;
   private peerTelemetry: TetherTelemetry | null = null;
@@ -114,6 +116,10 @@ class TetherService {
     if (typeof localStorage === 'undefined') return;
     try {
       const saved = localStorage.getItem(STORAGE_ACTIVE_TETHER);
+      const savedLocalUid = localStorage.getItem(STORAGE_LOCAL_TETHER_UID);
+      if (savedLocalUid) {
+        this.localUserId = savedLocalUid;
+      }
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed && (parsed.status === 'active' || parsed.status === 'waiting')) {
@@ -132,8 +138,12 @@ class TetherService {
     try {
       if (this.activeSession) {
         localStorage.setItem(STORAGE_ACTIVE_TETHER, JSON.stringify(this.activeSession));
+        if (this.localUserId) {
+          localStorage.setItem(STORAGE_LOCAL_TETHER_UID, this.localUserId);
+        }
       } else {
         localStorage.removeItem(STORAGE_ACTIVE_TETHER);
+        localStorage.removeItem(STORAGE_LOCAL_TETHER_UID);
       }
     } catch {
       // Ignored
@@ -208,6 +218,7 @@ class TetherService {
       updatedAt: new Date().toISOString(),
     };
 
+    this.localUserId = hostUser.id;
     this.activeSession = session;
     this.peerTelemetry = null;
     this.saveSession();
@@ -259,7 +270,9 @@ class TetherService {
       lastSeen: new Date().toISOString(),
     };
 
+    this.localUserId = guestUser.id;
     let session: TetherSession | null = null;
+    let dbLookupCompleted = false;
 
     // 1. Check local session if matching
     if (this.activeSession && this.activeSession.roomCode === cleanCode) {
@@ -276,7 +289,11 @@ class TetherService {
           .from('tether_sessions')
           .select('*')
           .eq('room_code', cleanCode)
-          .single();
+          .maybeSingle();
+
+        if (!error) {
+          dbLookupCompleted = true;
+        }
 
         if (!error && data) {
           session = {
@@ -311,11 +328,16 @@ class TetherService {
             .eq('room_code', cleanCode);
         }
       } catch {
-        // Fallback
+        // Fallback allowed below only when offline or DB unreachable
       }
     }
 
-    // 3. Fallback dummy session if pairing directly via code
+    // Reject invalid room codes when online DB confirmed room does not exist
+    if (!session && dbLookupCompleted && typeof navigator !== 'undefined' && navigator.onLine) {
+      return null;
+    }
+
+    // 3. Offline / peer-to-peer broadcast fallback only if DB unavailable
     if (!session) {
       session = {
         id: `teth_${Date.now()}`,
@@ -337,6 +359,9 @@ class TetherService {
 
     this.activeSession = session;
     this.saveSession();
+
+    // Ensure peer subscribes to the Tether Realtime channel before broadcasting join
+    this.initRealtimeSubscription(cleanCode);
 
     // Broadcast join event
     this.broadcastMessage({
@@ -573,11 +598,17 @@ class TetherService {
         const reader = new FileReader();
         reader.onloadend = () => {
           const base64Audio = reader.result as string;
-          const sender = this.activeSession?.host || this.activeSession?.peer;
+          const myId = this.getMyUserId();
+          const sender =
+            this.activeSession?.peer?.userId === myId
+              ? this.activeSession.peer
+              : this.activeSession?.host?.userId === myId
+              ? this.activeSession.host
+              : this.activeSession?.host || this.activeSession?.peer;
           const clip: TetherVoiceClip = {
             id: `clip_${Date.now()}`,
             sessionCode: this.activeSession?.roomCode || '',
-            senderId: sender?.userId || 'me',
+            senderId: sender?.userId || myId || 'me',
             senderName: sender?.name || 'You',
             audioDataUri: base64Audio,
             durationSec,
@@ -618,11 +649,17 @@ class TetherService {
   sendPresetMessage(preset: TetherPresetVoiceMessage): void {
     if (!this.activeSession) return;
 
-    const sender = this.activeSession.host || this.activeSession.peer;
+    const myId = this.getMyUserId();
+    const sender =
+      this.activeSession.peer?.userId === myId
+        ? this.activeSession.peer
+        : this.activeSession.host?.userId === myId
+        ? this.activeSession.host
+        : this.activeSession.host || this.activeSession.peer;
     const clip: TetherVoiceClip = {
       id: `preset_${Date.now()}`,
       sessionCode: this.activeSession.roomCode,
-      senderId: sender?.userId || 'me',
+      senderId: sender?.userId || myId || 'me',
       senderName: sender?.name || 'Buddy',
       audioDataUri: '',
       durationSec: 2,
@@ -645,13 +682,14 @@ class TetherService {
   // ──────────────────────────────────────────────────────────────────────────
 
   private getMyUserId(): string {
+    if (this.localUserId) return this.localUserId;
     if (this.myTelemetry?.userId) return this.myTelemetry.userId;
     try {
       const cached = authService.getCachedUser();
       if (cached?.id) return cached.id;
     } catch {}
     if (this.activeSession) {
-      return this.activeSession.peer ? this.activeSession.peer.userId : this.activeSession.host.userId;
+      return this.activeSession.host.userId;
     }
     return '';
   }

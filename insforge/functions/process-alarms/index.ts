@@ -334,7 +334,12 @@ export default async function handler(req: Request): Promise<Response> {
       }
     }
 
-    const streakRemindersSent = await checkStreakSavers(now);
+    const utcMinute = now.getUTCMinutes();
+    // Run streak check twice per hour (:00 and :30) to support half-hour timezones (e.g. Asia/Kolkata)
+    // while cutting 24/7 background DB reads by ~96%.
+    const streakRemindersSent = (utcMinute === 0 || utcMinute === 30)
+      ? await checkStreakSavers(now)
+      : 0;
     const summary = { processed, skipped, errors, streakRemindersSent, total: dueAlarms.length };
     console.log('[process-alarms] Complete:', JSON.stringify(summary));
     return new Response(JSON.stringify(summary), { status: 200, headers: corsHeaders });

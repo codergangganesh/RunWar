@@ -276,19 +276,15 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
   }, [workoutState.activeSplitToast?.timestamp]);
 
 
-  // Subscribe to GPS & Engine updates
+  // Subscribe to GPS & Engine updates (isolated from audio UI toggles)
   useEffect(() => {
     gpsEngine.setOptions(
       profile?.weight || 70,
       settings?.auto_pause ?? true,
       settings?.auto_pause_threshold || 10,
       profile?.user_id,
-      (profile?.distance_unit as 'km' | 'mi') || 'km'
-    );
-
-    audioCoach.setConfig(
-      !audioMuted && (settings?.audio_coaching ?? true),
-      settings?.audio_frequency || '1km'
+      (profile?.distance_unit as 'km' | 'mi') || 'km',
+      profile?.height ?? undefined
     );
 
     const unsubscribe = gpsEngine.subscribe((state) => {
@@ -308,7 +304,15 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
     return () => {
       unsubscribe();
     };
-  }, [workoutType, profile, settings, audioMuted]);
+  }, [workoutType, profile, settings]);
+
+  // Apply voice coaching configuration independently without re-initializing GPS engine
+  useEffect(() => {
+    audioCoach.setConfig(
+      !audioMuted && (settings?.audio_coaching ?? true),
+      coachFrequency
+    );
+  }, [audioMuted, coachFrequency, settings?.audio_coaching]);
 
   // Auto-clear active course if it was deleted
   useEffect(() => {
@@ -350,11 +354,16 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
         route_coordinates: trail,
       });
 
-      // Retrieve latest live cheers and status from Redis / InsForge
-      beaconService.getBeaconByCode(currentBeacon.beacon_code).then((serverBeacon) => {
+      // Retrieve latest live cheers and status without downloading full route_coordinates every 5s
+      beaconService.getBeaconByCode(currentBeacon.beacon_code, { summaryOnly: true }).then((serverBeacon) => {
         if (serverBeacon) {
-          setActiveBeacon(serverBeacon);
-          beaconService.setActiveSession(serverBeacon);
+          const latestLocal = beaconService.getActiveSession();
+          const mergedBeacon = {
+            ...serverBeacon,
+            route_coordinates: latestLocal?.route_coordinates || serverBeacon.route_coordinates || [],
+          };
+          setActiveBeacon(mergedBeacon);
+          beaconService.setActiveSession(mergedBeacon);
         }
       }).catch(() => {});
     }
@@ -449,28 +458,29 @@ export const ActiveRunScreen: React.FC<ActiveRunScreenProps> = ({
     tetherService.endSession().catch(() => {});
     onFinishWorkout(finalState);
 
-    // Challenge completion – best-effort, non-blocking
+    // Challenge completion – best-effort, non-blocking (only marks completed if >= 95% target reached)
     if (activeChallengeIdRef.current && profile?.user_id) {
       const challengeId = activeChallengeIdRef.current;
       const userId = profile.user_id;
       const dist = finalState.distanceMeters || 0;
       const dur = finalState.elapsedTime || 0;
-      // workoutId may not be saved yet; use a placeholder that workoutService will link later
-      const workoutId = finalState.workoutId || 'pending';
+      const workoutId = finalState.workoutId || '';
       challengeService.completeChallengeParticipation(challengeId, userId, dist, dur, workoutId)
         .then(({ position, challenge }) => {
-          console.log(`[Challenge] Completed at position ${position}`);
-          try {
-            sessionStorage.setItem('runwar_last_completed_challenge', JSON.stringify({
-              challengeId,
-              position,
-              title: challenge?.title || 'Running Challenge',
-              targetDistance: challenge?.target_distance_meters || dist,
-              opponentName: challenge?.opponent_profile?.username
-                ? `@${challenge.opponent_profile.username}`
-                : (challenge?.opponent_profile?.name || 'Opponent')
-            }));
-          } catch {}
+          if (position > 0) {
+            console.log(`[Challenge] Completed at position ${position}`);
+            try {
+              sessionStorage.setItem('runwar_last_completed_challenge', JSON.stringify({
+                challengeId,
+                position,
+                title: challenge?.title || 'Running Challenge',
+                targetDistance: challenge?.target_distance_meters || dist,
+                opponentName: challenge?.opponent_profile?.username
+                  ? `@${challenge.opponent_profile.username}`
+                  : (challenge?.opponent_profile?.name || 'Opponent')
+              }));
+            } catch {}
+          }
         })
         .catch((err) => console.warn('[Challenge] Completion error:', err))
         .finally(() => {

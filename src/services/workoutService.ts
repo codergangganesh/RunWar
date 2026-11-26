@@ -51,7 +51,7 @@ export function isDemoWorkout(w: any): boolean {
  * reducing list network payload from ~20MB down to ~5KB (99.9% egress bandwidth reduction).
  */
 export const WORKOUT_SUMMARY_COLUMNS =
-  'id, user_id, type, title, notes, status, started_at, ended_at, duration_seconds, moving_duration_seconds, paused_duration_seconds, distance_meters, average_pace, average_speed, max_speed, calories, elevation_gain, elevation_loss, splits, weather, source_provider, external_record_id, heart_rate_avg, steps, average_cadence, photo_url, has_photo_stats_overlay, created_at';
+  'id, user_id, type, title, notes, status, started_at, ended_at, duration_seconds, moving_duration_seconds, paused_duration_seconds, distance_meters, average_pace, average_speed, max_speed, calories, elevation_gain, elevation_loss, splits, weather, source_provider, external_record_id, heart_rate_avg, steps, average_cadence, created_at';
 
 export const CORE_WORKOUT_SUMMARY_COLUMNS =
   'id, user_id, type, title, status, started_at, ended_at, duration_seconds, distance_meters, average_pace, average_speed, max_speed, calories, elevation_gain, elevation_loss, created_at';
@@ -432,7 +432,7 @@ export const workoutService = {
       }
 
       if (workoutError && (workoutError.message?.includes('column "steps"') || workoutError.message?.includes("'steps'") || workoutError.message?.includes('average_cadence'))) {
-        const { steps: _dropS, average_cadence: _dropC, ...fallbackPayload } = (data ? dbWorkoutPayload : (dbWorkoutPayload.weather ? { ...dbWorkoutPayload, weather: undefined } : dbWorkoutPayload));
+        const { steps: _dropS, average_cadence: _dropC, weather: _dropW, ...fallbackPayload } = dbWorkoutPayload;
         const retryRes = await insforge.database
           .from('workouts')
           .upsert([fallbackPayload], { onConflict: 'id' })
@@ -452,11 +452,13 @@ export const workoutService = {
       });
 
       // Flush queued point batches for this confirmed workout now that parent record exists
-      syncQueue.flushWorkoutPoints(savedWorkout.id).catch((ptErr) => {
+      try {
+        await syncQueue.flushWorkoutPoints(savedWorkout.id);
+      } catch (ptErr) {
         console.warn('Non-blocking error flushing point batches:', ptErr);
-      });
+      }
 
-      // 2. Batch insert splits if present
+      // 2. Replace splits idempotently so retries never duplicate splits
       if (normalized.splits && normalized.splits.length > 0) {
         const splitsPayload = normalized.splits.map((s) => ({
           workout_id: savedWorkout.id,
@@ -468,17 +470,15 @@ export const workoutService = {
         }));
 
         try {
+          await insforge.database.from('workout_splits').delete().eq('workout_id', savedWorkout.id);
           await insforge.database.from('workout_splits').insert(splitsPayload);
         } catch (splitErr) {
           console.warn('Non-blocking error saving splits:', splitErr);
         }
       }
 
-      // 3. GPS points: Skip bulk insert if points were already live-synced via syncQueue.
-      //    Only insert here if no live batches were sent (e.g. offline-first save or recovered workout).
-      const liveSyncedPointCount = syncQueue.getPendingPointsCount();
-      const hasLiveSyncedPoints = liveSyncedPointCount === 0 && normalized.route_coordinates && normalized.route_coordinates.length > 0;
-      if (hasLiveSyncedPoints) {
+      // 3. GPS points fallback: if no points exist in DB yet (offline-first or recovered workout), upload chunks now
+      if (normalized.route_coordinates && normalized.route_coordinates.length > 0) {
         // Check if points already exist for this workout to avoid duplicates
         try {
           const { count } = await insforge.database
@@ -1140,7 +1140,15 @@ export const workoutService = {
       }
     }
 
-    // 5. Broadcast global events so all active screens and components update immediately
+    // 5. Recalculate PRs/goals cleanly and broadcast global update events
+    if (canonicalUserId) {
+      const remaining = this.getCachedWorkouts(canonicalUserId);
+      Promise.allSettled([
+        recordsService.recalculateAllPRs(canonicalUserId, remaining),
+        goalsService.updateProgress(canonicalUserId),
+      ]).catch(() => {});
+    }
+
     if (typeof window !== 'undefined') {
       window.dispatchEvent(
         new CustomEvent('runwar:workout_deleted', { detail: { workoutId } })
@@ -1761,27 +1769,35 @@ export const workoutService = {
       }
 
       for (const w of missingWorkouts) {
+        // Recover full high-resolution coordinates from IndexedDB if localStorage cache was downsampled
+        const fullW = (await indexedDbStorage.getWorkoutById(w.id).catch(() => null)) || w;
         const payload = {
-          id: w.id,
+          id: fullW.id,
           user_id: userId,
-          type: w.type,
-          title: w.title,
-          notes: w.notes || null,
-          started_at: w.started_at,
-          ended_at: w.ended_at,
-          duration_seconds: w.duration_seconds,
-          moving_duration_seconds: w.moving_duration_seconds || w.duration_seconds,
-          paused_duration_seconds: w.paused_duration_seconds || 0,
-          distance_meters: w.distance_meters,
-          average_pace: w.average_pace,
-          average_speed: w.average_speed,
-          max_speed: w.max_speed || 0,
-          calories: w.calories || 0,
-          elevation_gain: w.elevation_gain || 0,
-          elevation_loss: w.elevation_loss || 0,
+          type: fullW.type,
+          title: fullW.title,
+          notes: fullW.notes || null,
+          started_at: fullW.started_at,
+          ended_at: fullW.ended_at,
+          duration_seconds: fullW.duration_seconds,
+          moving_duration_seconds: fullW.moving_duration_seconds || fullW.duration_seconds,
+          paused_duration_seconds: fullW.paused_duration_seconds || 0,
+          distance_meters: fullW.distance_meters,
+          average_pace: fullW.average_pace,
+          average_speed: fullW.average_speed,
+          max_speed: fullW.max_speed || 0,
+          calories: fullW.calories || 0,
+          elevation_gain: fullW.elevation_gain || 0,
+          elevation_loss: fullW.elevation_loss || 0,
+          steps: fullW.steps || 0,
+          average_cadence: fullW.average_cadence || 0,
+          weather: fullW.weather || null,
+          source_provider: fullW.source_provider || null,
+          external_record_id: fullW.external_record_id || null,
+          heart_rate_avg: fullW.heart_rate_avg || null,
           status: 'completed',
-          route_coordinates: w.route_coordinates,
-          splits: w.splits,
+          route_coordinates: fullW.route_coordinates,
+          splits: fullW.splits,
         };
 
         const { error } = await insforge.database
@@ -1790,10 +1806,17 @@ export const workoutService = {
 
         if (!error) {
           syncedCount++;
-          // Batch splits
-          if (w.splits && w.splits.length > 0) {
-            const splitsPayload = w.splits.map((s) => ({
-              workout_id: w.id,
+          // Update active shoe mileage, goals & PRs for newly synced offline workout
+          Promise.allSettled([
+            gearService.addDistanceToActiveGear(userId, fullW.distance_meters || 0),
+            goalsService.updateProgress(userId),
+            recordsService.checkPersonalRecords(userId, fullW),
+          ]).catch(() => {});
+
+          // Replace splits idempotently
+          if (fullW.splits && fullW.splits.length > 0) {
+            const splitsPayload = fullW.splits.map((s) => ({
+              workout_id: fullW.id,
               user_id: userId,
               split_number: s.split_number,
               distance_meters: s.distance_meters,
@@ -1801,6 +1824,7 @@ export const workoutService = {
               pace: s.pace,
             }));
             try {
+              await insforge.database.from('workout_splits').delete().eq('workout_id', fullW.id);
               await insforge.database.from('workout_splits').insert(splitsPayload);
             } catch {}
           }

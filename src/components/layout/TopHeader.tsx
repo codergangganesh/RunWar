@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, Wifi, WifiOff, Smartphone, Maximize2, Flame, Sun, Moon, RefreshCw, Bell } from 'lucide-react';
+import { ArrowLeft, Smartphone, Maximize2, Flame, Sun, Moon, Bell } from 'lucide-react';
 import { UserProfile } from '../../types';
 
 interface TopHeaderProps {
@@ -26,9 +26,6 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   onBack,
   profile,
   onOpenProfile,
-  isOnline = true,
-  isSyncing = false,
-  onSync,
   isDeviceFrame = false,
   onToggleFrame,
   streakCount = 0,
@@ -109,30 +106,6 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             {isDeviceFrame ? <Maximize2 size={13} /> : <Smartphone size={13} />}
           </button>
         )}
-
-        {/* Network & Cloud Sync Status Button */}
-        <button
-          type="button"
-          onClick={onSync}
-          disabled={!isOnline || isSyncing}
-          className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-all shadow-sm ${
-            isSyncing
-              ? 'bg-[#00d09c]/20 text-[#00b284] border border-[#00d09c] animate-pulse'
-              : isOnline
-              ? 'bg-[#00d09c] hover:bg-[#00ba8b] text-white border border-[#00d09c] active:scale-90 cursor-pointer'
-              : 'bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20 opacity-80'
-          }`}
-          title={isSyncing ? 'Syncing with InsForge Cloud...' : isOnline ? 'Connected to InsForge Cloud (Click to refresh)' : 'Offline (Changes will sync when online)'}
-          aria-label="Cloud sync status"
-        >
-          {isSyncing ? (
-            <RefreshCw size={13} className="animate-spin text-white" />
-          ) : isOnline ? (
-            <Wifi size={14} className="text-white" />
-          ) : (
-            <WifiOff size={14} />
-          )}
-        </button>
 
         {/* Notification Bell Button */}
         {onOpenNotifications && (

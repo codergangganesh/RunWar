@@ -3,7 +3,11 @@ import { challengeService } from '../services/challengeService';
 
 export type UsernameStatus = 'idle' | 'checking' | 'available' | 'taken' | 'invalid' | 'unchanged';
 
-export function useUsernameCheck(initialUsername: string = '', currentUserId: string = '') {
+export function useUsernameCheck(
+  initialUsername: string = '',
+  currentUserId: string = '',
+  treatInitialAsSaved: boolean = true
+) {
   const [usernameInput, setUsernameInput] = useState(initialUsername);
   const [status, setStatus] = useState<UsernameStatus>('idle');
   const [message, setMessage] = useState<string>('');
@@ -29,7 +33,7 @@ export function useUsernameCheck(initialUsername: string = '', currentUserId: st
     }
 
     const currentClean = (initialUsername || '').replace(/^@/, '').toLowerCase().trim();
-    if (currentClean && clean === currentClean) {
+    if (treatInitialAsSaved && currentClean && clean === currentClean) {
       setStatus('unchanged');
       setMessage('Current username');
       setSuggestions([]);
@@ -39,21 +43,27 @@ export function useUsernameCheck(initialUsername: string = '', currentUserId: st
     setStatus('checking');
     setMessage('Checking availability...');
 
+    let cancelled = false;
     const timer = setTimeout(async () => {
       const res = await challengeService.checkUsernameAvailable(clean, currentUserId);
+      if (cancelled) return;
       if (res.available) {
         setStatus('available');
         setMessage('Available ✓');
         setSuggestions([]);
       } else {
-        setStatus(res.reason === 'Username already taken' ? 'taken' : 'invalid');
+        const lowerReason = (res.reason || '').toLowerCase();
+        setStatus(lowerReason.includes('taken') || lowerReason.includes('registered') ? 'taken' : 'invalid');
         setMessage(res.reason || 'Username already taken');
         setSuggestions(res.suggestions || []);
       }
     }, 350);
 
-    return () => clearTimeout(timer);
-  }, [usernameInput, initialUsername, currentUserId]);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [usernameInput, initialUsername, currentUserId, treatInitialAsSaved]);
 
   return {
     usernameInput,

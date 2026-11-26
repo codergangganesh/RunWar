@@ -8,15 +8,35 @@ declare const Deno: any;
 const INSFORGE_URL =
   Deno.env.get('INSFORGE_BASE_URL') ??
   Deno.env.get('INSFORGE_URL') ??
-  'https://7p7ewmvi.us-east.insforge.app';
+  'https://9r3q7vvs.us-east.insforge.app';
 
 const SERVICE_ROLE_KEY =
   Deno.env.get('API_KEY') ??
-  Deno.env.get('ANON_KEY') ??
   Deno.env.get('INSFORGE_SERVICE_ROLE_KEY') ??
-  'ik_9d2a844d3d742c432e4c93745a27c78d';
+  Deno.env.get('ANON_KEY') ??
+  '';
 
 const ADMIN_EMAIL = 'mannamganeshbabu8@gmail.com';
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function escapeHtml(val: unknown): string {
+  return String(val ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function isSafeHttpUrl(url: unknown): boolean {
+  if (typeof url !== 'string') return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
 
 const corsHeaders = {
   'Content-Type': 'application/json',
@@ -24,7 +44,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-Deno.serve(async (req: Request) => {
+export default async function handler(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
@@ -33,15 +53,16 @@ Deno.serve(async (req: Request) => {
     const body = await req.json().catch(() => ({}));
     const { reportId } = body;
 
-    if (!reportId) {
+    if (!reportId || typeof reportId !== 'string' || !UUID_REGEX.test(reportId.trim())) {
       return new Response(
-        JSON.stringify({ error: 'Missing reportId parameter' }),
+        JSON.stringify({ error: 'Invalid or missing reportId parameter' }),
         { status: 400, headers: corsHeaders }
       );
     }
+    const cleanReportId = reportId.trim();
 
     // 1. Fetch authoritative bug report by ID using service role
-    const reportUrl = `${INSFORGE_URL}/api/database/records/bug_reports?id=eq.${reportId}&limit=1`;
+    const reportUrl = `${INSFORGE_URL}/api/database/records/bug_reports?id=eq.${encodeURIComponent(cleanReportId)}&limit=1`;
     const reportRes = await fetch(reportUrl, {
       method: 'GET',
       headers: {
@@ -68,18 +89,47 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // 2. Render Screenshots list
-    let screenshotsHtml = '<span class="text" style="color: #64748b;">No screenshots attached.</span>';
-    if (Array.isArray(report.screenshot_urls) && report.screenshot_urls.length > 0) {
-      screenshotsHtml = report.screenshot_urls
-        .map(
-          (item: any, idx: number) =>
-            `<a href="${item.url}" target="_blank" rel="noopener noreferrer">View Screenshot ${idx + 1} ${item.name ? `(${item.name})` : ''}</a>`
-        )
-        .join('');
+    // Prevent unauthenticated repeat email spam for already-sent reports
+    if (report.email_status === 'sent') {
+      const authHeader = req.headers.get('Authorization') || '';
+      const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+      let isAdminOrOwner = false;
+      if (bearer && bearer !== SERVICE_ROLE_KEY && bearer !== (Deno.env.get('ANON_KEY') ?? '')) {
+        try {
+          const meRes = await fetch(`${INSFORGE_URL}/api/auth/current-user`, {
+            headers: { 'Authorization': `Bearer ${bearer}` },
+          });
+          if (meRes.ok) {
+            const me = await meRes.json();
+            const uid = me?.user?.id || me?.id;
+            const uemail = me?.user?.email || me?.email;
+            isAdminOrOwner = uid === report.user_id || uemail === ADMIN_EMAIL;
+          }
+        } catch {}
+      }
+      if (!isAdminOrOwner) {
+        return new Response(
+          JSON.stringify({ success: true, emailSent: true, alreadySent: true, reportCode: report.report_code }),
+          { headers: corsHeaders }
+        );
+      }
     }
 
-    const emailSubject = `[Bug Report] ${report.title} (${report.report_code || 'New'})`;
+    // 2. Render Screenshots list (escaped & URL-validated)
+    let screenshotsHtml = '<span class="text" style="color: #64748b;">No screenshots attached.</span>';
+    if (Array.isArray(report.screenshot_urls) && report.screenshot_urls.length > 0) {
+      const validLinks = report.screenshot_urls
+        .filter((item: any) => isSafeHttpUrl(item?.url))
+        .map(
+          (item: any, idx: number) =>
+            `<a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">View Screenshot ${idx + 1}${item.name ? ` (${escapeHtml(item.name)})` : ''}</a>`
+        );
+      if (validLinks.length > 0) {
+        screenshotsHtml = validLinks.join('');
+      }
+    }
+
+    const emailSubject = `[Bug Report] ${String(report.title || '').replace(/[\r\n]+/g, ' ').slice(0, 120)} (${report.report_code || 'New'})`;
 
     const emailHtml = `
 <!DOCTYPE html>
@@ -105,6 +155,7 @@ Deno.serve(async (req: Request) => {
     .header {
       padding: 20px 24px;
       border-bottom: 1px solid #e2e8f0;
+      background: #f8fafc;
     }
     .header h1 {
       margin: 0;
@@ -234,20 +285,20 @@ Deno.serve(async (req: Request) => {
   <div class="container">
     <div class="header">
       <h1>RunWar — New Bug Report</h1>
-      <p>Report ID: ${report.report_code || report.id}</p>
+      <p>Report ID: ${escapeHtml(report.report_code || report.id)}</p>
     </div>
     <div class="content">
-      <h2 class="title">${report.title}</h2>
+      <h2 class="title">${escapeHtml(report.title)}</h2>
       <div class="section">
         <div class="label">Description</div>
-        <div class="text">${report.description}</div>
+        <div class="text">${escapeHtml(report.description)}</div>
       </div>
       ${
         report.steps_to_reproduce
           ? `
           <div class="section">
             <div class="label">Steps to Reproduce</div>
-            <div class="text">${report.steps_to_reproduce}</div>
+            <div class="text">${escapeHtml(report.steps_to_reproduce)}</div>
           </div>
           `
           : ''
@@ -257,7 +308,7 @@ Deno.serve(async (req: Request) => {
           ? `
           <div class="section">
             <div class="label">Expected Behavior</div>
-            <div class="text">${report.expected_behavior}</div>
+            <div class="text">${escapeHtml(report.expected_behavior)}</div>
           </div>
           `
           : ''
@@ -267,7 +318,7 @@ Deno.serve(async (req: Request) => {
           ? `
           <div class="section">
             <div class="label">Actual Behavior</div>
-            <div class="text">${report.actual_behavior}</div>
+            <div class="text">${escapeHtml(report.actual_behavior)}</div>
           </div>
           `
           : ''
@@ -275,16 +326,16 @@ Deno.serve(async (req: Request) => {
       <div class="section">
         <div class="label">Report Information</div>
         <table>
-          <tr><td class="key">Category</td><td class="value">${report.category}</td></tr>
-          <tr><td class="key">Severity</td><td class="value">${report.severity}</td></tr>
-          <tr><td class="key">Reporter</td><td class="value">${report.user_email}</td></tr>
-          <tr><td class="key">User ID</td><td class="value">${report.user_id}</td></tr>
-          <tr><td class="key">Reported From</td><td class="value">${report.reported_from || 'Direct Screen'}</td></tr>
-          <tr><td class="key">App Version</td><td class="value">v${report.app_version || '1.0.0'}</td></tr>
-          <tr><td class="key">Platform</td><td class="value">${report.platform || 'Unknown'}</td></tr>
-          <tr><td class="key">OS</td><td class="value">${report.os_version || 'Unknown'}</td></tr>
-          <tr><td class="key">Screen Size</td><td class="value">${report.screen_size || 'Unknown'}</td></tr>
-          <tr><td class="key">Submitted</td><td class="value">${new Date(report.created_at).toLocaleString()}</td></tr>
+          <tr><td class="key">Category</td><td class="value">${escapeHtml(report.category)}</td></tr>
+          <tr><td class="key">Severity</td><td class="value">${escapeHtml(report.severity)}</td></tr>
+          <tr><td class="key">Reporter</td><td class="value">${escapeHtml(report.user_email)}</td></tr>
+          <tr><td class="key">User ID</td><td class="value">${escapeHtml(report.user_id)}</td></tr>
+          <tr><td class="key">Reported From</td><td class="value">${escapeHtml(report.reported_from || 'Direct Screen')}</td></tr>
+          <tr><td class="key">App Version</td><td class="value">v${escapeHtml(report.app_version || '1.0.0')}</td></tr>
+          <tr><td class="key">Platform</td><td class="value">${escapeHtml(report.platform || 'Unknown')}</td></tr>
+          <tr><td class="key">OS</td><td class="value">${escapeHtml(report.os_version || 'Unknown')}</td></tr>
+          <tr><td class="key">Screen Size</td><td class="value">${escapeHtml(report.screen_size || 'Unknown')}</td></tr>
+          <tr><td class="key">Submitted</td><td class="value">${escapeHtml(new Date(report.created_at).toLocaleString())}</td></tr>
         </table>
       </div>
       <div class="section">
@@ -337,7 +388,7 @@ Deno.serve(async (req: Request) => {
       const emailErr = await emailRes.text().catch(() => '');
       console.warn('[send-bug-report] SMTP error:', emailErr);
 
-      await fetch(`${INSFORGE_URL}/api/database/records/bug_reports?id=eq.${reportId}`, {
+      await fetch(`${INSFORGE_URL}/api/database/records/bug_reports?id=eq.${encodeURIComponent(cleanReportId)}`, {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${SERVICE_ROLE_KEY}`,
@@ -352,7 +403,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    await fetch(`${INSFORGE_URL}/api/database/records/bug_reports?id=eq.${reportId}`, {
+    await fetch(`${INSFORGE_URL}/api/database/records/bug_reports?id=eq.${encodeURIComponent(cleanReportId)}`, {
       method: 'PATCH',
       headers: {
         'Authorization': `Bearer ${SERVICE_ROLE_KEY}`,
@@ -372,4 +423,4 @@ Deno.serve(async (req: Request) => {
       { status: 500, headers: corsHeaders }
     );
   }
-});
+}

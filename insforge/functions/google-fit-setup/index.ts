@@ -9,9 +9,20 @@ Deno.serve(async (req: Request) => {
     return new Response(null, { headers: { 'Access-Control-Allow-Origin': '*' } });
   }
 
+  // Disabled one-time setup endpoint unless explicitly authorized with the service role key
+  const serviceRoleKey = Deno.env.get('API_KEY') ?? Deno.env.get('INSFORGE_SERVICE_ROLE_KEY') ?? '';
+  const authHeader = req.headers.get('Authorization') || '';
+  const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+  if (!serviceRoleKey || bearer !== serviceRoleKey) {
+    return new Response(JSON.stringify({ ok: false, error: 'Unauthorized setup endpoint' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+    });
+  }
+
   const insforge = createClient(
     Deno.env.get('INSFORGE_URL') ?? '',
-    Deno.env.get('INSFORGE_SERVICE_ROLE_KEY') ?? '',
+    serviceRoleKey,
   );
 
   // Create the table via raw SQL using the Postgres REST API

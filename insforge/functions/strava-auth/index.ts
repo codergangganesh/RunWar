@@ -4,8 +4,19 @@
 
 declare const Deno: any;
 
-const STRAVA_CLIENT_ID = Deno.env.get('STRAVA_CLIENT_ID') ?? '';
-const STRAVA_CLIENT_SECRET = Deno.env.get('STRAVA_CLIENT_SECRET') ?? '';
+const STRAVA_CLIENT_ID = Deno.env.get('STRAVA_CLIENT_ID') ?? Deno.env.get('VITE_STRAVA_CLIENT_ID') ?? '';
+const STRAVA_CLIENT_SECRET = Deno.env.get('STRAVA_CLIENT_SECRET') ?? Deno.env.get('VITE_STRAVA_CLIENT_SECRET') ?? '';
+
+function isAllowedStravaRedirect(uri: string): boolean {
+  if (!uri) return false;
+  try {
+    const parsed = new URL(uri);
+    const host = parsed.hostname.toLowerCase();
+    return host === 'localhost' || host === '127.0.0.1' || host === 'run-war-chi.vercel.app';
+  } catch {
+    return false;
+  }
+}
 
 export default async function (req: Request): Promise<Response> {
   // CORS Preflight
@@ -31,6 +42,13 @@ export default async function (req: Request): Promise<Response> {
     if (req.method === 'GET') {
       const redirectUri = url.searchParams.get('redirect_uri') || '';
       const state = url.searchParams.get('state') || '';
+
+      if (redirectUri && !isAllowedStravaRedirect(redirectUri)) {
+        return new Response(
+          JSON.stringify({ error: 'Invalid redirect_uri.' }),
+          { status: 400, headers: corsHeaders }
+        );
+      }
 
       if (!STRAVA_CLIENT_ID) {
         return new Response(

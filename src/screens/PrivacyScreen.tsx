@@ -2,7 +2,11 @@ import React, { useState } from 'react';
 import { UserProfile } from '../types';
 import { insforge } from '../lib/insforge';
 import { workoutService } from '../services/workoutService';
-import { Trash2, AlertTriangle, CheckCircle2, LogOut, Lock, ChevronRight, FileText, ShieldCheck } from 'lucide-react';
+import { indexedDbStorage } from '../services/indexedDbStorage';
+import { toDeterministicUUID } from '../utils/uuid';
+const normalizeUserId = toDeterministicUUID;
+const isGuestUser = (uid?: string | null) => !uid || uid === 'guest_user' || uid === 'usr_guest_demo';
+import { Trash2, AlertTriangle, CheckCircle2, LogOut, Lock, ChevronRight, FileText, ShieldCheck, AlertCircle } from 'lucide-react';
 
 interface PrivacyScreenProps {
   profile: UserProfile | null;
@@ -22,31 +26,62 @@ export const PrivacyScreen: React.FC<PrivacyScreenProps> = ({
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [clearedMsg, setClearedMsg] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
 
   const handleClearAllData = async () => {
     if (!profile) return;
     setClearing(true);
+    setClearError(null);
 
     try {
-      // Delete user's workouts from InsForge
-      await insforge.database
-        .from('workouts')
-        .delete()
-        .eq('user_id', profile.user_id);
+      const targetUserId = profile.user_id;
+      if (targetUserId && !isGuestUser(targetUserId)) {
+        const normalizedId = normalizeUserId(targetUserId);
+        // Fetch workout IDs so dependent points/splits are removed cleanly even without cascade
+        const { data: workoutRows, error: fetchErr } = await insforge.database
+          .from('workouts')
+          .select('id')
+          .eq('user_id', normalizedId);
+        if (fetchErr) throw fetchErr;
 
-      // Clear local caches
+        const workoutIds = (workoutRows || []).map((r: any) => r.id).filter(Boolean);
+        if (workoutIds.length > 0) {
+          await insforge.database.from('workout_points').delete().in('workout_id', workoutIds);
+          await insforge.database.from('workout_splits').delete().in('workout_id', workoutIds);
+        }
+
+        const results = await Promise.all([
+          insforge.database.from('workouts').delete().eq('user_id', normalizedId),
+          insforge.database.from('personal_records').delete().eq('user_id', normalizedId),
+          insforge.database.from('goals').delete().eq('user_id', normalizedId),
+          insforge.database.from('user_achievements').delete().eq('user_id', normalizedId),
+          insforge.database.from('daily_steps').delete().eq('user_id', normalizedId),
+        ]);
+
+        const failed = results.find((r) => r.error);
+        if (failed?.error) {
+          throw failed.error;
+        }
+      }
+
+      // Clear local caches & IndexedDB traces
       workoutService.clearUserCache(profile.user_id);
+      await indexedDbStorage.clearUserWorkouts(profile.user_id);
       localStorage.removeItem('runwar_cached_workouts');
       localStorage.removeItem('runwar_active_workout_backup');
       localStorage.removeItem('runwar_point_batches_queue');
       localStorage.removeItem('runwar_offline_workouts_queue');
+      localStorage.removeItem(`runwar_goals_${profile.user_id}`);
+      localStorage.removeItem(`runwar_records_${profile.user_id}`);
+      localStorage.removeItem(`runwar_achievements_${profile.user_id}`);
 
       setShowClearConfirm(false);
       setClearedMsg(true);
       onDataCleared();
       setTimeout(() => setClearedMsg(false), 3000);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error clearing data:', err);
+      setClearError(err?.message || 'Failed to delete all cloud data. Please check your connection and try again.');
     } finally {
       setClearing(false);
     }
@@ -58,7 +93,13 @@ export const PrivacyScreen: React.FC<PrivacyScreenProps> = ({
       {clearedMsg && (
         <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-900 dark:text-emerald-300 text-xs flex items-center gap-2 animate-scale-in">
           <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
-          <span>All workout routes and history have been permanently deleted.</span>
+          <span>All workout routes, goals, PRs, and history have been permanently deleted.</span>
+        </div>
+      )}
+      {clearError && (
+        <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2 animate-scale-in">
+          <AlertCircle size={16} className="text-rose-600 dark:text-rose-400 shrink-0" />
+          <span>{clearError}</span>
         </div>
       )}
 

@@ -37,9 +37,10 @@ export const authService = {
     if (!user) return;
     try {
       const rawId = user.id || user.firebase_uid || user.user_id || user.uid;
+      const isGuestPlaceholder = !rawId || rawId === 'guest_user' || rawId === 'usr_guest_demo';
       const normalizedUser = {
         ...user,
-        id: rawId && rawId !== 'guest_user' ? normalizeUserId(rawId) : (rawId || 'guest_user'),
+        id: isGuestPlaceholder ? (rawId || 'guest_user') : normalizeUserId(rawId),
       };
       localStorage.setItem(SESSION_USER_KEY, JSON.stringify(normalizedUser));
     } catch (e) {
@@ -314,11 +315,14 @@ export const authService = {
         sessionStorage.setItem('runwar_oauth_error', errorParam);
       } catch {}
 
-      // Clean error param from URL
+      // Clean error param from URL (including hash)
       const cleanUrl = new URL(window.location.href);
       cleanUrl.searchParams.delete('error');
       cleanUrl.searchParams.delete('error_description');
       cleanUrl.searchParams.delete('error_code');
+      if (cleanUrl.hash && (cleanUrl.hash.includes('error') || cleanUrl.hash.includes('code'))) {
+        cleanUrl.hash = '';
+      }
       window.history.replaceState({}, document.title, cleanUrl.toString());
 
       return { success: false, error: errorParam };
@@ -326,6 +330,7 @@ export const authService = {
 
     // 2. Check for authorization code
     if (!code) {
+      localStorage.removeItem('runwar_oauth_in_progress');
       return { success: false };
     }
 
@@ -369,10 +374,13 @@ export const authService = {
         }
       }
 
-      // Clean code from URL bar
+      // Clean code from URL bar (including hash)
       const cleanUrl = new URL(window.location.href);
       cleanUrl.searchParams.delete('insforge_code');
       cleanUrl.searchParams.delete('code');
+      if (cleanUrl.hash && (cleanUrl.hash.includes('insforge_code') || cleanUrl.hash.includes('code'))) {
+        cleanUrl.hash = '';
+      }
       window.history.replaceState({}, document.title, cleanUrl.toString());
 
       const rawUser = data?.user || (data as any)?.session?.user;
@@ -465,18 +473,10 @@ export const authService = {
   },
 
   /**
-   * Send password reset email only if account exists
+   * Send password reset email without exposing anonymous account enumeration
    */
   async sendPasswordReset(email: string) {
     const cleanEmail = email.trim().toLowerCase();
-
-    // 1. Verify account existence first
-    const exists = await this.checkEmailExists(cleanEmail);
-    if (!exists) {
-      throw new Error('No account found with this email address. Please check your email or sign up.');
-    }
-
-    // 2. Dispatch reset code
     const redirectTo = typeof window !== 'undefined' ? `${window.location.origin}/` : undefined;
     const { data, error } = await insforge.auth.sendResetPasswordEmail({
       email: cleanEmail,
@@ -498,19 +498,21 @@ export const authService = {
   async sendOtpToEmail(email: string, name?: string) {
     const cleanEmail = email.trim().toLowerCase();
     const displayName = name || cleanEmail.split('@')[0] || 'Runner';
-    const autoPassword = `Rw_${toDeterministicUUID(cleanEmail).substring(0, 10)}!9`;
+    const randBytes = new Uint8Array(18);
+    crypto.getRandomValues(randBytes);
+    const randomPassword = `Rw_${btoa(String.fromCharCode(...randBytes)).replace(/[^a-zA-Z0-9]/g, '').slice(0, 18)}!9aA`;
 
     try {
       // First attempt signUp which sends 6-digit verification code via SMTP
       const { data, error } = await insforge.auth.signUp({
         email: cleanEmail,
-        password: autoPassword,
+        password: randomPassword,
         name: displayName,
       });
 
       if (error) {
         const errMsg = error.message || '';
-        // If account already exists, trigger resend verification or reset email
+        // If account already exists, trigger resend verification or reset OTP email
         if (errMsg.toLowerCase().includes('already') || errMsg.toLowerCase().includes('exist') || errMsg.toLowerCase().includes('registered')) {
           await insforge.auth.resendVerificationEmail({ email: cleanEmail }).catch(async () => {
             await insforge.auth.sendResetPasswordEmail({ email: cleanEmail });
@@ -521,13 +523,18 @@ export const authService = {
       }
       return { success: true, isExisting: false, user: data?.user };
     } catch (err: any) {
-      // If error, try resending verification email
+      // If error, try resending verification or reset OTP email
       try {
         const resendRes = await insforge.auth.resendVerificationEmail({ email: cleanEmail });
         if (resendRes.error) throw resendRes.error;
         return { success: true, isExisting: true };
       } catch (resendErr) {
-        throw err || resendErr;
+        try {
+          await insforge.auth.sendResetPasswordEmail({ email: cleanEmail });
+          return { success: true, isExisting: true };
+        } catch {
+          throw err || resendErr;
+        }
       }
     }
   },
@@ -538,9 +545,8 @@ export const authService = {
   async verifyEmailOtp(email: string, otp: string) {
     const cleanEmail = email.trim().toLowerCase();
     const cleanOtp = otp.trim();
-    const autoPassword = `Rw_${toDeterministicUUID(cleanEmail).substring(0, 10)}!9`;
 
-    // 1. Attempt official email OTP verification
+    // 1. Official email verification OTP
     try {
       const { data, error } = await insforge.auth.verifyEmail({
         email: cleanEmail,
@@ -570,37 +576,23 @@ export const authService = {
       console.warn('Verify email OTP check:', verifyErr);
     }
 
-    // 2. If already verified or existing user, try signin
-    try {
-      const signInRes = await insforge.auth.signInWithPassword({
-        email: cleanEmail,
-        password: autoPassword,
-      });
-      if (signInRes.data?.user) {
-        const normalizedId = normalizeUserId(signInRes.data.user.id);
-        const normalizedUser = { ...signInRes.data.user, id: normalizedId };
-        this.setCachedUser(normalizedUser);
-        let profile = await this.getProfile(normalizedId);
-        return { user: normalizedUser, isNew: !profile };
-      }
-    } catch (signInErr) {
-      // continue to token exchange
-    }
-
-    // 3. Fallback: try exchange reset password token with the 6-digit code
+    // 2. Existing verified accounts: validate 6-digit reset OTP via server exchange before creating session
     try {
       const exchangeRes = await insforge.auth.exchangeResetPasswordToken({
         email: cleanEmail,
         code: cleanOtp,
       });
       if (exchangeRes.data?.token) {
+        const randBytes = new Uint8Array(18);
+        crypto.getRandomValues(randBytes);
+        const ephemeralPassword = `Rw_${btoa(String.fromCharCode(...randBytes)).replace(/[^a-zA-Z0-9]/g, '').slice(0, 18)}!9aA`;
         await insforge.auth.resetPassword({
           otp: exchangeRes.data.token,
-          newPassword: autoPassword,
+          newPassword: ephemeralPassword,
         });
         const finalSignIn = await insforge.auth.signInWithPassword({
           email: cleanEmail,
-          password: autoPassword,
+          password: ephemeralPassword,
         });
         if (finalSignIn.data?.user) {
           const normalizedId = normalizeUserId(finalSignIn.data.user.id);
@@ -610,14 +602,8 @@ export const authService = {
           return { user: normalizedUser, isNew: !profile };
         }
       }
-    } catch (exchangeErr) {
-      // ignore
-    }
-
-    // 4. Final check if session is active
-    const currentUser = await this.getCurrentUser();
-    if (currentUser) {
-      return { user: currentUser, isNew: false };
+    } catch {
+      // invalid/expired OTP code
     }
 
     throw new Error('Invalid or expired 6-digit verification code. Please check your email and try again.');
@@ -788,11 +774,15 @@ export const authService = {
 
       if (data) {
         const cachedRaw = localStorage.getItem(PROFILE_CACHE_KEY);
-        const cachedProfile = cachedRaw ? JSON.parse(cachedRaw) : {};
+        let cachedProfile: any = {};
+        if (cachedRaw) {
+          try { cachedProfile = JSON.parse(cachedRaw) || {}; } catch {}
+        }
+        const isSameUser = cachedProfile?.user_id === normalizedId || cachedProfile?.id === normalizedId;
         const profileWithMeta: UserProfile = {
           ...data,
-          firebase_uid: cachedProfile.firebase_uid || null,
-          phone_number: cachedProfile.phone_number || null,
+          firebase_uid: isSameUser ? (cachedProfile.firebase_uid || null) : null,
+          phone_number: isSameUser ? (cachedProfile.phone_number || null) : null,
         } as UserProfile;
         localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(profileWithMeta));
         return profileWithMeta;
@@ -909,7 +899,10 @@ export const authService = {
     const isGuest = !userId || userId === 'guest_user' || userId === 'usr_guest_demo';
     if (isGuest) {
       const cachedRaw = localStorage.getItem(PROFILE_CACHE_KEY);
-      const existing = cachedRaw ? JSON.parse(cachedRaw) : {};
+      let existing: any = {};
+      if (cachedRaw) {
+        try { existing = JSON.parse(cachedRaw) || {}; } catch {}
+      }
       const updated: UserProfile = {
         ...existing,
         ...updates,
@@ -957,6 +950,11 @@ export const authService = {
 
       if (error) {
         console.warn('Cloud DB profile upsert notice:', error);
+        const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+        const errMsg = String(error.message || error);
+        if (!isOffline && !errMsg.toLowerCase().includes('failed to fetch') && !errMsg.toLowerCase().includes('network')) {
+          throw new Error(errMsg || 'Failed to save profile to cloud');
+        }
       }
       const fullResult: UserProfile = {
         ...(data || dbPayload),
@@ -1047,7 +1045,14 @@ export const authService = {
       return null;
     } catch (err) {
       const cached = localStorage.getItem(SETTINGS_CACHE_KEY);
-      return cached ? JSON.parse(cached) : null;
+      if (!cached) return null;
+      try {
+        const parsed = JSON.parse(cached);
+        if (!parsed?.user_id || parsed.user_id === normalizedId) {
+          return parsed;
+        }
+      } catch {}
+      return null;
     }
   },
 
@@ -1112,6 +1117,11 @@ export const authService = {
 
       if (error) {
         console.warn('Cloud DB settings upsert notice:', error);
+        const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+        const errMsg = String(error.message || error);
+        if (!isOffline && !errMsg.toLowerCase().includes('failed to fetch') && !errMsg.toLowerCase().includes('network')) {
+          throw new Error(errMsg || 'Failed to save settings to cloud');
+        }
       }
       const finalSettings = { ...settingsPayload, ...(data || {}) } as UserSettings;
       localStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify(finalSettings));
@@ -1129,7 +1139,7 @@ export const authService = {
    * Source of truth: InsForge Auth + InsForge Database (NEVER localStorage)
    */
   async getAccountPasswordState(userId: string): Promise<PasswordAccountState> {
-    if (!userId || userId === 'guest_user') {
+    if (!userId || userId === 'guest_user' || userId === 'usr_guest_demo') {
       return {
         hasPassword: false,
         email: null,

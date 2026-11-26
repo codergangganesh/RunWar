@@ -227,8 +227,9 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
       setShowGoalModal(false);
       setEditingGoal(null);
       onRefreshGoals?.();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error saving goal:', err);
+      setSaveProfileError(err?.message || 'Failed to save goal. Please try again.');
     } finally {
       setIsSavingGoal(false);
     }
@@ -260,6 +261,16 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   const [height, setHeight] = useState(profile?.height || 175);
   const [unitSystem, setUnitSystem] = useState(profile?.distance_unit === 'mi' ? 'imperial' : 'metric');
 
+  // Keep form state synced when async profile arrives (without overwriting active user edits)
+  useEffect(() => {
+    if (!editingProfile && profile) {
+      setName(profile.name || 'Runner');
+      setWeight(profile.weight || 70);
+      setHeight(profile.height || 175);
+      setUnitSystem(profile.distance_unit === 'mi' ? 'imperial' : 'metric');
+    }
+  }, [profile?.user_id, profile?.name, profile?.weight, profile?.height, profile?.distance_unit, editingProfile]);
+
   // Real-time unique username availability check
   const usernameCheck = useUsernameCheck(profile?.username || '', profile?.user_id || '');
   const {
@@ -276,6 +287,14 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   const [autoPause, setAutoPause] = useState(settings?.auto_pause ?? true);
   const [audioCoaching, setAudioCoaching] = useState(settings?.audio_coaching ?? true);
   const [audioFrequency, setAudioFrequency] = useState(settings?.audio_frequency || '1km');
+
+  useEffect(() => {
+    if (!editingProfile && settings) {
+      setAutoPause(settings.auto_pause ?? true);
+      setAudioCoaching(settings.audio_coaching ?? true);
+      setAudioFrequency(settings.audio_frequency || '1km');
+    }
+  }, [settings?.auto_pause, settings?.audio_coaching, settings?.audio_frequency, editingProfile]);
   const [showAudioModal, setShowAudioModal] = useState(false);
   const [pocketUnlockMode, setPocketUnlockMode] = useState<PocketUnlockMode>(() => {
     const cached = localStorage.getItem('runwar_pocket_unlock_mode') as PocketUnlockMode;
@@ -464,8 +483,9 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           console.warn('Background shoe photo sync notice:', err);
         });
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error adding shoe:', err);
+      setSaveProfileError(err?.message || 'Failed to add shoe. Please try again.');
     } finally {
       setIsSavingShoe(false);
     }
@@ -584,7 +604,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
       setTimeout(() => setSavedSuccess(false), 2500);
     } catch (err: any) {
       console.error('Error uploading avatar to InsForge:', err);
-      // Even if cloud sync has notice, local instant image continues working
+      setAvatarError('Could not upload photo to cloud right now. Saved locally on this device.');
     } finally {
       setIsUploadingAvatar(false);
       if (fileInputRef.current) fileInputRef.current.value = '';

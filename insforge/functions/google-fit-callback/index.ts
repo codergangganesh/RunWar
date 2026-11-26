@@ -7,7 +7,24 @@ declare const Deno: any;
 const GOOGLE_CLIENT_ID = Deno.env.get('GOOGLE_CLIENT_ID') ?? '532781220302-rkkhr06ocgnm7p7o5je3cs8oel5qms0l.apps.googleusercontent.com';
 const GOOGLE_CLIENT_SECRET = Deno.env.get('GOOGLE_CLIENT_SECRET') ?? '';
 const REDIRECT_URI = Deno.env.get('GOOGLE_FIT_REDIRECT_URI') ?? 'https://9r3q7vvs.function2.insforge.app/google-fit-callback';
-const FALLBACK_APP_URL = Deno.env.get('APP_URL') ?? 'http://localhost:5173';
+const FALLBACK_APP_URL = Deno.env.get('APP_URL') ?? 'https://run-war-chi.vercel.app';
+
+function sanitizeReturnUrl(candidate: string): string {
+  if (!candidate) return FALLBACK_APP_URL;
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return FALLBACK_APP_URL;
+    const host = parsed.hostname.toLowerCase();
+    if (host === 'localhost' || host === '127.0.0.1' || host === 'run-war-chi.vercel.app') {
+      return parsed.toString();
+    }
+    const configured = Deno.env.get('APP_URL');
+    if (configured && host === new URL(configured).hostname.toLowerCase()) {
+      return parsed.toString();
+    }
+  } catch {}
+  return FALLBACK_APP_URL;
+}
 
 export default async function (req: Request): Promise<Response> {
   // CORS preflight
@@ -31,15 +48,18 @@ export default async function (req: Request): Promise<Response> {
   let returnUrl = FALLBACK_APP_URL;
 
   try {
-    const parsedState = JSON.parse(atob(stateRaw));
+    const bin = atob(stateRaw);
+    const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+    const parsedState = JSON.parse(new TextDecoder().decode(bytes));
     userId = parsedState.userId ?? '';
     if (parsedState.returnUrl) {
-      returnUrl = parsedState.returnUrl;
+      returnUrl = sanitizeReturnUrl(parsedState.returnUrl);
     }
   } catch {
     userId = stateRaw;
   }
 
+  returnUrl = sanitizeReturnUrl(returnUrl);
   const baseUrlForRedirect = returnUrl.replace(/\/$/, '');
 
   if (error) {
@@ -144,8 +164,8 @@ export default async function (req: Request): Promise<Response> {
       return Response.redirect(`${baseUrlForRedirect}?google_error=db_error`, 302);
     }
 
-    // If an authenticated user profile exists with this email, also link the token to their profile user_id
-    if (accountEmail) {
+    // Only bridge tokens from a temporary device ID (usr_*) onto matching profile user_id
+    if (accountEmail && userId.startsWith('usr_')) {
       try {
         const profRes = await fetch(`${insforgeUrl}/api/database/records/profiles?email=eq.${encodeURIComponent(accountEmail)}&select=user_id`, {
           headers: { 'Authorization': `Bearer ${apiKey}` },
@@ -173,18 +193,16 @@ export default async function (req: Request): Promise<Response> {
 
     console.log(`Successfully stored Google tokens for user: ${userId}, email: ${accountEmail}`);
 
-    // Build return redirect URL with connection status and tokens
+    // Build return redirect URL without exposing OAuth access_token in URL history/Referer
     let redirectUrlObj: URL;
     try {
-      redirectUrlObj = new URL(returnUrl);
+      redirectUrlObj = new URL(sanitizeReturnUrl(returnUrl));
     } catch {
       redirectUrlObj = new URL(FALLBACK_APP_URL);
     }
 
     redirectUrlObj.searchParams.set('google_connected', 'true');
     if (accountEmail) redirectUrlObj.searchParams.set('email', accountEmail);
-    if (access_token) redirectUrlObj.searchParams.set('access_token', access_token);
-    if (expires_in) redirectUrlObj.searchParams.set('expires_in', String(expires_in));
 
     const finalRedirectUrl = redirectUrlObj.toString();
     console.log(`Redirecting back to app: ${finalRedirectUrl}`);

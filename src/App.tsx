@@ -51,8 +51,10 @@ import { goalsService } from './services/goalsService';
 import { achievementsService } from './services/achievementsService';
 import { recordsService } from './services/recordsService';
 import { offlineSync } from './services/offlineSync';
+import { indexedDbStorage } from './services/indexedDbStorage';
 import { gpsEngine } from './services/gpsEngine';
 import { challengeService } from './services/challengeService';
+import { stravaProvider } from './services/health/stravaProvider';
 import { toDeterministicUUID } from './utils/uuid';
 import {
   Achievement,
@@ -183,6 +185,17 @@ export const App: React.FC = () => {
   // User & Settings (Synchronously load cached session on frame 0)
   const [currentUser, setCurrentUser] = useState<any>(() => authService.getCachedUser());
   const [appState, setAppState] = useState<AppState>('INITIALIZING');
+  const currentUserIdRef = useRef<string | undefined>(currentUser?.id);
+  const appStateRef = useRef<AppState>(appState);
+  const handledInitialUrlRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    currentUserIdRef.current = currentUser?.id;
+  }, [currentUser?.id]);
+
+  useEffect(() => {
+    appStateRef.current = appState;
+  }, [appState]);
   const [authStatusText, setAuthStatusText] = useState<string>('Checking your account...');
   const [profileErrorMessage, setProfileErrorMessage] = useState<string | null>(null);
   const [isAuthInitializing, setIsAuthInitializing] = useState(true);
@@ -429,7 +442,7 @@ export const App: React.FC = () => {
   // Centralized resolution gate for session, profile verification, and data preloading
   const resolveUserSessionAndProfile = useCallback(
     async (authenticatedUser: any, isNewUserHint = false) => {
-      if (!authenticatedUser || !authenticatedUser.id || authenticatedUser.id === 'guest_user') {
+      if (!authenticatedUser || !authenticatedUser.id || authenticatedUser.id === 'guest_user' || authenticatedUser.id === 'usr_guest_demo') {
         setAppState('UNAUTHENTICATED');
         const currentPostId = getPostIdFromUrl();
         if (currentPostId) {
@@ -543,7 +556,7 @@ export const App: React.FC = () => {
     offlineSync.initSyncListener();
 
     const handleSyncCompleted = () => {
-      const activeId = currentUser?.id || authService.getCachedUser()?.id || 'guest_user';
+      const activeId = currentUserIdRef.current || authService.getCachedUser()?.id || 'guest_user';
       loadAppData(activeId, true);
     };
 
@@ -556,7 +569,7 @@ export const App: React.FC = () => {
           return true;
         })
       );
-      const activeId = currentUser?.id || authService.getCachedUser()?.id || 'guest_user';
+      const activeId = currentUserIdRef.current || authService.getCachedUser()?.id || 'guest_user';
       loadAppData(activeId, true);
     };
 
@@ -672,6 +685,23 @@ export const App: React.FC = () => {
           setCurrentUser(user);
           authService.setCachedUser(user);
           await resolveUserSessionAndProfile(user);
+
+          // Exchange any redirected Strava OAuth authorization code now that auth user is ready
+          try {
+            const pendingStravaCode = sessionStorage.getItem('runwar_pending_strava_code');
+            if (pendingStravaCode) {
+              const returnedState = sessionStorage.getItem('runwar_pending_strava_state');
+              const expectedState = sessionStorage.getItem('runwar_strava_oauth_state');
+              sessionStorage.removeItem('runwar_pending_strava_code');
+              sessionStorage.removeItem('runwar_pending_strava_state');
+              sessionStorage.removeItem('runwar_strava_oauth_state');
+              if (!expectedState || !returnedState || returnedState === expectedState) {
+                stravaProvider.exchangeAuthorizationCode(pendingStravaCode, undefined, user.id).catch((err) => {
+                  console.warn('Failed to exchange pending Strava code:', err);
+                });
+              }
+            }
+          } catch {}
         } else {
           // No active session found from OAuth, InsForge, or Firebase
           const cached = authService.getCachedUser();
@@ -749,8 +779,8 @@ export const App: React.FC = () => {
       console.log('[RunWar Auth] onAuthStateChange event:', event, 'Current screen:', screen);
       if (event === 'signedIn') {
         // If user is already authenticated, appState is READY, and not currently resolving, skip redundant reload loop
-        const activeUserId = currentUser?.id || authService.getCachedUser()?.id;
-        if (activeUserId && activeUserId !== 'guest_user' && appState === 'READY' && !isResolvingProfileRef.current) {
+        const activeUserId = currentUserIdRef.current || authService.getCachedUser()?.id;
+        if (activeUserId && activeUserId !== 'guest_user' && activeUserId !== 'usr_guest_demo' && appStateRef.current === 'READY' && !isResolvingProfileRef.current) {
           return;
         }
         if (isResolvingProfileRef.current) {
@@ -790,14 +820,14 @@ export const App: React.FC = () => {
       }
     });
 
-    // Real-time Session Watcher: Detect account deletion without requiring a page refresh
+    // Throttled Session Watcher: Detect revoked InsForge accounts on foreground resume (skips guest & Firebase Phone OTP)
     let lastCheckTime = 0;
     const checkActiveSession = async () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
       const now = Date.now();
-      if (now - lastCheckTime < 5000) return; // Throttle to max once per 5 seconds
+      if (now - lastCheckTime < 60000) return;
       lastCheckTime = now;
 
-      // Do not interrupt OAuth redirect or ongoing profile resolution
       if (
         localStorage.getItem('runwar_oauth_in_progress') === 'true' ||
         window.location.search.includes('insforge_code') ||
@@ -809,7 +839,7 @@ export const App: React.FC = () => {
 
       if (typeof navigator !== 'undefined' && !navigator.onLine) return;
       const cached = authService.getCachedUser();
-      if (!cached || cached.id === 'guest_user') return;
+      if (!cached || cached.id === 'guest_user' || cached.id === 'usr_guest_demo' || cached.firebase_uid) return;
 
       try {
         const user = await authService.getCurrentUser();
@@ -826,6 +856,7 @@ export const App: React.FC = () => {
         // Ignored for offline or network issues
       }
     };
+    document.addEventListener('visibilitychange', checkActiveSession);
 
     const handleSessionExpired = () => {
       if (
@@ -848,6 +879,7 @@ export const App: React.FC = () => {
     return () => {
       if (typeof unsubFirebase === 'function') unsubFirebase();
       if (typeof unsubscribe === 'function') unsubscribe();
+      document.removeEventListener('visibilitychange', checkActiveSession);
       window.removeEventListener('runwar:session_expired', handleSessionExpired);
       window.removeEventListener('runwar:sync_completed', handleSyncCompleted);
       window.removeEventListener('runwar:workouts_purged', handleWorkoutsPurged);
@@ -909,27 +941,33 @@ export const App: React.FC = () => {
     workoutsRef.current = workouts;
   }, [workouts]);
 
-  // Handle URL navigation params after authentication resolves
+  // Handle URL navigation params once after authentication resolves
   useEffect(() => {
     if (isAuthInitializing || appState !== 'READY') return;
     const postParam = getPostIdFromUrl();
     if (postParam) {
       setActivePostId(postParam);
       setScreen('post_detail');
+      handledInitialUrlRef.current = true;
       return;
     }
+    if (handledInitialUrlRef.current) return;
+
     const params = new URLSearchParams(window.location.search);
     const targetScreen = params.get('screen') as ScreenState | null;
     const targetTab = params.get('tab') as ActiveTab | null;
     const targetWorkoutId = params.get('workout_id');
-    if (targetWorkoutId && workouts.length > 0) {
+    if (targetWorkoutId) {
+      if (workouts.length === 0) return; // wait until initial workouts load
       const match = workouts.find((w) => w.id === targetWorkoutId);
+      handledInitialUrlRef.current = true;
       if (match) {
         setSelectedWorkout(match);
         setScreen('workout_detail');
-        return;
       }
+      return;
     }
+    handledInitialUrlRef.current = true;
     if (
       targetScreen === 'connected_health' ||
       targetScreen === 'privacy' ||
@@ -1067,17 +1105,25 @@ export const App: React.FC = () => {
     }
   };
 
-  // Handle PWA manifest shortcut ?start=run
+  // Handle PWA manifest shortcut ?start=run or ?action=start_run
   useEffect(() => {
     if (isAuthInitializing || screen !== 'main') return;
     const params = new URLSearchParams(window.location.search);
     const startParam = params.get('start');
-    if (startParam === 'run' || startParam === 'jog' || startParam === 'walk') {
-      const workoutType = startParam as WorkoutType;
-      // Clear the URL parameter to prevent re-triggering on refresh
-      const cleanUrl = window.location.pathname;
-      window.history.replaceState({}, '', cleanUrl);
-      handleStartRun(workoutType);
+    const actionParam = params.get('action');
+    const resolvedType =
+      startParam === 'run' || startParam === 'jog' || startParam === 'walk'
+        ? (startParam as WorkoutType)
+        : actionParam === 'start_run'
+        ? ('run' as WorkoutType)
+        : null;
+    if (resolvedType) {
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.delete('start');
+      cleanUrl.searchParams.delete('action');
+      cleanUrl.searchParams.delete('tab');
+      window.history.replaceState({}, '', cleanUrl.pathname + cleanUrl.search);
+      handleStartRun(resolvedType);
     }
   }, [isAuthInitializing, screen]);
 
@@ -1273,18 +1319,32 @@ export const App: React.FC = () => {
   };
 
   // Recovery actions
-  const handleResumeRecovered = () => {
+  const hydrateRecoveredBackup = async (backup: LiveWorkoutState): Promise<LiveWorkoutState> => {
+    if ((backup as any).hasTruncatedBackupCoords) {
+      try {
+        const fullCoords = await indexedDbStorage.getLiveWorkoutTrace(backup.workoutId);
+        if (fullCoords && fullCoords.length > (backup.coordinates?.length || 0)) {
+          return { ...backup, coordinates: fullCoords };
+        }
+      } catch {}
+    }
+    return backup;
+  };
+
+  const handleResumeRecovered = async () => {
     if (recoveredWorkoutBackup) {
-      gpsEngine.restoreWorkout(recoveredWorkoutBackup);
-      setActiveWorkoutType(recoveredWorkoutBackup.type);
+      const hydrated = await hydrateRecoveredBackup(recoveredWorkoutBackup);
+      gpsEngine.restoreWorkout(hydrated);
+      setActiveWorkoutType(hydrated.type);
       setRecoveredWorkoutBackup(null);
       setScreen('active_run');
     }
   };
 
-  const handleFinishRecovered = () => {
+  const handleFinishRecovered = async () => {
     if (recoveredWorkoutBackup) {
-      setFinishedWorkoutState(recoveredWorkoutBackup);
+      const hydrated = await hydrateRecoveredBackup(recoveredWorkoutBackup);
+      setFinishedWorkoutState(hydrated);
       offlineSync.clearActiveWorkoutBackup();
       setRecoveredWorkoutBackup(null);
       setScreen('workout_summary');
@@ -1370,9 +1430,9 @@ export const App: React.FC = () => {
     // 3. Authenticated but profile is incomplete => Profile Setup Screen ONLY
     if (appState === 'PROFILE_INCOMPLETE' || screen === 'profile_setup') {
       const activeUserId =
-        (currentUser?.id && currentUser.id !== 'guest_user' ? currentUser.id : null) ||
-        (profile?.user_id && profile.user_id !== 'guest_user' ? profile.user_id : null) ||
-        (authService.getCachedUser()?.id && authService.getCachedUser()?.id !== 'guest_user' ? authService.getCachedUser()?.id : null);
+        (currentUser?.id && currentUser.id !== 'guest_user' && currentUser.id !== 'usr_guest_demo' ? currentUser.id : null) ||
+        (profile?.user_id && profile.user_id !== 'guest_user' && profile.user_id !== 'usr_guest_demo' ? profile.user_id : null) ||
+        (authService.getCachedUser()?.id && authService.getCachedUser()?.id !== 'guest_user' && authService.getCachedUser()?.id !== 'usr_guest_demo' ? authService.getCachedUser()?.id : null);
 
       if (!activeUserId) {
         return <SplashScreen statusText="Setting up your profile..." />;
@@ -1469,7 +1529,31 @@ export const App: React.FC = () => {
         );
 
       case 'workout_summary':
-        if (!finishedWorkoutState) return null;
+        if (!finishedWorkoutState) {
+          return (
+            <AppShell
+              activeTab={activeTab}
+              setActiveTab={handleTabChange}
+              profile={profile}
+              streakCount={todayStats.streak.currentStreak}
+              theme={theme}
+              onToggleTheme={handleToggleTheme}
+            >
+              <HomeScreen
+                profile={profile}
+                isLoading={isDataLoading}
+                todayStats={todayStats}
+                weeklyStats={weeklyStats}
+                workouts={workouts}
+                activeGoals={goals.filter((g) => g.status === 'active')}
+                onStartRun={handleStartRun}
+                onViewHistory={() => handleTabChange('history')}
+                onViewGoals={() => handleTabChange('goals')}
+                onSelectWorkout={handleSelectWorkout}
+              />
+            </AppShell>
+          );
+        }
         return (
           <AppShell
             activeTab={activeTab}
@@ -1499,7 +1583,31 @@ export const App: React.FC = () => {
         );
 
       case 'workout_detail':
-        if (!selectedWorkout) return null;
+        if (!selectedWorkout) {
+          return (
+            <AppShell
+              activeTab={activeTab}
+              setActiveTab={handleTabChange}
+              profile={profile}
+              streakCount={todayStats.streak.currentStreak}
+              theme={theme}
+              onToggleTheme={handleToggleTheme}
+            >
+              <HomeScreen
+                profile={profile}
+                isLoading={isDataLoading}
+                todayStats={todayStats}
+                weeklyStats={weeklyStats}
+                workouts={workouts}
+                activeGoals={goals.filter((g) => g.status === 'active')}
+                onStartRun={handleStartRun}
+                onViewHistory={() => handleTabChange('history')}
+                onViewGoals={() => handleTabChange('goals')}
+                onSelectWorkout={handleSelectWorkout}
+              />
+            </AppShell>
+          );
+        }
         return (
           <AppShell
             activeTab={activeTab}

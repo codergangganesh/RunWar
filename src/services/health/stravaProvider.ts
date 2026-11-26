@@ -21,11 +21,9 @@ import { generateGPX } from '../../utils/exportGenerators';
 const STRAVA_TOKENS_STORAGE_KEY = 'runwar_strava_tokens';
 const STRAVA_STATE_STORAGE_KEY = 'runwar_strava_state';
 
-// Strava OAuth credentials from environment variables
+// Strava OAuth Client ID (public); Client Secret lives strictly server-side in strava-auth Edge Function
 const STRAVA_CLIENT_ID: string =
   (import.meta as any).env?.VITE_STRAVA_CLIENT_ID || '';
-const STRAVA_CLIENT_SECRET: string =
-  (import.meta as any).env?.VITE_STRAVA_CLIENT_SECRET || '';
 
 // InsForge backend Edge Function URL for secure server-side token exchange
 const FN_BASE =
@@ -289,51 +287,22 @@ export class StravaProvider implements HealthProvider {
     try {
       let freshTokens: StravaTokens | null = null;
 
-      // 1. Try InsForge Edge Function first (production-safe with client secret hidden)
-      try {
-        const edgeRes = await fetch(FN_STRAVA_AUTH, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'refresh',
-            refresh_token: refreshToken,
-          }),
-        });
+      // InsForge Edge Function handles Strava refresh securely on server side
+      const edgeRes = await fetch(FN_STRAVA_AUTH, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'refresh',
+          refresh_token: refreshToken,
+        }),
+      });
 
-        if (edgeRes.ok) {
-          const json = await edgeRes.json();
-          if (json.access_token) {
-            freshTokens = {
-              access_token: json.access_token,
-              refresh_token: json.refresh_token || refreshToken,
-              expires_at: json.expires_at,
-              expires_in: json.expires_in,
-              token_type: json.token_type,
-            };
-          }
-        }
-      } catch (edgeErr) {
-        console.warn('Edge function refresh unavailable, falling back:', edgeErr);
-      }
-
-      // 2. Direct client fallback if client credentials exist in env
-      if (!freshTokens && STRAVA_CLIENT_ID && STRAVA_CLIENT_SECRET) {
-        const res = await fetch('https://www.strava.com/oauth/token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            client_id: STRAVA_CLIENT_ID,
-            client_secret: STRAVA_CLIENT_SECRET,
-            grant_type: 'refresh_token',
-            refresh_token: refreshToken,
-          }),
-        });
-
-        if (res.ok) {
-          const json = await res.json();
+      if (edgeRes.ok) {
+        const json = await edgeRes.json();
+        if (json.access_token) {
           freshTokens = {
             access_token: json.access_token,
-            refresh_token: json.refresh_token,
+            refresh_token: json.refresh_token || refreshToken,
             expires_at: json.expires_at,
             expires_in: json.expires_in,
             token_type: json.token_type,
@@ -365,6 +334,13 @@ export class StravaProvider implements HealthProvider {
       redirectUri ||
       `${window.location.origin}/strava-callback.html`;
     const scopes = 'read,activity:read_all,activity:write';
+    let state = '';
+    try {
+      const bytes = new Uint8Array(16);
+      crypto.getRandomValues(bytes);
+      state = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+      sessionStorage.setItem('runwar_strava_oauth_state', state);
+    } catch {}
 
     const params = new URLSearchParams({
       client_id: clientId,
@@ -372,6 +348,7 @@ export class StravaProvider implements HealthProvider {
       redirect_uri: redirect,
       approval_prompt: 'auto',
       scope: scopes,
+      ...(state ? { state } : {}),
     });
 
     return `https://www.strava.com/oauth/authorize?${params.toString()}`;
@@ -393,47 +370,25 @@ export class StravaProvider implements HealthProvider {
         athlete?: StravaAthlete;
       } | null = null;
 
-      // 1. Try InsForge Edge Function (Recommended for production)
-      try {
-        const edgeRes = await fetch(FN_STRAVA_AUTH, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'exchange',
-            code,
-            redirect_uri: redirectUri || `${window.location.origin}/strava-callback.html`,
-          }),
-        });
+      // InsForge Edge Function exchanges Strava code securely on server side
+      const edgeRes = await fetch(FN_STRAVA_AUTH, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'exchange',
+          code,
+          redirect_uri: redirectUri || `${window.location.origin}/strava-callback.html`,
+        }),
+      });
 
-        if (edgeRes.ok) {
-          authResponse = await edgeRes.json();
-        }
-      } catch (edgeErr) {
-        console.warn('InsForge strava-auth edge function not reached:', edgeErr);
-      }
-
-      // 2. Direct fallback if credentials are provided in env
-      if (!authResponse && STRAVA_CLIENT_ID && STRAVA_CLIENT_SECRET) {
-        const res = await fetch('https://www.strava.com/oauth/token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            client_id: STRAVA_CLIENT_ID,
-            client_secret: STRAVA_CLIENT_SECRET,
-            code,
-            grant_type: 'authorization_code',
-          }),
-        });
-
-        if (res.ok) {
-          authResponse = await res.json();
-        } else {
-          const errData = await res.json().catch(() => ({}));
-          return {
-            success: false,
-            error: errData.message || 'Strava token exchange failed.',
-          };
-        }
+      if (edgeRes.ok) {
+        authResponse = await edgeRes.json();
+      } else {
+        const errData = await edgeRes.json().catch(() => ({}));
+        return {
+          success: false,
+          error: errData.error || errData.message || 'Strava token exchange failed.',
+        };
       }
 
       if (!authResponse || !authResponse.access_token) {
@@ -512,6 +467,18 @@ export class StravaProvider implements HealthProvider {
       const messageListener = async (event: MessageEvent) => {
         if (event.origin !== window.location.origin) return;
         if (event.data?.type === 'RUNWAR_STRAVA_AUTH_CODE' && event.data?.code) {
+          try {
+            const expectedState = sessionStorage.getItem('runwar_strava_oauth_state');
+            sessionStorage.removeItem('runwar_strava_oauth_state');
+            if (expectedState && event.data?.state !== expectedState) {
+              clearInterval(checkInterval);
+              window.removeEventListener('message', messageListener);
+              if (popup && !popup.closed) popup.close();
+              resolve({ success: false, error: 'OAuth state mismatch. Please try again.' });
+              return;
+            }
+          } catch {}
+
           clearInterval(checkInterval);
           window.removeEventListener('message', messageListener);
           if (popup && !popup.closed) popup.close();
@@ -619,7 +586,7 @@ export class StravaProvider implements HealthProvider {
       };
     }
 
-    const token = await this.getValidAccessToken(userId);
+    let token = await this.getValidAccessToken(userId);
     if (!token) {
       return {
         success: false,
@@ -647,32 +614,46 @@ export class StravaProvider implements HealthProvider {
         currentTitle: 'Fetching activities from Strava...',
       });
 
-      // Query Strava activities
-      const url = `https://www.strava.com/api/v3/athlete/activities?after=${afterTimestamp}&page=1&per_page=50`;
-      const res = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/json',
-        },
-      });
+      // Paginate Strava activities (up to 5 pages = 250 activities) with inline 401 refresh retry
+      const activities: StravaActivitySummary[] = [];
+      let didRefreshRetry = false;
+      for (let page = 1; page <= 5; page++) {
+        const url = `https://www.strava.com/api/v3/athlete/activities?after=${afterTimestamp}&page=${page}&per_page=50`;
+        let res = await fetch(url, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/json',
+          },
+        });
 
-      if (!res.ok) {
-        if (res.status === 401) {
-          // Token expired, attempt refresh
+        if (res.status === 401 && !didRefreshRetry) {
+          didRefreshRetry = true;
           const refreshed = await this.refreshAccessToken(
             this.getStoredTokens()?.refresh_token || '',
             userId
           );
-          if (!refreshed) {
+          if (!refreshed?.access_token) {
             throw new Error('Strava authentication expired. Please reconnect.');
           }
-          return this.syncWorkouts(userId, sinceDate, onProgress);
+          token = refreshed.access_token;
+          res = await fetch(url, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Accept: 'application/json',
+            },
+          });
         }
-        const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.message || `Strava API returned status ${res.status}`);
-      }
 
-      const activities: StravaActivitySummary[] = await res.json();
+        if (!res.ok) {
+          const errJson = await res.json().catch(() => ({}));
+          throw new Error(errJson.message || `Strava API returned status ${res.status}`);
+        }
+
+        const pageItems: StravaActivitySummary[] = await res.json();
+        if (!Array.isArray(pageItems) || pageItems.length === 0) break;
+        activities.push(...pageItems);
+        if (pageItems.length < 50) break;
+      }
 
       // Filter only running, walking, and jogging activities
       const eligible = activities.filter((act) => {

@@ -62,6 +62,9 @@ export class StepCounterService {
 
   // Web Accelerometer Motion Peak Detection Engine
   private motionListenerAttached: boolean = false;
+  private hasRealMotionSample: boolean = false;
+  private restoredStepOffset: number = 0;
+  private lastStorageWriteMs: number = 0;
   private gravityX: number = 0;
   private gravityY: number = 0;
   private gravityZ: number = 0;
@@ -203,6 +206,7 @@ export class StepCounterService {
     this.activeWorkoutId = workoutId;
     this.userHeightCm = options?.userHeightCm || 175;
     this.baselineSteps = this.currentRawSteps;
+    this.restoredStepOffset = 0;
     this.pausedStepsDelta = 0;
     this.pauseStartSteps = 0;
     this.isSessionPaused = false;
@@ -246,7 +250,7 @@ export class StepCounterService {
     this.updateState({
       currentCadence: 0,
     });
-    this.persistCheckpoint();
+    this.persistCheckpoint(true);
   }
 
   /**
@@ -260,7 +264,7 @@ export class StepCounterService {
     this.pausedStepsDelta += stepsDuringPause;
     this.isSessionPaused = false;
 
-    this.persistCheckpoint();
+    this.persistCheckpoint(true);
   }
 
   /**
@@ -270,7 +274,9 @@ export class StepCounterService {
     const finalSessionSteps = Math.max(0, this.state.sessionSteps);
     const finalAvgCadence = Math.max(0, this.state.averageCadence);
 
+    this.flushDailyStepsToStorage();
     this.activeWorkoutId = null;
+    this.restoredStepOffset = 0;
     this.isSessionPaused = false;
     this.clearCheckpoint();
 
@@ -298,6 +304,7 @@ export class StepCounterService {
 
     this.activeWorkoutId = null;
     this.baselineSteps = 0;
+    this.restoredStepOffset = 0;
     this.pausedStepsDelta = 0;
     this.isSessionPaused = false;
     this.clearCheckpoint();
@@ -340,11 +347,10 @@ export class StepCounterService {
       return;
     }
 
-    // Calculate live session steps
-    const activeSteps = Math.max(
-      0,
-      this.currentRawSteps - this.baselineSteps - this.pausedStepsDelta
-    );
+    // Calculate live session steps (preserving crash-recovered offset)
+    const activeSteps =
+      this.restoredStepOffset +
+      Math.max(0, this.currentRawSteps - this.baselineSteps - this.pausedStepsDelta);
 
     // Average Cadence: (sessionSteps / movingMinutes)
     const elapsedMinutes = Math.max(0.1, (now - this.sessionStartTimeMs) / 60000);
@@ -377,8 +383,11 @@ export class StepCounterService {
   ): void {
     this.movingDurationSec = movingSec;
 
-    // Only compute if in fallback mode or sensors unavailable
-    if (this.state.mode !== 'cadence_stride_fallback' && this.state.isAvailable) {
+    // Only skip GPS stride fallback when a hardware/native sensor is actually delivering real samples
+    const hardwareSensorActive =
+      this.state.mode === 'native_sensor' ||
+      (this.state.mode === 'device_motion' && this.hasRealMotionSample);
+    if (hardwareSensorActive) {
       return;
     }
 
@@ -409,6 +418,9 @@ export class StepCounterService {
 
     const acc = event.accelerationIncludingGravity || event.acceleration;
     if (!acc || acc.x === null || acc.y === null || acc.z === null) return;
+    if (acc.x !== 0 || acc.y !== 0 || acc.z !== 0) {
+      this.hasRealMotionSample = true;
+    }
 
     const now = Date.now();
 
@@ -476,10 +488,9 @@ export class StepCounterService {
                 this.baselineSteps = hardwareSteps;
               }
               this.currentRawSteps = hardwareSteps;
-              const active = Math.max(
-                0,
-                this.currentRawSteps - this.baselineSteps - this.pausedStepsDelta
-              );
+              const active =
+                this.restoredStepOffset +
+                Math.max(0, this.currentRawSteps - this.baselineSteps - this.pausedStepsDelta);
               this.updateState({ sessionSteps: active });
             }
           }
@@ -535,7 +546,11 @@ export class StepCounterService {
   // ── Daily Steps & Persistence ──────────────────────────────────────────
 
   private getTodayDateKey(): string {
-    return new Date().toISOString().split('T')[0];
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
   }
 
   private initDailySteps(): void {
@@ -546,14 +561,26 @@ export class StepCounterService {
     this.state.dailySteps = isNaN(steps) ? 0 : steps;
   }
 
+  private flushDailyStepsToStorage(): void {
+    if (typeof localStorage === 'undefined') return;
+    const key = `${DAILY_STEPS_STORAGE_KEY_PREFIX}${this.getTodayDateKey()}`;
+    try {
+      localStorage.setItem(key, String(this.state.dailySteps));
+    } catch {}
+  }
+
   public addStepsToDailyTotal(stepsToAdd: number): void {
     if (stepsToAdd <= 0 || typeof localStorage === 'undefined') return;
     const key = `${DAILY_STEPS_STORAGE_KEY_PREFIX}${this.getTodayDateKey()}`;
     const newTotal = this.state.dailySteps + stepsToAdd;
     this.state.dailySteps = newTotal;
-    try {
-      localStorage.setItem(key, String(newTotal));
-    } catch {}
+    const now = Date.now();
+    if (now - this.lastStorageWriteMs >= 4000) {
+      this.lastStorageWriteMs = now;
+      try {
+        localStorage.setItem(key, String(newTotal));
+      } catch {}
+    }
     this.notify();
   }
 
@@ -563,14 +590,17 @@ export class StepCounterService {
 
   // ── Crash Recovery Checkpoints ─────────────────────────────────────────
 
-  private persistCheckpoint(): void {
+  private persistCheckpoint(force: boolean = false): void {
     if (!this.activeWorkoutId || typeof localStorage === 'undefined') return;
+    const now = Date.now();
+    if (!force && now - this.lastStorageWriteMs < 4000) return;
+    this.lastStorageWriteMs = now;
     const checkpoint: StepCheckpoint = {
       workoutId: this.activeWorkoutId,
       baselineDeviceSteps: this.baselineSteps,
       sessionSteps: this.state.sessionSteps,
       pausedStepsDelta: this.pausedStepsDelta,
-      lastUpdated: Date.now(),
+      lastUpdated: now,
     };
     try {
       localStorage.setItem(CHECKPOINT_STORAGE_KEY, JSON.stringify(checkpoint));
@@ -586,10 +616,11 @@ export class StepCounterService {
       // Valid if updated within the last 4 hours
       if (cp && cp.workoutId && Date.now() - cp.lastUpdated < 14400000) {
         this.activeWorkoutId = cp.workoutId;
-        this.baselineSteps = cp.baselineDeviceSteps;
-        this.pausedStepsDelta = cp.pausedStepsDelta;
+        this.baselineSteps = this.currentRawSteps;
+        this.restoredStepOffset = Math.max(0, Number(cp.sessionSteps) || 0);
+        this.pausedStepsDelta = 0;
         this.updateState({
-          sessionSteps: cp.sessionSteps,
+          sessionSteps: this.restoredStepOffset,
           isTracking: true,
         });
       }
@@ -599,12 +630,13 @@ export class StepCounterService {
   public restoreSessionSteps(workoutId: string, steps: number): void {
     this.activeWorkoutId = workoutId;
     this.baselineSteps = this.currentRawSteps;
+    this.restoredStepOffset = Math.max(0, steps);
     this.pausedStepsDelta = 0;
     this.updateState({
-      sessionSteps: Math.max(0, steps),
+      sessionSteps: this.restoredStepOffset,
       isTracking: true,
     });
-    this.persistCheckpoint();
+    this.persistCheckpoint(true);
   }
 
   public clearCheckpoint(): void {

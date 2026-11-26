@@ -11,10 +11,37 @@ const SCOPES = [
   'https://www.googleapis.com/auth/fitness.activity.read',
   'https://www.googleapis.com/auth/fitness.location.read',
   'https://www.googleapis.com/auth/fitness.body.read',
+  'https://www.googleapis.com/auth/fitness.heart_rate.read',
   'https://www.googleapis.com/auth/userinfo.email',
   'https://www.googleapis.com/auth/userinfo.profile',
   'openid',
 ].join(' ');
+
+function isAllowedReturnUrl(candidate: string): boolean {
+  if (!candidate) return false;
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
+    const host = parsed.hostname.toLowerCase();
+    if (host === 'localhost' || host === '127.0.0.1') return true;
+    if (host === 'run-war-chi.vercel.app') return true;
+    const configured = Deno.env.get('APP_URL');
+    if (configured) {
+      const cfgHost = new URL(configured).hostname.toLowerCase();
+      if (host === cfgHost) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+function encodeBase64Utf8(str: string): string {
+  const bytes = new TextEncoder().encode(str);
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin);
+}
 
 export default async function (req: Request): Promise<Response> {
   // CORS preflight
@@ -49,9 +76,13 @@ export default async function (req: Request): Promise<Response> {
       });
     }
 
-    // Pack userId and returnUrl into state
-    const statePayload = JSON.stringify({ userId, returnUrl });
-    const state = btoa(statePayload);
+    const safeReturnUrl = isAllowedReturnUrl(returnUrl)
+      ? returnUrl
+      : (Deno.env.get('APP_URL') ?? 'https://run-war-chi.vercel.app');
+
+    // Pack userId and validated returnUrl into state (UTF-8 safe)
+    const statePayload = JSON.stringify({ userId, returnUrl: safeReturnUrl });
+    const state = encodeBase64Utf8(statePayload);
 
     // Build the OAuth URL with code flow + offline access (required for refresh_token)
     const params = new URLSearchParams({

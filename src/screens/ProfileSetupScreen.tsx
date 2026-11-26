@@ -37,7 +37,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
   const [formError, setFormError] = useState<string | null>(null);
 
   const defaultUsername = initialName.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 14);
-  const usernameCheck = useUsernameCheck(defaultUsername, userId);
+  const usernameCheck = useUsernameCheck(defaultUsername, userId, false);
   const {
     usernameInput,
     setUsernameInput,

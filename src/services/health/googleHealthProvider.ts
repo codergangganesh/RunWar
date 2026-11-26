@@ -403,14 +403,22 @@ export class GoogleHealthProvider implements HealthProvider {
       const userId = this.getUserId();
       const email = this.getUserEmail();
       const devId = localStorage.getItem('runwar_device_user_id') || undefined;
+      const accessToken = localStorage.getItem('runwar_auth_token') || '';
+      const tz = (() => {
+        try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; }
+      })();
 
       const res = await fetch(FN_DATA, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
         body: JSON.stringify({
           user_id: userId,
           email,
           device_id: devId,
+          timezone: tz,
           action: 'get_token',
         }),
       });
@@ -574,12 +582,18 @@ export class GoogleHealthProvider implements HealthProvider {
     }
 
     const userId = this.getUserId();
+    const accessToken = (() => {
+      try { return localStorage.getItem('runwar_auth_token') || ''; } catch { return ''; }
+    })();
 
     // 1. Delete server-stored tokens in InsForge DB
     try {
       await fetch(FN_DATA, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
         body: JSON.stringify({ user_id: userId, action: 'disconnect' }),
       });
     } catch (e) {
@@ -643,7 +657,7 @@ export class GoogleHealthProvider implements HealthProvider {
 
     this.isSyncingActive = true;
     const currentState = this.getConnectionState();
-    const initialSyncedCount = currentState.syncedCount || 0;
+    let initialSyncedCount = currentState.syncedCount || 0;
     let newlySyncedCount = 0;
     let skippedCount = 0;
     const validNewWorkouts: Workout[] = [];
@@ -683,7 +697,9 @@ export class GoogleHealthProvider implements HealthProvider {
 
       if (!sessionsRes.ok) {
         if (sessionsRes.status === 401) {
-          sessionStorage.removeItem(GOOGLE_FIT_AUTH_STORAGE_KEY);
+          try {
+            localStorage.removeItem(GOOGLE_FIT_AUTH_STORAGE_KEY);
+          } catch {}
           this.setConnectionState({
             isConnected: false,
             status: 'disconnected',
@@ -733,7 +749,7 @@ export class GoogleHealthProvider implements HealthProvider {
       const initialGoogleWorkouts = existingWorkouts.filter(
         (w) => w.source_provider === 'google_health'
       );
-      const initialSyncedCount = initialGoogleWorkouts.length;
+      initialSyncedCount = initialGoogleWorkouts.length;
 
       const existingIds = new Set(existingWorkouts.map((w) => w.id));
       const existingExternalKeys = new Set(
@@ -744,6 +760,24 @@ export class GoogleHealthProvider implements HealthProvider {
       const existingStartTimes = existingWorkouts
         .map((w) => new Date(w.started_at).getTime())
         .filter((t) => !isNaN(t));
+
+      // Discover location dataSources once per sync instead of per workout
+      const discoveredLocationSources: string[] = [];
+      try {
+        const dsRes = await fetch(
+          'https://www.googleapis.com/fitness/v1/users/me/dataSources?dataTypeName=com.google.location.sample',
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        if (dsRes.ok) {
+          const dsData = await dsRes.json();
+          const found = (dsData.dataSource || [])
+            .map((d: any) => d.dataStreamId)
+            .filter((id: string) => Boolean(id));
+          discoveredLocationSources.push(...found);
+        }
+      } catch {}
+
+      const pendingNewWorkouts: Workout[] = [];
 
       // 3. Process sessions incrementally
       for (let i = 0; i < totalSessions; i++) {
@@ -855,7 +889,7 @@ export class GoogleHealthProvider implements HealthProvider {
           let stepCount = 0;
 
           try {
-            const dataset = await this.fetchSessionDataset(token, sessionStartMs, sessionEndMs);
+            const dataset = await this.fetchSessionDataset(token, sessionStartMs, sessionEndMs, discoveredLocationSources);
             distanceMeters = dataset.distanceMeters;
             calories = dataset.calories;
             speedMps = dataset.speedMps;
@@ -937,48 +971,46 @@ export class GoogleHealthProvider implements HealthProvider {
 
           const newWorkout = this.convertToWorkout(normalized, userId);
 
-          // Save workout to InsForge & local storage only if genuinely unique
-          try {
-            const saveResult = await workoutService.saveImportedWorkouts([newWorkout]);
-            if (saveResult.savedCount > 0) {
-              existingIds.add(deterministicId);
-              existingExternalKeys.add(candidateKey);
-              existingStartTimes.push(sessionStartMs);
-              validNewWorkouts.push(newWorkout);
-              newlySyncedCount++;
+          // Queue for single batched DB upsert + goal/PR evaluation after loop
+          existingIds.add(deterministicId);
+          existingExternalKeys.add(candidateKey);
+          existingStartTimes.push(sessionStartMs);
+          pendingNewWorkouts.push(newWorkout);
+          validNewWorkouts.push(newWorkout);
+          newlySyncedCount++;
 
-              // Increment synced count and immediately update UI
-              const updatedTotalCount = initialSyncedCount + newlySyncedCount;
-              this.setConnectionState({
-                syncedCount: updatedTotalCount,
-                syncProgress: {
-                  current: i + 1,
-                  total: totalSessions,
-                  newlySynced: newlySyncedCount,
-                  currentTitle: workoutTitle,
-                },
-              });
+          const updatedTotalCount = initialSyncedCount + newlySyncedCount;
+          this.setConnectionState({
+            syncedCount: updatedTotalCount,
+            syncProgress: {
+              current: i + 1,
+              total: totalSessions,
+              newlySynced: newlySyncedCount,
+              currentTitle: workoutTitle,
+            },
+          });
 
-              if (onProgress) {
-                onProgress({
-                  current: i + 1,
-                  total: totalSessions,
-                  newlySynced: newlySyncedCount,
-                  currentTitle: workoutTitle,
-                  status: 'saved',
-                });
-              }
-
-              // Emit window event so app views update without reload
-              window.dispatchEvent(
-                new CustomEvent('runwar:workout_synced', { detail: newWorkout })
-              );
-            } else {
-              skippedCount++;
-            }
-          } catch (saveErr) {
-            console.warn(`Failed to save workout ${workoutTitle}:`, saveErr);
+          if (onProgress) {
+            onProgress({
+              current: i + 1,
+              total: totalSessions,
+              newlySynced: newlySyncedCount,
+              currentTitle: workoutTitle,
+              status: 'saved',
+            });
           }
+        }
+      }
+
+      if (pendingNewWorkouts.length > 0) {
+        try {
+          const batchResult = await workoutService.saveImportedWorkouts(pendingNewWorkouts);
+          newlySyncedCount = batchResult.savedCount;
+          for (const w of pendingNewWorkouts) {
+            window.dispatchEvent(new CustomEvent('runwar:workout_synced', { detail: w }));
+          }
+        } catch (saveErr) {
+          console.warn('Failed to batch save Google Health workouts:', saveErr);
         }
       }
 
@@ -1037,7 +1069,8 @@ export class GoogleHealthProvider implements HealthProvider {
   private async fetchSessionDataset(
     token: string,
     startMs: number,
-    endMs: number
+    endMs: number,
+    discoveredLocationSources: string[] = []
   ): Promise<{
     distanceMeters: number;
     calories: number;
@@ -1114,27 +1147,11 @@ export class GoogleHealthProvider implements HealthProvider {
     // 2. Fetch raw GPS location trackpoints across available location data sources
     try {
       const candidateLocationSources = [
+        ...discoveredLocationSources,
         'derived:com.google.location.sample:com.google.android.gms:merge_location_samples',
         'raw:com.google.location.sample:com.google.android.gms:',
         'derived:com.google.location.sample:com.google.android.apps.fitness:user_input',
       ];
-
-      // Dynamically discover all active location data sources (e.g. from Google Fit, Samsung Health, Strava, Garmin, Coros)
-      try {
-        const dsRes = await fetch(
-          'https://www.googleapis.com/fitness/v1/users/me/dataSources?dataTypeName=com.google.location.sample',
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        if (dsRes.ok) {
-          const dsData = await dsRes.json();
-          const found = (dsData.dataSource || [])
-            .map((d: any) => d.dataStreamId)
-            .filter((id: string) => Boolean(id));
-          if (found.length > 0) {
-            candidateLocationSources.unshift(...found);
-          }
-        }
-      } catch {}
 
       const uniqueSources = Array.from(new Set(candidateLocationSources));
       for (const streamId of uniqueSources) {

@@ -4,6 +4,7 @@ import { workoutService } from './workoutService';
 import { authService } from './authService';
 
 const ACTIVE_BACKUP_KEY = 'runwar_active_workout_backup';
+let syncListenerAttached = false;
 
 export const offlineSync = {
   /**
@@ -63,7 +64,8 @@ export const offlineSync = {
    * Initialize auto-sync listeners
    */
   initSyncListener() {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || syncListenerAttached) return;
+    syncListenerAttached = true;
     window.addEventListener('online', () => {
       this.syncPendingWorkouts();
     });

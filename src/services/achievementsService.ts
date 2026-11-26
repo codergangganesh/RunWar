@@ -3,9 +3,14 @@ import { Achievement, UserAchievement, Workout } from '../types';
 import { workoutService } from './workoutService';
 import { toDeterministicUUID } from '../utils/uuid';
 
-const USER_ACHIEVEMENTS_CACHE_KEY = 'runwar_cached_user_achievements';
+const USER_ACHIEVEMENTS_CACHE_KEY_PREFIX = 'runwar_cached_user_achievements_';
 
 const isGuest = (userId: string) => !userId || userId === 'guest_user' || userId === 'usr_guest_demo';
+
+function getCacheKey(userId: string): string {
+  const scope = isGuest(userId) ? (userId || 'guest_user') : toDeterministicUUID(userId);
+  return `${USER_ACHIEVEMENTS_CACHE_KEY_PREFIX}${scope}`;
+}
 
 export const DEFAULT_ACHIEVEMENTS: Achievement[] = [
   {
@@ -164,18 +169,18 @@ export const DEFAULT_ACHIEVEMENTS: Achievement[] = [
   },
 ];
 
-function getLocalUserAchievements(): UserAchievement[] {
+function getLocalUserAchievements(userId: string): UserAchievement[] {
   try {
-    const raw = localStorage.getItem(USER_ACHIEVEMENTS_CACHE_KEY);
+    const raw = localStorage.getItem(getCacheKey(userId));
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
   }
 }
 
-function saveLocalUserAchievements(items: UserAchievement[]) {
+function saveLocalUserAchievements(userId: string, items: UserAchievement[]) {
   try {
-    localStorage.setItem(USER_ACHIEVEMENTS_CACHE_KEY, JSON.stringify(items));
+    localStorage.setItem(getCacheKey(userId), JSON.stringify(items));
   } catch (e) {
     console.warn('Failed to cache user achievements:', e);
   }
@@ -206,7 +211,7 @@ export const achievementsService = {
    */
   async getUserAchievements(userId: string): Promise<UserAchievement[]> {
     if (isGuest(userId)) {
-      const local = getLocalUserAchievements();
+      const local = getLocalUserAchievements(userId);
       const allAch = await this.getAllAchievements();
       const map = new Map(allAch.map((a) => [a.id, a]));
       return local.map((ua) => ({
@@ -227,7 +232,7 @@ export const achievementsService = {
         if (error.message && error.message.trim().length > 0) {
           console.warn('Failed to fetch user achievements from cloud, using cache:', error.message);
         }
-        const local = getLocalUserAchievements();
+        const local = getLocalUserAchievements(normalizedId);
         const allAch = await this.getAllAchievements();
         const map = new Map(allAch.map((a) => [a.id, a]));
         return local.map((ua) => ({
@@ -236,22 +241,13 @@ export const achievementsService = {
         }));
       }
       const achievements = (data as UserAchievement[]) || [];
-      if (achievements.length > 0) {
-        saveLocalUserAchievements(achievements);
-        return achievements;
-      }
-      const local = getLocalUserAchievements();
-      const allAch = await this.getAllAchievements();
-      const map = new Map(allAch.map((a) => [a.id, a]));
-      return local.map((ua) => ({
-        ...ua,
-        achievement: ua.achievement || map.get(ua.achievement_id),
-      }));
+      saveLocalUserAchievements(normalizedId, achievements);
+      return achievements;
     } catch (err: any) {
       if (err?.message && err.message.trim().length > 0) {
         console.warn('Failed to fetch user achievements from cloud, using cache:', err.message);
       }
-      const local = getLocalUserAchievements();
+      const local = getLocalUserAchievements(normalizedId);
       const allAch = await this.getAllAchievements();
       const map = new Map(allAch.map((a) => [a.id, a]));
       return local.map((ua) => ({
@@ -341,35 +337,37 @@ export const achievementsService = {
         }
 
         if (isQualified) {
+          const guestMode = isGuest(userId);
+          const dbUserId = guestMode ? userId : toDeterministicUUID(userId);
           const newUA: UserAchievement = {
             id: crypto.randomUUID ? crypto.randomUUID() : `ach_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-            user_id: userId,
+            user_id: dbUserId,
             achievement_id: ach.id,
             unlocked_at: new Date().toISOString(),
             achievement: ach,
           };
 
-          if (isGuest(userId)) {
-            const local = getLocalUserAchievements();
+          if (guestMode) {
+            const local = getLocalUserAchievements(dbUserId);
             local.push(newUA);
-            saveLocalUserAchievements(local);
+            saveLocalUserAchievements(dbUserId, local);
           } else {
             try {
               await insforge.database.from('user_achievements').insert([
                 {
-                  user_id: userId,
+                  user_id: dbUserId,
                   achievement_id: ach.id,
                   unlocked_at: newUA.unlocked_at,
                 },
               ]);
-              const local = getLocalUserAchievements();
+              const local = getLocalUserAchievements(dbUserId);
               local.push(newUA);
-              saveLocalUserAchievements(local);
+              saveLocalUserAchievements(dbUserId, local);
             } catch (err) {
               console.warn(`Failed to insert achievement ${ach.id} to cloud:`, err);
-              const local = getLocalUserAchievements();
+              const local = getLocalUserAchievements(dbUserId);
               local.push(newUA);
-              saveLocalUserAchievements(local);
+              saveLocalUserAchievements(dbUserId, local);
             }
           }
 
@@ -385,10 +383,20 @@ export const achievementsService = {
   },
 
   calculateStreakDays(workouts: Workout[]): number {
-    const dates = new Set(workouts.map((w) => new Date(w.started_at).toISOString().split('T')[0]));
+    const dates = new Set(
+      workouts.map((w) => {
+        const d = new Date(w.started_at);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      })
+    );
     let maxStreak = 0;
     let current = 0;
-    const sorted = Array.from(dates).sort().map((d) => new Date(d));
+    const sorted = Array.from(dates)
+      .sort()
+      .map((ds) => {
+        const [y, m, d] = ds.split('-').map(Number);
+        return new Date(y, m - 1, d);
+      });
 
     for (let i = 0; i < sorted.length; i++) {
       if (i === 0) current = 1;

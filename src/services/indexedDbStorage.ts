@@ -7,8 +7,9 @@
 import { Workout, GPSCoordinate } from '../types';
 
 const DB_NAME = 'runwar_offline_db';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const WORKOUTS_STORE = 'workouts_full';
+const LIVE_TRACES_STORE = 'live_traces';
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -30,16 +31,31 @@ function getDb(): Promise<IDBDatabase> {
           store.createIndex('user_id', 'user_id', { unique: false });
           store.createIndex('started_at', 'started_at', { unique: false });
         }
+        if (!db.objectStoreNames.contains(LIVE_TRACES_STORE)) {
+          db.createObjectStore(LIVE_TRACES_STORE, { keyPath: 'id' });
+        }
       };
 
       request.onsuccess = () => {
-        resolve(request.result);
+        const db = request.result;
+        db.onversionchange = () => {
+          db.close();
+          dbPromise = null;
+        };
+        resolve(db);
       };
 
       request.onerror = () => {
+        dbPromise = null;
         reject(request.error);
       };
+
+      request.onblocked = () => {
+        dbPromise = null;
+        reject(new Error('IndexedDB upgrade blocked'));
+      };
     } catch (err) {
+      dbPromise = null;
       reject(err);
     }
   });
@@ -57,10 +73,11 @@ export const indexedDbStorage = {
       return new Promise((resolve, reject) => {
         const tx = db.transaction(WORKOUTS_STORE, 'readwrite');
         const store = tx.objectStore(WORKOUTS_STORE);
-        const req = store.put(workout);
+        store.put(workout);
 
-        req.onsuccess = () => resolve();
-        req.onerror = () => reject(req.error);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error || new Error('IndexedDB transaction aborted'));
       });
     } catch (err) {
       console.warn('IndexedDB saveWorkout notice:', err);
@@ -81,7 +98,6 @@ export const indexedDbStorage = {
         const store = tx.objectStore(WORKOUTS_STORE);
 
         workouts.forEach((w) => {
-          // If incoming workout lacks route_coordinates, look up existing record to preserve it
           if (!w.route_coordinates || w.route_coordinates.length === 0) {
             const getReq = store.get(w.id);
             getReq.onsuccess = () => {
@@ -105,6 +121,7 @@ export const indexedDbStorage = {
 
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error || new Error('IndexedDB batch transaction aborted'));
       });
     } catch (err) {
       console.warn('IndexedDB saveWorkoutsBatch notice:', err);
@@ -142,7 +159,9 @@ export const indexedDbStorage = {
         const req = store.getAll();
 
         req.onsuccess = () => {
-          let results = (req.result as Workout[]) || [];
+          let results = ((req.result as Workout[]) || []).filter(
+            (w) => !String(w.id || '').startsWith('live_trace_') && w.user_id !== 'active_session'
+          );
           if (userId && userId !== 'guest_user') {
             results = results.filter((w) => w.user_id === userId);
           }
@@ -164,10 +183,11 @@ export const indexedDbStorage = {
       return new Promise((resolve, reject) => {
         const tx = db.transaction(WORKOUTS_STORE, 'readwrite');
         const store = tx.objectStore(WORKOUTS_STORE);
-        const req = store.delete(workoutId);
+        store.delete(workoutId);
 
-        req.onsuccess = () => resolve();
-        req.onerror = () => reject(req.error);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error || new Error('IndexedDB delete aborted'));
       });
     } catch (err) {
       console.warn('IndexedDB delete notice:', err);
@@ -175,20 +195,54 @@ export const indexedDbStorage = {
   },
 
   /**
-   * Save live workout GPS coordinates trace asynchronously
+   * Clear all stored workouts for a user from IndexedDB
    */
-  async saveLiveWorkoutTrace(workoutId: string, coordinates: GPSCoordinate[]): Promise<void> {
+  async clearUserWorkouts(userId?: string): Promise<void> {
     try {
       const db = await getDb();
       return new Promise((resolve) => {
         const tx = db.transaction(WORKOUTS_STORE, 'readwrite');
         const store = tx.objectStore(WORKOUTS_STORE);
+        const req = store.getAllKeys();
+        req.onsuccess = async () => {
+          if (!userId) {
+            store.clear();
+            return;
+          }
+          const cursorReq = store.openCursor();
+          cursorReq.onsuccess = (ev) => {
+            const cursor = (ev.target as IDBRequest<IDBCursorWithValue | null>).result;
+            if (cursor) {
+              const val = cursor.value as any;
+              if (val?.user_id === userId || String(cursor.key).startsWith('live_trace_')) {
+                cursor.delete();
+              }
+              cursor.continue();
+            }
+          };
+        };
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+      });
+    } catch {
+      // Non-blocking fallback
+    }
+  },
+
+  /**
+   * Save live workout GPS coordinates trace asynchronously in dedicated store
+   */
+  async saveLiveWorkoutTrace(workoutId: string, coordinates: GPSCoordinate[]): Promise<void> {
+    try {
+      const db = await getDb();
+      return new Promise((resolve) => {
+        const tx = db.transaction(LIVE_TRACES_STORE, 'readwrite');
+        const store = tx.objectStore(LIVE_TRACES_STORE);
         store.put({
           id: `live_trace_${workoutId}`,
-          user_id: 'active_session',
           route_coordinates: coordinates,
           created_at: new Date().toISOString(),
-        } as any);
+        });
         tx.oncomplete = () => resolve();
         tx.onerror = () => resolve();
       });
@@ -203,6 +257,16 @@ export const indexedDbStorage = {
   async getLiveWorkoutTrace(workoutId: string): Promise<GPSCoordinate[] | null> {
     try {
       const db = await getDb();
+      const trace = await new Promise<GPSCoordinate[] | null>((resolve) => {
+        const tx = db.transaction(LIVE_TRACES_STORE, 'readonly');
+        const store = tx.objectStore(LIVE_TRACES_STORE);
+        const req = store.get(`live_trace_${workoutId}`);
+        req.onsuccess = () => resolve(req.result?.route_coordinates || null);
+        req.onerror = () => resolve(null);
+      });
+      if (trace && trace.length > 0) return trace;
+
+      // Fallback check in WORKOUTS_STORE for pre-v2 crash backups
       return new Promise((resolve) => {
         const tx = db.transaction(WORKOUTS_STORE, 'readonly');
         const store = tx.objectStore(WORKOUTS_STORE);
@@ -221,10 +285,15 @@ export const indexedDbStorage = {
   async clearLiveWorkoutTrace(workoutId: string): Promise<void> {
     try {
       const db = await getDb();
+      const storeNames = db.objectStoreNames.contains(WORKOUTS_STORE)
+        ? [LIVE_TRACES_STORE, WORKOUTS_STORE]
+        : [LIVE_TRACES_STORE];
       return new Promise((resolve) => {
-        const tx = db.transaction(WORKOUTS_STORE, 'readwrite');
-        const store = tx.objectStore(WORKOUTS_STORE);
-        store.delete(`live_trace_${workoutId}`);
+        const tx = db.transaction(storeNames, 'readwrite');
+        tx.objectStore(LIVE_TRACES_STORE).delete(`live_trace_${workoutId}`);
+        if (storeNames.includes(WORKOUTS_STORE)) {
+          tx.objectStore(WORKOUTS_STORE).delete(`live_trace_${workoutId}`);
+        }
         tx.oncomplete = () => resolve();
         tx.onerror = () => resolve();
       });

@@ -76,12 +76,16 @@ interface MapControllerProps {
 function MapController({ center, followUser, recenterTrigger, onUserPan }: MapControllerProps) {
   const map = useMap();
   const isProgrammaticMoveRef = useRef(false);
+  const lastCenteredRef = useRef<[number, number] | null>(null);
+  const centerLat = center[0];
+  const centerLng = center[1];
 
   // Recenter trigger effect: smooth flyTo when user clicks recenter
   useEffect(() => {
-    if (recenterTrigger > 0 && center[0] !== 0 && center[1] !== 0) {
+    if (recenterTrigger > 0 && centerLat !== 0 && centerLng !== 0) {
       isProgrammaticMoveRef.current = true;
-      map.flyTo(center, Math.max(map.getZoom() || 16, 16), {
+      lastCenteredRef.current = [centerLat, centerLng];
+      map.flyTo([centerLat, centerLng], Math.max(map.getZoom() || 16, 16), {
         animate: true,
         duration: 0.6,
       });
@@ -90,17 +94,17 @@ function MapController({ center, followUser, recenterTrigger, onUserPan }: MapCo
       }, 700);
       return () => clearTimeout(timer);
     }
-  }, [recenterTrigger, center, map]);
+  }, [recenterTrigger, centerLat, centerLng, map]);
 
-  // Continuous tracking effect when followUser is active
+  // Continuous tracking effect when followUser is active (throttled to real movement)
   useEffect(() => {
-    map.invalidateSize();
-    if (followUser && center[0] !== 0 && center[1] !== 0) {
-      if (!isProgrammaticMoveRef.current) {
-        map.setView(center, map.getZoom() || 16, { animate: true });
-      }
+    if (!followUser || centerLat === 0 || centerLng === 0 || isProgrammaticMoveRef.current) return;
+    const prev = lastCenteredRef.current;
+    if (!prev || Math.abs(prev[0] - centerLat) > 0.00001 || Math.abs(prev[1] - centerLng) > 0.00001) {
+      lastCenteredRef.current = [centerLat, centerLng];
+      map.setView([centerLat, centerLng], map.getZoom() || 16, { animate: true });
     }
-  }, [center, followUser, map]);
+  }, [centerLat, centerLng, followUser, map]);
 
   // Detect user dragging / scrolling the map to release auto-follow
   useEffect(() => {
@@ -203,12 +207,19 @@ export const LiveWorkoutMap: React.FC<LiveWorkoutMapProps> = ({
     setRecenterTrigger((prev) => prev + 1);
   }, []);
 
-  const polylinePositions: [number, number][] = coordinates.map((c) => [c.latitude, c.longitude]);
-  const kilometerMilestones = useMemo(
-    () => getRouteDistanceMilestones(coordinates),
+  const polylinePositions: [number, number][] = useMemo(
+    () => coordinates.map((c) => [c.latitude, c.longitude]),
     [coordinates]
   );
-  const kilometerSplits = useMemo(() => calculateSplits(coordinates), [coordinates]);
+  const splitDistanceMeters = distanceUnit === 'mi' ? 1609.34 : 1000;
+  const kilometerMilestones = useMemo(
+    () => getRouteDistanceMilestones(coordinates, splitDistanceMeters),
+    [coordinates, splitDistanceMeters]
+  );
+  const kilometerSplits = useMemo(
+    () => calculateSplits(coordinates, splitDistanceMeters),
+    [coordinates, splitDistanceMeters]
+  );
 
   // Course Route polyline coordinates
   const coursePositions: [number, number][] = useMemo(() => {

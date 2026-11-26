@@ -324,12 +324,18 @@ export class TakeoutImporter {
           const timePtEl = pt.querySelector('Time');
 
           if (latEl && lngEl) {
-            coordinates.push({
-              latitude: parseFloat(latEl.textContent || '0'),
-              longitude: parseFloat(lngEl.textContent || '0'),
-              altitude: altEl ? parseFloat(altEl.textContent || '0') : null,
-              timestamp: timePtEl ? new Date(timePtEl.textContent || '').getTime() : Date.now(),
-            });
+            const lat = parseFloat(latEl.textContent || 'NaN');
+            const lng = parseFloat(lngEl.textContent || 'NaN');
+            if (Number.isFinite(lat) && Number.isFinite(lng)) {
+              const rawTime = timePtEl?.textContent ? new Date(timePtEl.textContent).getTime() : NaN;
+              const fallbackTime = coordinates.length > 0 ? coordinates[coordinates.length - 1].timestamp + 1000 : Date.now();
+              coordinates.push({
+                latitude: lat,
+                longitude: lng,
+                altitude: altEl ? (Number.isFinite(parseFloat(altEl.textContent || '')) ? parseFloat(altEl.textContent || '0') : null) : null,
+                timestamp: Number.isFinite(rawTime) ? rawTime : fallbackTime,
+              });
+            }
           }
         }
       }
@@ -387,18 +393,22 @@ export class TakeoutImporter {
       if (trkpts.length === 0) return null;
 
       const coordinates: GPSCoordinate[] = [];
+      const baseFallbackTime = Date.now();
       for (const pt of trkpts) {
-        const lat = parseFloat(pt.getAttribute('lat') || '0');
-        const lon = parseFloat(pt.getAttribute('lon') || '0');
+        const lat = parseFloat(pt.getAttribute('lat') || 'NaN');
+        const lon = parseFloat(pt.getAttribute('lon') || 'NaN');
         const ele = pt.querySelector('ele');
         const time = pt.querySelector('time');
 
-        if (lat && lon) {
+        if (Number.isFinite(lat) && Number.isFinite(lon)) {
+          const parsedEle = ele ? parseFloat(ele.textContent || '') : NaN;
+          const rawTime = time?.textContent ? new Date(time.textContent).getTime() : NaN;
+          const prevTs = coordinates.length > 0 ? coordinates[coordinates.length - 1].timestamp + 1000 : baseFallbackTime;
           coordinates.push({
             latitude: lat,
             longitude: lon,
-            altitude: ele ? parseFloat(ele.textContent || '0') : null,
-            timestamp: time ? new Date(time.textContent || '').getTime() : Date.now(),
+            altitude: Number.isFinite(parsedEle) ? parsedEle : null,
+            timestamp: Number.isFinite(rawTime) ? rawTime : prevTs,
           });
         }
       }

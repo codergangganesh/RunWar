@@ -342,12 +342,12 @@ export const socialService = {
     const localPosts = this.getFeedPosts();
 
     try {
-      // 1. Fetch posts ordered by latest first
+      // 1. Fetch posts ordered by latest first (explicit lightweight column projection)
       const { data: rawPosts, error } = await insforge.database
         .from('community_posts')
-        .select('*')
+        .select('id, user_id, user_name, user_avatar, user_badge, workout_id, workout_data, caption, fire_ups_count, comments_count, location_name, territory_claimed, visibility, created_at')
         .order('created_at', { ascending: false })
-        .limit(50);
+        .limit(25);
 
       if (!error && rawPosts && Array.isArray(rawPosts)) {
         // 2. Fetch comments and reactions for all loaded posts from normalized relational tables
@@ -454,23 +454,15 @@ export const socialService = {
             salute: postReactions.filter((rx: any) => rx.reaction_type === 'salute').length,
           };
 
-          // If local post has optimistic reaction counts that are higher, merge them
-          if (matchingLocalPost?.reactions) {
-            counts.fire = Math.max(counts.fire, matchingLocalPost.reactions.fire || 0);
-            counts.respect = Math.max(counts.respect, matchingLocalPost.reactions.respect || 0);
-            counts.beast = Math.max(counts.beast, matchingLocalPost.reactions.beast || 0);
-            counts.salute = Math.max(counts.salute, matchingLocalPost.reactions.salute || 0);
-          }
-
           const totalReactions = counts.fire + counts.respect + counts.beast + counts.salute;
 
-          // Determine current user's reaction
+          // Determine current user's reaction from authoritative cloud reaction rows
           const myReactionRow = currentUserId && currentUserId !== 'guest_user'
             ? postReactions.find((rx: any) => normalizeUserId(rx.user_id) === currentUserId)
             : null;
           let userReaction: ReactionType | null = myReactionRow
             ? (myReactionRow.reaction_type === 'fire_up' ? 'fire' : (myReactionRow.reaction_type as ReactionType))
-            : (matchingLocalPost?.userReaction || null);
+            : null;
 
           if (isAuthor) {
             userReaction = null;
@@ -535,9 +527,9 @@ export const socialService = {
           return this.isPostAuthor(lp, currentProfile);
         });
 
-        // Background sync: Attempt to push unsynced local posts to InsForge cloud
+        // Background sync: Attempt to push up to 5 unsynced local posts to InsForge cloud
         if (localAuthorPosts.length > 0 && currentUserId && isUUID(currentUserId)) {
-          localAuthorPosts.forEach(async (unsynced) => {
+          localAuthorPosts.slice(0, 5).forEach(async (unsynced) => {
             try {
               const validWorkoutUuid = unsynced.workout?.id && isUUID(unsynced.workout.id) ? unsynced.workout.id : null;
               const payloadWorkoutData = {
@@ -778,22 +770,10 @@ export const socialService = {
           resolvedUserAvatar = currentProfile.avatar_url;
         }
 
-        let postDirectComments: any[] = [];
-        if (Array.isArray(r.comments)) {
-          postDirectComments = r.comments;
-        } else if (typeof r.comments === 'string' && r.comments.trim().length > 0) {
-          try {
-            const parsed = JSON.parse(r.comments);
-            if (Array.isArray(parsed)) postDirectComments = parsed;
-          } catch {}
-        }
-
-        const relationalComments = allComments.filter((c: any) => c.post_id === r.id);
-        const allCloudRaw = [...postDirectComments, ...relationalComments];
         const cloudPostComments: FeedComment[] = [];
         const seenCloudIds = new Set<string>();
 
-        for (const c of allCloudRaw) {
+        for (const c of allComments) {
           const normalized = normalizeComment(c, r.id, currentUserId, currentProfile);
           if (normalized && !seenCloudIds.has(normalized.id)) {
             seenCloudIds.add(normalized.id);
@@ -1675,50 +1655,10 @@ export const socialService = {
 
     this.saveCachedPosts(updated);
 
-    // 2. Persist to cloud community_posts.comments (the canonical storage for comments)
-    try {
-      const { data: cloudRow, error: fetchErr } = await insforge.database
-        .from('community_posts')
-        .select('id, comments')
-        .eq('id', postId)
-        .maybeSingle();
-
-      if (!fetchErr && cloudRow) {
-        let currentCloudComments: any[] = [];
-        if (Array.isArray(cloudRow.comments)) {
-          currentCloudComments = cloudRow.comments;
-        } else if (typeof cloudRow.comments === 'string' && cloudRow.comments.trim().length > 0) {
-          try {
-            const parsed = JSON.parse(cloudRow.comments);
-            if (Array.isArray(parsed)) currentCloudComments = parsed;
-          } catch {}
-        }
-
-        const filteredCloud = currentCloudComments.filter((c: any) => c.id !== commentUuid);
-        const nextCloudComments = [...filteredCloud, newComment];
-
-        const { error: updateErr } = await insforge.database
-          .from('community_posts')
-          .update({
-            comments: nextCloudComments,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', postId);
-
-        if (updateErr) {
-          console.warn('Failed to update comments on community_posts:', updateErr);
-        }
-      } else {
-        console.warn('Could not fetch post from cloud to append comment:', fetchErr);
-      }
-    } catch (cloudErr) {
-      console.warn('Cloud comment sync error:', cloudErr);
-    }
-
-    // 3. Also try relational community_comments insert if table is ever created
+    // 2. Persist comment to relational community_comments table
     try {
       if (currentUserId && isUUID(currentUserId)) {
-        await insforge.database.from('community_comments').insert([{
+        const { error: commentErr } = await insforge.database.from('community_comments').insert([{
           id: commentUuid,
           post_id: postId,
           user_id: currentUserId,
@@ -1727,8 +1667,13 @@ export const socialService = {
           content: newComment.text,
           created_at: newComment.createdAt,
         }]);
+        if (commentErr) {
+          console.warn('Cloud comment sync error:', commentErr);
+        }
       }
-    } catch {}
+    } catch (cloudErr) {
+      console.warn('Cloud comment sync error:', cloudErr);
+    }
 
     return updated;
   },
@@ -1764,38 +1709,10 @@ export const socialService = {
     this.saveCachedPosts(updated);
 
     try {
-      const { data: cloudRow } = await insforge.database
-        .from('community_posts')
-        .select('id, comments')
-        .eq('id', postId)
-        .maybeSingle();
-
-      if (cloudRow) {
-        let currentCloudComments: any[] = [];
-        if (Array.isArray(cloudRow.comments)) {
-          currentCloudComments = cloudRow.comments;
-        } else if (typeof cloudRow.comments === 'string' && cloudRow.comments.trim().length > 0) {
-          try {
-            const parsed = JSON.parse(cloudRow.comments);
-            if (Array.isArray(parsed)) currentCloudComments = parsed;
-          } catch {}
-        }
-        const filteredCloud = currentCloudComments.filter((c: any) => c.id !== commentId);
-        await insforge.database
-          .from('community_posts')
-          .update({
-            comments: filteredCloud,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', postId);
-      }
-    } catch (e) {
-      console.warn('Failed to delete comment from community_posts:', e);
-    }
-
-    try {
       await insforge.database.from('community_comments').delete().eq('id', commentId);
-    } catch {}
+    } catch (e) {
+      console.warn('Failed to delete comment from community_comments:', e);
+    }
 
     return updated;
   },
@@ -2340,10 +2257,31 @@ export const socialService = {
     let dbPosts: any[] = [];
 
     try {
+      // Bound queries by date window and row limit to minimize DB egress on free tier
+      const cutoffIso =
+        timeframe === 'all'
+          ? null
+          : new Date(Date.now() - 35 * 24 * 60 * 60 * 1000).toISOString();
+
+      let workoutsQuery = insforge.database
+        .from('workouts')
+        .select('id, user_id, type, distance_meters, duration_seconds, average_pace, started_at, status')
+        .eq('status', 'completed')
+        .order('started_at', { ascending: false })
+        .limit(500);
+      if (cutoffIso) workoutsQuery = workoutsQuery.gte('started_at', cutoffIso);
+
+      let postsQuery = insforge.database
+        .from('community_posts')
+        .select('id, user_id, user_name, user_avatar, user_badge, workout_id, workout_data, created_at')
+        .order('created_at', { ascending: false })
+        .limit(100);
+      if (cutoffIso) postsQuery = postsQuery.gte('created_at', cutoffIso);
+
       const [profRes, workRes, postRes] = await Promise.all([
-        insforge.database.from('profiles').select('id, user_id, name, username, avatar_url, fitness_goal'),
-        insforge.database.from('workouts').select('id, user_id, type, distance_meters, duration_seconds, average_pace, started_at, status').eq('status', 'completed'),
-        insforge.database.from('community_posts').select('id, user_id, user_name, user_avatar, user_badge, workout_id, workout_data, created_at'),
+        insforge.database.from('profiles').select('id, user_id, name, username, avatar_url, fitness_goal').limit(100),
+        workoutsQuery,
+        postsQuery,
       ]);
 
       if (Array.isArray(profRes.data)) dbProfiles = profRes.data;

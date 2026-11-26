@@ -321,7 +321,10 @@ export const beaconService = {
       }
 
       redisService.hset(redisKey, redisPayload).catch(() => {});
-      redisService.expire(redisKey, 7200).catch(() => {});
+      const remainingTtl = current?.expires_at
+        ? Math.max(60, Math.ceil((new Date(current.expires_at).getTime() - Date.now()) / 1000))
+        : 7200;
+      redisService.expire(redisKey, remainingTtl).catch(() => {});
     }
 
     // 2. Authoritative PostgreSQL Database Sync

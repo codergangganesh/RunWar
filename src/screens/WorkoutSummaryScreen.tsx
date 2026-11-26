@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { LiveWorkoutState, UserProfile, Workout, Achievement } from '../types';
 import { workoutService } from '../services/workoutService';
 import { authService } from '../services/authService';
+import { challengeService } from '../services/challengeService';
 import { formatDistance, formatDuration, formatPace } from '../utils/formatters';
 import { StaticRouteMap } from '../components/map/StaticRouteMap';
 import { WorkoutShareModal } from '../components/workout/WorkoutShareModal';
@@ -97,6 +98,8 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
   }, []);
 
   const isSavingRef = useRef(false);
+  const savedWorkoutIdRef = useRef<string | null>(null);
+  const weatherDataRef = useRef<WeatherSnapshot | null>(workoutState?.weather || null);
 
   const distanceUnit = profile?.distance_unit || 'km';
   const paceUnit = profile?.pace_unit || 'min_km';
@@ -207,13 +210,28 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
       };
 
       const result = await workoutService.saveWorkout(payload);
+      savedWorkoutIdRef.current = result.workout.id;
       setSavedWorkout(result.workout);
+      if (weatherDataRef.current && !result.workout.weather) {
+        workoutService.updateWorkoutWeather(result.workout.id, weatherDataRef.current).catch(() => {});
+      }
+      if (result.workout.user_id && result.workout.user_id !== 'guest_user' && result.workout.user_id !== 'usr_guest_demo') {
+        challengeService
+          .syncCompletedWorkoutToChallenges(
+            result.workout.user_id,
+            result.workout.id,
+            result.workout.distance_meters,
+            result.workout.duration_seconds
+          )
+          .catch(() => {});
+      }
       if (result.newlyUnlockedAchievements && result.newlyUnlockedAchievements.length > 0) {
         setNewlyUnlockedAchievements(result.newlyUnlockedAchievements);
       }
       onSaved(result.workout);
     } catch (err) {
       console.error('Error auto-saving workout:', err);
+      isSavingRef.current = false;
     } finally {
       setSaving(false);
     }
@@ -247,9 +265,11 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
       try {
         const fetched = await weatherService.getWeatherForLocation(lat, lng, forceRefresh);
         if (fetched) {
+          weatherDataRef.current = fetched;
           setWeatherData(fetched);
-          if (savedWorkout?.id) {
-            workoutService.updateWorkoutWeather(savedWorkout.id, fetched);
+          const targetId = savedWorkoutIdRef.current || savedWorkout?.id;
+          if (targetId) {
+            workoutService.updateWorkoutWeather(targetId, fetched);
           }
         }
       } catch (err) {
@@ -268,9 +288,11 @@ export const WorkoutSummaryScreen: React.FC<WorkoutSummaryScreenProps> = ({
               forceRefresh
             );
             if (fetched) {
+              weatherDataRef.current = fetched;
               setWeatherData(fetched);
-              if (savedWorkout?.id) {
-                workoutService.updateWorkoutWeather(savedWorkout.id, fetched);
+              const targetId = savedWorkoutIdRef.current || savedWorkout?.id;
+              if (targetId) {
+                workoutService.updateWorkoutWeather(targetId, fetched);
               }
             }
           } catch (e) {

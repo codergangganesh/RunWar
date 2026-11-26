@@ -118,16 +118,19 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     // Check for email password reset token in URL
     const token = params.get('token');
     const type = params.get('insforge_type');
+    const resetEmail = params.get('email');
     if (token && type === 'reset_password') {
       setAuthMethod('password');
       setEmailMode('forgot');
       setVerifiedResetToken(token);
+      if (resetEmail) setEmail(resetEmail);
       setForgotStep('set_password');
       setSuccessMsg('Reset link verified! Please enter your new password.');
       const cleanUrl = new URL(window.location.href);
       cleanUrl.searchParams.delete('token');
       cleanUrl.searchParams.delete('insforge_type');
       cleanUrl.searchParams.delete('insforge_status');
+      cleanUrl.searchParams.delete('email');
       window.history.replaceState({}, document.title, cleanUrl.toString());
     }
   }, []);
@@ -255,7 +258,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     try {
       if (emailMode === 'signup') {
         if (!name.trim()) throw new Error('Please enter your full name');
-        if (password.length < 6) throw new Error('Password must be at least 6 characters');
+        if (password.length < 8) throw new Error('Password must be at least 8 characters');
+        if (!/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password)) {
+          throw new Error('Password must contain at least one uppercase letter, lowercase letter, and number.');
+        }
         if (confirmPassword && password !== confirmPassword) {
           throw new Error('Passwords do not match');
         }
@@ -295,11 +301,17 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           await handleVerifyResetCode();
         } else if (forgotStep === 'set_password') {
           const cleanEmail = email.trim().toLowerCase();
+          if (!cleanEmail || !cleanEmail.includes('@')) {
+            throw new Error('Please enter your account email address.');
+          }
           if (!verifiedResetToken) {
             throw new Error('Verification session expired. Please re-enter your 6-digit code.');
           }
-          if (newPassword.length < 6) {
-            throw new Error('New password must be at least 6 characters.');
+          if (newPassword.length < 8) {
+            throw new Error('New password must be at least 8 characters.');
+          }
+          if (!/[A-Z]/.test(newPassword) || !/[a-z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+            throw new Error('Password must contain at least one uppercase letter, lowercase letter, and number.');
           }
           if (newPassword !== confirmNewPassword) {
             throw new Error('Passwords do not match. Please re-enter.');
@@ -644,6 +656,13 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
 
 
+            {errorMsg && (
+              <div className="mb-4 p-3 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2 animate-fade-in">
+                <AlertCircle size={16} className="shrink-0" />
+                <span className="leading-snug">{errorMsg}</span>
+              </div>
+            )}
+
             {successMsg && (
               <div className="mb-4 p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs flex items-center gap-2 animate-fade-in">
                 <CheckCircle2 size={16} className="shrink-0" />
@@ -860,9 +879,34 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     <div className="flex items-center gap-2.5 p-3 rounded-2xl bg-emerald-50 border border-emerald-200/90 text-emerald-900 text-xs font-semibold">
                       <CheckCircle2 size={18} className="text-emerald-600 shrink-0" />
                       <span className="leading-snug">
-                        Code verified for <strong className="font-black text-slate-900">{email}</strong>. Create your new password below.
+                        {email ? (
+                          <>Code verified for <strong className="font-black text-slate-900">{email}</strong>. Create your new password below.</>
+                        ) : (
+                          <>Reset link verified. Enter your account email and create your new password below.</>
+                        )}
                       </span>
                     </div>
+
+                    {!email && (
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-600 mb-1 px-1">
+                          Account Email
+                        </label>
+                        <div className="relative">
+                          <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
+                            <Mail size={18} />
+                          </div>
+                          <input
+                            type="email"
+                            required
+                            placeholder="Enter your account email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            className="w-full pl-11 pr-4 py-3 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 text-sm placeholder:text-slate-400 focus:outline-none focus:border-[#00d09c] focus:bg-white shadow-sm transition-all"
+                          />
+                        </div>
+                      </div>
+                    )}
 
                     {/* New Password Input */}
                     <div>
@@ -876,9 +920,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         <input
                           type={showNewPassword ? 'text' : 'password'}
                           required
-                          minLength={6}
+                          minLength={8}
                           autoFocus
-                          placeholder="New password (min 6 characters)"
+                          placeholder="New password (min 8 chars, A-Z, a-z, 0-9)"
                           value={newPassword}
                           onChange={(e) => setNewPassword(e.target.value)}
                           className="w-full pl-11 pr-11 py-3 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 text-sm placeholder:text-slate-400 focus:outline-none focus:border-[#00d09c] focus:bg-white shadow-sm transition-all"

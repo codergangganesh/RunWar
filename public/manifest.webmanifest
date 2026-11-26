@@ -28,7 +28,7 @@
       "name": "Start Outdoor Run",
       "short_name": "Start Run",
       "description": "Instantly start a new GPS workout session",
-      "url": "/?start=run",
+      "url": "/?tab=home&action=start_run",
       "icons": [{ "src": "/logo.png", "sizes": "192x192" }]
     }
   ]

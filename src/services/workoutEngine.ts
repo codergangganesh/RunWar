@@ -36,7 +36,10 @@ export class WorkoutEngine {
   private listeners: StateListener[] = [];
   private watchId: number | null = null;
   private workerTimer: Worker | null = null;
+  private workerUrl: string | null = null;
   private fallbackInterval: any = null;
+  private lastTickTimestamp: number | null = null;
+  private tickRemainderMs: number = 0;
   private wakeLock: any = null;
   private lastBackupSaveTime: number = 0;
   private lastSavedEngineState: WorkoutEngineState = 'IDLE';
@@ -44,6 +47,7 @@ export class WorkoutEngine {
   // Configuration
   private userId: string = 'guest_user';
   private userWeightKg: number = 70;
+  private userHeightCm: number = 175;
   private autoPauseEnabled: boolean = true;
   private autoPauseThresholdSec: number = 10;
   private stationaryCounterSec: number = 0;
@@ -70,6 +74,23 @@ export class WorkoutEngine {
   constructor() {
     this.initNetworkListeners();
     this.initVisibilityListener();
+
+    // Keep active workout state in sync with courseService and ghost deletions
+    courseService.subscribe((course) => {
+      if (!course && this.state.activeCourse) {
+        this.state.activeCourse = null;
+        this.state.courseProgress = null;
+        this.notify();
+      }
+    });
+
+    ghostRivalService.subscribe((ghost) => {
+      if (!ghost && this.state.ghostRival) {
+        this.state.ghostRival = null;
+        this.state.ghostProgress = null;
+        this.notify();
+      }
+    });
   }
 
   private createInitialState(): LiveWorkoutState {
@@ -109,23 +130,6 @@ export class WorkoutEngine {
       steps: 0,
       cadence: 0,
     };
-
-    // Keep active workout state in sync with courseService and ghost deletions
-    courseService.subscribe((course) => {
-      if (!course && this.state.activeCourse) {
-        this.state.activeCourse = null;
-        this.state.courseProgress = null;
-        this.notify();
-      }
-    });
-
-    ghostRivalService.subscribe((ghost) => {
-      if (!ghost && this.state.ghostRival) {
-        this.state.ghostRival = null;
-        this.state.ghostProgress = null;
-        this.notify();
-      }
-    });
   }
 
   public subscribe(listener: StateListener): () => void {
@@ -190,12 +194,15 @@ export class WorkoutEngine {
     return { ...this.state };
   }
 
-  public setConfig(userId: string, weightKg: number, autoPause: boolean, autoPauseThreshold: number, distanceUnit: 'km' | 'mi' = 'km') {
+  public setConfig(userId: string, weightKg: number, autoPause: boolean, autoPauseThreshold: number, distanceUnit: 'km' | 'mi' = 'km', userHeightCm?: number) {
     this.userId = userId || 'guest_user';
     this.userWeightKg = weightKg || 70;
     this.autoPauseEnabled = autoPause;
     this.autoPauseThresholdSec = autoPauseThreshold || 10;
     this.distanceUnit = distanceUnit;
+    if (userHeightCm && userHeightCm > 50) {
+      this.userHeightCm = userHeightCm;
+    }
   }
 
   /**
@@ -307,7 +314,7 @@ export class WorkoutEngine {
 
     this.weatherFetchAttempted = false;
     stepCounterService.startSessionTracking(this.state.workoutId, {
-      userHeightCm: 175,
+      userHeightCm: this.userHeightCm || 175,
     });
     if (this.isSimulationMode) {
       this.startSimulation();
@@ -552,15 +559,23 @@ export class WorkoutEngine {
     const { latitude, longitude, altitude, accuracy, speed } = raw.coords;
     const timestamp = raw.timestamp || Date.now();
 
-    this.state.gpsAccuracy = accuracy;
+    const safeAccuracy = typeof accuracy === 'number' && !isNaN(accuracy) ? accuracy : null;
+    this.state.gpsAccuracy = safeAccuracy;
     // Keep the visible status aligned with LocationValidator's 35 m acceptance limit.
-    this.state.gpsStatus = accuracy <= 20 ? 'locked' : accuracy <= 35 ? 'weak' : 'searching';
+    this.state.gpsStatus =
+      safeAccuracy === null
+        ? 'searching'
+        : safeAccuracy <= 20
+        ? 'locked'
+        : safeAccuracy <= 35
+        ? 'weak'
+        : 'searching';
 
     const rawPoint: GPSCoordinate = {
       latitude,
       longitude,
       altitude: altitude ?? null,
-      accuracy,
+      accuracy: safeAccuracy ?? undefined,
       speed: speed ?? null,
       timestamp,
     };
@@ -569,9 +584,19 @@ export class WorkoutEngine {
   }
 
   /**
-   * Core Coordinate Pipeline (Validation → Distance → Pace → Buffer → Splits)
+   * Core Coordinate Pipeline (Validation → Smoothing → Distance → Pace → Buffer → Splits)
    */
   public processCoordinate(rawCoordinate: GPSCoordinate) {
+    const coords = this.state.coordinates;
+    const prevCoord = coords.length > 0 ? coords[coords.length - 1] : null;
+
+    // 1. Validate raw coordinate BEFORE smoothing so wild GPS spikes cannot poison GPSSmoother
+    const rawValidation = LocationValidator.validate(rawCoordinate, prevCoord, this.state.workoutId);
+    if (!rawValidation.isValid) {
+      this.notify();
+      return;
+    }
+
     const smoothed = this.gpsSmoother.smooth(rawCoordinate);
     if (!smoothed) {
       // Keep the live marker responsive while GPS warms up, without recording a route yet.
@@ -581,17 +606,24 @@ export class WorkoutEngine {
     }
 
     const coord = smoothed.coordinate;
-    const coords = this.state.coordinates;
-    const prevCoord = coords.length > 0 ? coords[coords.length - 1] : null;
 
-    // 1. Run through Production Location Validator
-    const validation = LocationValidator.validate(coord, prevCoord, this.state.workoutId);
-    if (!validation.isValid) {
+    if (this.state.engineState !== 'ACTIVE') {
+      coord.distanceFromPrevious = 0;
+      this.state.currentLocation = coord;
       this.notify();
       return;
     }
 
-    coord.distanceFromPrevious = this.getNoiseAwareDistance(coord);
+    // 2. Aggregate Validated Distance (reset anchor & skip delta on first point after resume)
+    if (this.isFirstPointAfterResume) {
+      this.isFirstPointAfterResume = false;
+      this.distanceAnchor = coord;
+      coord.distanceFromPrevious = 0;
+    } else {
+      coord.distanceFromPrevious = this.getNoiseAwareDistance(coord);
+      this.state.distanceMeters += coord.distanceFromPrevious;
+    }
+
     this.state.currentLocation = coord;
     this.state.pointSequence += 1;
     coord.sequence_number = this.state.pointSequence;
@@ -601,14 +633,8 @@ export class WorkoutEngine {
       this.fetchWeatherForWorkout(coord.latitude, coord.longitude);
     }
 
+    // Main active run progression
     if (this.state.engineState === 'ACTIVE') {
-      // 2. Aggregate Validated Distance (skip on first point after resume to prevent teleport spike)
-      if (this.isFirstPointAfterResume) {
-        this.isFirstPointAfterResume = false;
-        // Accept the coordinate as baseline without adding distance
-      } else {
-        this.state.distanceMeters += coord.distanceFromPrevious;
-      }
 
       // Ingest distance advances into step counter for cadence & stride estimation
       if (coord.distanceFromPrevious > 0) {
@@ -660,10 +686,10 @@ export class WorkoutEngine {
       this.state.currentPace = PaceCalculator.calculateRollingPace(coords, this.state.currentSpeed);
 
       // 5. Elevation Accumulation
-      if (validation.altitudeDeltaMeters > 0.5) {
-        this.state.elevationGain += validation.altitudeDeltaMeters;
-      } else if (validation.altitudeDeltaMeters < -0.5) {
-        this.state.elevationLoss += Math.abs(validation.altitudeDeltaMeters);
+      if (rawValidation.altitudeDeltaMeters > 0.5) {
+        this.state.elevationGain += rawValidation.altitudeDeltaMeters;
+      } else if (rawValidation.altitudeDeltaMeters < -0.5) {
+        this.state.elevationLoss += Math.abs(rawValidation.altitudeDeltaMeters);
       }
 
       // 6. Auto-Resume Detection if auto-paused
@@ -671,24 +697,25 @@ export class WorkoutEngine {
         this.resumeWorkout();
       }
 
-      // 7. Update Live Splits & Kilometer Haptic Milestone Alerts
-      this.state.splits = calculateSplits(coords, this.distanceUnit === 'mi' ? 1609.34 : 1000);
-      const currentKm = Math.floor(this.state.distanceMeters / 1000);
+      // 7. Update Live Splits & Milestone Haptic Alerts (aligned with chosen km/mi unit)
+      const splitUnitMeters = this.distanceUnit === 'mi' ? 1609.34 : 1000;
+      this.state.splits = calculateSplits(coords, splitUnitMeters);
+      const currentSplitIndex = Math.floor(this.state.distanceMeters / splitUnitMeters);
 
-      if (currentKm > this.lastRecordedKm && currentKm > 0) {
-        this.lastRecordedKm = currentKm;
+      if (currentSplitIndex > this.lastRecordedKm && currentSplitIndex > 0) {
+        this.lastRecordedKm = currentSplitIndex;
         const currentSplit = this.state.splits[this.state.splits.length - 1];
         const prevSplit = this.state.splits.length > 1 ? this.state.splits[this.state.splits.length - 2] : null;
 
         const splitPace = currentSplit ? currentSplit.pace : this.state.averagePace;
-        const splitDuration = currentSplit ? currentSplit.duration_seconds : Math.round(this.state.elapsedTime / currentKm);
+        const splitDuration = currentSplit ? currentSplit.duration_seconds : Math.round(this.state.elapsedTime / currentSplitIndex);
         const diffPaceSeconds = prevSplit ? (splitPace - prevSplit.pace) : 0;
 
-        // Distinct vibration pattern upon completing each kilometer: [150, 80, 150, 80, 300]
+        // Distinct vibration pattern upon completing each split milestone: [150, 80, 150, 80, 300]
         this.vibrate([150, 80, 150, 80, 300]);
 
         this.state.activeSplitToast = {
-          kilometer: currentKm,
+          kilometer: currentSplitIndex,
           splitPace,
           splitDuration,
           diffPaceSeconds,
@@ -786,6 +813,8 @@ export class WorkoutEngine {
    */
   private startBackgroundTimer() {
     this.stopBackgroundTimer();
+    this.lastTickTimestamp = Date.now();
+    this.tickRemainderMs = 0;
 
     // Create inline Web Worker via Blob URL
     try {
@@ -802,8 +831,8 @@ export class WorkoutEngine {
         };
       `;
       const blob = new Blob([workerCode], { type: 'application/javascript' });
-      const workerUrl = URL.createObjectURL(blob);
-      this.workerTimer = new Worker(workerUrl);
+      this.workerUrl = URL.createObjectURL(blob);
+      this.workerTimer = new Worker(this.workerUrl);
 
       this.workerTimer.onmessage = () => {
         this.handleTimerTick();
@@ -819,17 +848,28 @@ export class WorkoutEngine {
   }
 
   private handleTimerTick() {
+    const now = Date.now();
+    let deltaSec = 1;
+    if (this.lastTickTimestamp !== null) {
+      const totalMs = Math.max(0, now - this.lastTickTimestamp) + this.tickRemainderMs;
+      deltaSec = Math.floor(totalMs / 1000);
+      this.tickRemainderMs = totalMs % 1000;
+      if (deltaSec <= 0) return;
+      deltaSec = Math.min(deltaSec, 3600);
+    }
+    this.lastTickTimestamp = now;
+
     if (this.state.engineState === 'ACTIVE') {
-      this.state.elapsedTime += 1;
+      this.state.elapsedTime += deltaSec;
 
       // Moving vs Paused time separation
       if (this.state.currentSpeed >= 0.8) {
-        this.state.movingTime += 1;
+        this.state.movingTime += deltaSec;
         this.stationaryCounterSec = 0;
       } else {
         // Stationary check for auto-pause
         if (this.autoPauseEnabled && this.state.distanceMeters > 20) {
-          this.stationaryCounterSec += 1;
+          this.stationaryCounterSec += deltaSec;
           if (this.stationaryCounterSec >= this.autoPauseThresholdSec) {
             this.pauseWorkout(true);
             return;
@@ -881,7 +921,7 @@ export class WorkoutEngine {
 
       this.notify();
     } else if (this.state.engineState === 'PAUSED') {
-      this.state.pausedTime += 1;
+      this.state.pausedTime += deltaSec;
       this.notify();
     }
   }
@@ -892,10 +932,16 @@ export class WorkoutEngine {
       this.workerTimer.terminate();
       this.workerTimer = null;
     }
+    if (this.workerUrl) {
+      try { URL.revokeObjectURL(this.workerUrl); } catch {}
+      this.workerUrl = null;
+    }
     if (this.fallbackInterval) {
       clearInterval(this.fallbackInterval);
       this.fallbackInterval = null;
     }
+    this.lastTickTimestamp = null;
+    this.tickRemainderMs = 0;
   }
 
   /**

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Flame,
@@ -103,15 +103,21 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [showTimeframeMenu, setShowTimeframeMenu] = useState(false);
 
-  // Sync real cloud feed and calculations on mount and when workouts / filters change
+  const timeframeRef = useRef(timeframe);
+  const categoryRef = useRef(leaderboardCategory);
+  timeframeRef.current = timeframe;
+  categoryRef.current = leaderboardCategory;
+
+  // Sync real cloud feed and calculations (debounced realtime, avoids tearing down on filter clicks)
   useEffect(() => {
     let isMounted = true;
+    let realtimeDebounce: ReturnType<typeof setTimeout> | null = null;
 
     const loadCloudData = async () => {
       try {
         const [cloudPosts, cloudLeaderboard] = await Promise.all([
           socialService.getFeedPostsAsync(profile),
-          socialService.getLeaderboardAsync(userWorkouts, profile, timeframe, leaderboardCategory),
+          socialService.getLeaderboardAsync(userWorkouts, profile, timeframeRef.current, categoryRef.current),
         ]);
         if (isMounted) {
           setPosts(cloudPosts);
@@ -130,28 +136,43 @@ export const SocialFeedScreen: React.FC<SocialFeedScreenProps> = ({
     loadCloudData();
 
     // Recalculate leaderboard & territories immediately from cache while cloud fetch runs
-    setLeaderboard(socialService.calculateLeaderboard(userWorkouts, profile, timeframe, leaderboardCategory));
+    setLeaderboard(socialService.calculateLeaderboard(userWorkouts, profile, timeframeRef.current, categoryRef.current));
     setTerritories(socialService.calculateTerritories(userWorkouts, profile));
 
-    // Subscribe to live realtime feed changes
+    // Subscribe to live realtime feed changes with 1.5s debounce to prevent burst egress
     const unsubscribe = socialService.subscribeToFeed(() => {
-      if (isMounted) {
+      if (!isMounted) return;
+      if (realtimeDebounce) clearTimeout(realtimeDebounce);
+      realtimeDebounce = setTimeout(() => {
+        if (!isMounted) return;
         socialService.getFeedPostsAsync(profile).then((updated) => {
           if (isMounted) setPosts(updated);
-        });
-        socialService.getLeaderboardAsync(userWorkouts, profile, timeframe, leaderboardCategory).then((updatedLb) => {
+        }).catch(() => {});
+        socialService.getLeaderboardAsync(userWorkouts, profile, timeframeRef.current, categoryRef.current).then((updatedLb) => {
           if (isMounted) setLeaderboard(updatedLb);
-        });
-      }
+        }).catch(() => {});
+      }, 1500);
     });
 
     return () => {
       isMounted = false;
+      if (realtimeDebounce) clearTimeout(realtimeDebounce);
       if (typeof unsubscribe === 'function') {
         unsubscribe();
       }
     };
-  }, [profile, userWorkouts, timeframe, leaderboardCategory]);
+  }, [profile?.user_id, userWorkouts]);
+
+  // Refresh leaderboard when timeframe/category filter changes without tearing down realtime
+  useEffect(() => {
+    let active = true;
+    socialService.getLeaderboardAsync(userWorkouts, profile, timeframe, leaderboardCategory)
+      .then((updatedLb) => {
+        if (active) setLeaderboard(updatedLb);
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [timeframe, leaderboardCategory]);
 
   const toggleComments = async (postId: string) => {
     const isExpanding = !expandedComments[postId];

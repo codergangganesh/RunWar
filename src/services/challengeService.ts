@@ -285,14 +285,13 @@ export const challengeService = {
         if (normalizedSelf && (data as any).user_id === normalizedSelf) {
           return { available: false, reason: 'Self username not allowed.' };
         }
-        return { available: false, reason: 'Username already registered', profile: data as PublicProfile };
+        return { available: false, reason: 'Username already taken', profile: data as PublicProfile };
       }
 
       return { available: true };
     } catch (err) {
       console.warn('checkUsernameAvailable error:', err);
-      // For network errors or if query fails, allow progression
-      return { available: true };
+      return { available: false, reason: 'Unable to verify username availability. Please check your connection.' };
     }
   },
 
@@ -346,8 +345,8 @@ export const challengeService = {
       }
 
       const check = await this.checkUsernameAvailable(clean, normalizedId);
-      if (!check.available && check.reason !== 'Username already registered') {
-        return { success: false, error: check.reason };
+      if (!check.available) {
+        return { success: false, error: check.reason || 'Username already taken' };
       }
 
       const { error } = await insforge.database.from('profiles').update({
@@ -360,12 +359,13 @@ export const challengeService = {
         if (errStr.includes('unique') || errStr.includes('23505')) {
           return { success: false, error: 'Username already taken' };
         }
-        console.warn('setUsername DB update notice:', error);
+        console.warn('setUsername DB update error:', error);
+        return { success: false, error: 'Failed to save username. Please try again.' };
       }
       return { success: true };
     } catch (err: any) {
-      console.warn('setUsername non-fatal exception:', err);
-      return { success: true };
+      console.warn('setUsername exception:', err);
+      return { success: false, error: err?.message || 'Failed to save username. Please try again.' };
     }
   },
 
@@ -470,13 +470,14 @@ export const challengeService = {
         }]);
       }
 
-      // 6. Generate Invitation Token & Insert Invitations
+      // 6. Generate unique Invitation Token per invitee & Insert Invitations
       const token = generateInviteToken();
       let primaryInviteData: any = null;
 
       if (inviteeMap.length > 0) {
         for (let i = 0; i < inviteeMap.length; i++) {
           const inv = inviteeMap[i];
+          const inviteeToken = i === 0 ? token : generateInviteToken();
           const { data: invRow } = await insforge.database
             .from('challenge_invitations')
             .insert([{
@@ -484,7 +485,7 @@ export const challengeService = {
               sender_id: creatorId,
               recipient_id: inv.user_id,
               recipient_username: inv.username || null,
-              invite_token: token,
+              invite_token: inviteeToken,
               status: 'pending',
               expires_at: windowEnd.toISOString(),
               created_at: now.toISOString(),
@@ -583,12 +584,13 @@ export const challengeService = {
     // 1. Record local persistent edit immediately so title change is guaranteed to persist across refreshes
     recordEditedChallenge(challengeId, payload);
 
-    // 2. Attempt remote Postgres database update (handles RLS gracefully)
+    // 2. Attempt remote Postgres database update scoped to creator (handles RLS cleanly)
     try {
       await insforge.database
         .from('challenges')
         .update(payload)
-        .eq('id', challengeId);
+        .eq('id', challengeId)
+        .eq('creator_id', creatorId);
     } catch (err) {
       console.warn('Remote database update note:', err);
     }
@@ -606,6 +608,18 @@ export const challengeService = {
   },
 
   async deleteChallenge(challengeId: string, creatorId: string): Promise<boolean> {
+    const normalizedCreator = normalizeUserId(creatorId);
+    const { data: existingChallenge } = await insforge.database
+      .from('challenges')
+      .select('id, creator_id')
+      .eq('id', challengeId)
+      .maybeSingle();
+
+    if (existingChallenge && (existingChallenge as any).creator_id !== normalizedCreator && (existingChallenge as any).creator_id !== creatorId) {
+      console.warn('Only the challenge creator can delete this challenge.');
+      return false;
+    }
+
     // Record persistent local tombstone to prevent reappearance on refresh
     recordDeletedChallengeId(challengeId);
 
@@ -618,18 +632,20 @@ export const challengeService = {
       console.warn('Child cleanup warning:', e);
     }
 
-    // 2. Delete main challenge row
+    // 2. Delete main challenge row scoped to creator
     const { error } = await insforge.database
       .from('challenges')
       .delete()
-      .eq('id', challengeId);
+      .eq('id', challengeId)
+      .eq('creator_id', normalizedCreator);
 
     if (error) {
       console.warn('Challenge row delete failed, updating status to cancelled:', error);
       await insforge.database
         .from('challenges')
         .update({ status: 'cancelled', updated_at: new Date().toISOString() })
-        .eq('id', challengeId);
+        .eq('id', challengeId)
+        .eq('creator_id', normalizedCreator);
     }
 
     return true;
@@ -792,6 +808,17 @@ export const challengeService = {
   async completeChallengeParticipation(
     challengeId: string, userId: string, distMeters: number, durSeconds: number, workoutId: string
   ): Promise<{ position: number; challenge: Challenge }> {
+    const existingChallenge = await this.getChallengeById(challengeId, userId);
+    if (!existingChallenge) {
+      throw new Error('Challenge not found');
+    }
+
+    // Enforce at least 95% of challenge target distance before marking participant completed
+    if (existingChallenge.target_distance_meters > 0 && distMeters < existingChallenge.target_distance_meters * 0.95) {
+      await this.sendProgressPing(challengeId, userId, distMeters, durSeconds, 0);
+      return { position: 0, challenge: existingChallenge };
+    }
+
     const now = new Date().toISOString();
     const { data: alreadyDone } = await insforge.database.from('challenge_participants').select('completion_position').eq('challenge_id', challengeId).eq('status', 'completed');
     const position = ((alreadyDone || []).length) + 1;
@@ -799,7 +826,8 @@ export const challengeService = {
     await insforge.database.from('challenge_participants').update({
       status: 'completed', completed_at: now,
       completion_distance_meters: distMeters, completion_duration_seconds: durSeconds,
-      completion_position: position, associated_workout_id: workoutId,
+      completion_position: position,
+      associated_workout_id: workoutId && workoutId !== 'pending' ? workoutId : null,
       current_distance_meters: distMeters, current_duration_seconds: durSeconds, updated_at: now,
     }).eq('challenge_id', challengeId).eq('user_id', userId);
 
@@ -941,7 +969,10 @@ export const challengeService = {
         insforge.realtime.subscribe(ch).catch(() => {});
         const h = (msg: any) => {
           const rec = msg?.payload?.new || msg?.payload || msg?.data;
-          if (rec?.challenge_id === challengeId) onUpdate(rec as ChallengeParticipant);
+          const ev = msg?.eventType || msg?.event || msg?.payload?.eventType;
+          if (rec?.challenge_id === challengeId && (!ev || ev === 'INSERT' || ev === 'UPDATE')) {
+            onUpdate(rec as ChallengeParticipant);
+          }
         };
         insforge.realtime.on('message', h);
         return () => { try { insforge.realtime.off('message', h); insforge.realtime.unsubscribe(ch); } catch {} };
@@ -957,7 +988,8 @@ export const challengeService = {
         insforge.realtime.subscribe(ch).catch(() => {});
         const h = (msg: any) => {
           const rec = msg?.payload?.new || msg?.payload || msg?.data;
-          if (rec?.user_id === userId && (msg?.payload?.eventType === 'INSERT' || msg?.event === 'INSERT')) onNew(rec as ChallengeNotification);
+          const ev = msg?.eventType || msg?.event || msg?.payload?.eventType;
+          if (rec?.user_id === userId && (ev === 'INSERT' || !ev)) onNew(rec as ChallengeNotification);
         };
         insforge.realtime.on('message', h);
         return () => { try { insforge.realtime.off('message', h); insforge.realtime.unsubscribe(ch); } catch {} };

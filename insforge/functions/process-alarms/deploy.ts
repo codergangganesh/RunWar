@@ -326,7 +326,10 @@ export default async function handler(req: Request): Promise<Response> {
       }
     }
 
-    const streakRemindersSent = await checkStreakSavers(now);
+    const utcMinute = now.getUTCMinutes();
+    const streakRemindersSent = (utcMinute === 0 || utcMinute === 30)
+      ? await checkStreakSavers(now)
+      : 0;
     const summary = { processed, skipped, errors, streakRemindersSent, total: dueAlarms.length };
     console.log('[process-alarms] Complete:', JSON.stringify(summary));
     return new Response(JSON.stringify(summary), { status: 200, headers: corsHeaders });

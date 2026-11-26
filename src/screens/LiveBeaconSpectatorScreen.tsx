@@ -14,31 +14,27 @@ import {
   Clock,
 } from 'lucide-react';
 
-// Custom pulsing runner marker for spectator map
-const createSpectatorRunnerIcon = () => {
-  return L.divIcon({
-    className: 'spectator-runner-marker',
-    html: `
-      <div class="relative flex items-center justify-center w-8 h-8">
-        <div class="absolute w-8 h-8 rounded-full bg-emerald-400 opacity-75 animate-ping"></div>
-        <div class="relative w-5 h-5 rounded-full bg-emerald-500 border-2 border-white shadow-xl flex items-center justify-center text-[10px] text-white font-black">
-          🏃
-        </div>
+// Custom pulsing runner marker for spectator map (hoisted to avoid recreating DivIcons on every poll)
+const SPECTATOR_RUNNER_ICON = L.divIcon({
+  className: 'spectator-runner-marker',
+  html: `
+    <div class="relative flex items-center justify-center w-8 h-8">
+      <div class="absolute w-8 h-8 rounded-full bg-emerald-400 opacity-75 animate-ping"></div>
+      <div class="relative w-5 h-5 rounded-full bg-emerald-500 border-2 border-white shadow-xl flex items-center justify-center text-[10px] text-white font-black">
+        🏃
       </div>
-    `,
-    iconSize: [32, 32],
-    iconAnchor: [16, 16],
-  });
-};
+    </div>
+  `,
+  iconSize: [32, 32],
+  iconAnchor: [16, 16],
+});
 
-const createStartPinIcon = () => {
-  return L.divIcon({
-    className: 'spectator-start-marker',
-    html: `<div class="w-6 h-6 rounded-full bg-emerald-600 border-2 border-white flex items-center justify-center text-white text-[10px] font-black shadow-lg">S</div>`,
-    iconSize: [24, 24],
-    iconAnchor: [12, 12],
-  });
-};
+const START_PIN_ICON = L.divIcon({
+  className: 'spectator-start-marker',
+  html: `<div class="w-6 h-6 rounded-full bg-emerald-600 border-2 border-white flex items-center justify-center text-white text-[10px] font-black shadow-lg">S</div>`,
+  iconSize: [24, 24],
+  iconAnchor: [12, 12],
+});
 
 function AutoFollowController({
   center,
@@ -102,6 +98,7 @@ export const LiveBeaconSpectatorScreen: React.FC<LiveBeaconSpectatorScreenProps>
   const [localCheers, setLocalCheers] = useState(0);
   const [isTimeExceeded, setIsTimeExceeded] = useState(false);
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const hasBeaconRef = useRef(false);
 
   const fetchBeaconData = useCallback(async () => {
     try {
@@ -124,22 +121,23 @@ export const LiveBeaconSpectatorScreen: React.FC<LiveBeaconSpectatorScreenProps>
           return;
         }
 
+        hasBeaconRef.current = true;
         setBeacon(data);
         setLocalCheers((prev) => Math.max(prev, data.cheers_count || 0));
         setErrorMessage(null);
       } else {
-        if (!beacon) {
+        if (!hasBeaconRef.current) {
           setErrorMessage('Live Run Beacon session not found or has expired.');
         }
       }
     } catch {
-      if (!beacon) {
+      if (!hasBeaconRef.current) {
         setErrorMessage('Unable to connect to live stream. Checking connection...');
       }
     } finally {
       setIsLoading(false);
     }
-  }, [beaconCode, beacon]);
+  }, [beaconCode]);
 
   useEffect(() => {
     fetchBeaconData();
@@ -320,14 +318,14 @@ export const LiveBeaconSpectatorScreen: React.FC<LiveBeaconSpectatorScreenProps>
 
             {/* Start Pin */}
             {startCoord && (
-              <Marker position={startCoord} icon={createStartPinIcon()} />
+              <Marker position={startCoord} icon={START_PIN_ICON} />
             )}
 
             {/* Active Moving Runner Pin */}
             {beacon?.current_lat && beacon?.current_lng && (
               <Marker
                 position={[beacon.current_lat, beacon.current_lng]}
-                icon={createSpectatorRunnerIcon()}
+                icon={SPECTATOR_RUNNER_ICON}
               />
             )}
           </MapContainer>
